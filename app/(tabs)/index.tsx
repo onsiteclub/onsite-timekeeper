@@ -3,6 +3,7 @@
  * 
  * UI Consolidada:
  * - Cronômetro com stats inline
+ * - Cronômetro de pausa acumulativo
  * - Calendário semanal integrado
  * - Entrada manual [+]
  * - Exportar relatório
@@ -121,6 +122,13 @@ export default function HomeScreen() {
   const [cronometro, setCronometro] = useState('00:00:00');
   const [isPaused, setIsPaused] = useState(false);
 
+  // ============================================
+  // NOVOS ESTADOS - CRONÔMETRO DE PAUSA
+  // ============================================
+  const [pausaAcumuladaSegundos, setPausaAcumuladaSegundos] = useState(0);
+  const [pausaCronometro, setPausaCronometro] = useState('00:00:00');
+  const [pausaInicioTimestamp, setPausaInicioTimestamp] = useState<number | null>(null);
+
   // Calendário
   const [semanaAtual, setSemanaAtual] = useState(new Date());
   const [sessoesSemana, setSessoesSemana] = useState<SessaoComputada[]>([]);
@@ -133,24 +141,29 @@ export default function HomeScreen() {
   // Modal entrada manual / edição
   const [showManualModal, setShowManualModal] = useState(false);
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
+  const [editingSessionTipo, setEditingSessionTipo] = useState<'automatico' | 'manual'>('manual');
   const [manualDate, setManualDate] = useState<Date>(new Date());
   const [manualLocalId, setManualLocalId] = useState<string>('');
   const [manualEntrada, setManualEntrada] = useState('');
   const [manualSaida, setManualSaida] = useState('');
-  const [manualPausa, setManualPausa] = useState(''); // minutos de pausa
+  const [manualPausa, setManualPausa] = useState('');
 
   // Local ativo
   const localAtivo = geofenceAtivo ? locais.find(l => l.id === geofenceAtivo) : null;
   const podeRecomecar = localAtivo && !sessaoAtual;
 
   // ============================================
-  // CRONÔMETRO
+  // CRONÔMETRO PRINCIPAL
   // ============================================
 
   useEffect(() => {
     if (!sessaoAtual || sessaoAtual.status !== 'ativa') {
       setCronometro('00:00:00');
       setIsPaused(false);
+      // Reset pausa quando sessão termina
+      setPausaAcumuladaSegundos(0);
+      setPausaCronometro('00:00:00');
+      setPausaInicioTimestamp(null);
       return;
     }
 
@@ -174,6 +187,40 @@ export default function HomeScreen() {
     const interval = setInterval(updateCronometro, 1000);
     return () => clearInterval(interval);
   }, [sessaoAtual, isPaused]);
+
+  // ============================================
+  // CRONÔMETRO DE PAUSA
+  // ============================================
+
+  useEffect(() => {
+    if (!isPaused || !pausaInicioTimestamp) {
+      const h = Math.floor(pausaAcumuladaSegundos / 3600);
+      const m = Math.floor((pausaAcumuladaSegundos % 3600) / 60);
+      const s = pausaAcumuladaSegundos % 60;
+      setPausaCronometro(
+        `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
+      );
+      return;
+    }
+
+    const updatePausaCronometro = () => {
+      const agora = Date.now();
+      const pausaAtualSegundos = Math.floor((agora - pausaInicioTimestamp) / 1000);
+      const totalPausa = pausaAcumuladaSegundos + pausaAtualSegundos;
+
+      const h = Math.floor(totalPausa / 3600);
+      const m = Math.floor((totalPausa % 3600) / 60);
+      const s = totalPausa % 60;
+
+      setPausaCronometro(
+        `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
+      );
+    };
+
+    updatePausaCronometro();
+    const interval = setInterval(updatePausaCronometro, 1000);
+    return () => clearInterval(interval);
+  }, [isPaused, pausaInicioTimestamp, pausaAcumuladaSegundos]);
 
   // Sessão finalizada alert
   useEffect(() => {
@@ -204,7 +251,6 @@ export default function HomeScreen() {
     loadSessoesSemana();
   }, [semanaAtual, loadSessoesSemana]);
 
-  // Recarrega quando sessão muda
   useEffect(() => {
     loadSessoesSemana();
   }, [sessaoAtual]);
@@ -221,14 +267,32 @@ export default function HomeScreen() {
   // AÇÕES DO CRONÔMETRO
   // ============================================
 
-  const handlePausar = () => setIsPaused(true);
-  const handleContinuar = () => setIsPaused(false);
+  const handlePausar = () => {
+    setIsPaused(true);
+    setPausaInicioTimestamp(Date.now());
+  };
+
+  const handleContinuar = () => {
+    if (pausaInicioTimestamp) {
+      const pausaDuracao = Math.floor((Date.now() - pausaInicioTimestamp) / 1000);
+      setPausaAcumuladaSegundos(prev => prev + pausaDuracao);
+    }
+    setPausaInicioTimestamp(null);
+    setIsPaused(false);
+  };
 
   const handleParar = () => {
     if (!sessaoAtual) return;
+    
+    let pausaTotalSegundos = pausaAcumuladaSegundos;
+    if (isPaused && pausaInicioTimestamp) {
+      pausaTotalSegundos += Math.floor((Date.now() - pausaInicioTimestamp) / 1000);
+    }
+    const pausaTotalMinutos = Math.floor(pausaTotalSegundos / 60);
+
     Alert.alert(
       '⏹️ Parar Cronômetro',
-      'Deseja encerrar a sessão atual?',
+      `Deseja encerrar a sessão atual?${pausaTotalMinutos > 0 ? `\n\nPausa total: ${pausaTotalMinutos} minutos` : ''}`,
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -237,7 +301,19 @@ export default function HomeScreen() {
           onPress: async () => {
             try {
               await registrarSaida(sessaoAtual.local_id);
+              
+              if (pausaTotalMinutos > 0) {
+                await editarRegistro(sessaoAtual.id, {
+                  pausa_minutos: pausaTotalMinutos,
+                  editado_manualmente: 1,
+                  motivo_edicao: 'Pausa registrada automaticamente',
+                });
+              }
+              
               setIsPaused(false);
+              setPausaAcumuladaSegundos(0);
+              setPausaInicioTimestamp(null);
+              setPausaCronometro('00:00:00');
             } catch (error: any) {
               Alert.alert('Erro', error.message || 'Não foi possível encerrar');
             }
@@ -287,7 +363,10 @@ export default function HomeScreen() {
 
     const totalMinutos = sessoesDodia
       .filter(s => s.saida)
-      .reduce((acc, s) => acc + s.duracao_minutos, 0);
+      .reduce((acc, s) => {
+        const pausaMin = s.pausa_minutos || 0;
+        return acc + Math.max(0, s.duracao_minutos - pausaMin);
+      }, 0);
 
     diasCalendario.push({
       data,
@@ -300,7 +379,10 @@ export default function HomeScreen() {
 
   const totalSemanaMinutos = sessoesSemana
     .filter(s => s.saida)
-    .reduce((acc, s) => acc + s.duracao_minutos, 0);
+    .reduce((acc, s) => {
+      const pausaMin = s.pausa_minutos || 0;
+      return acc + Math.max(0, s.duracao_minutos - pausaMin);
+    }, 0);
 
   const goToPreviousWeek = () => {
     const newDate = new Date(semanaAtual);
@@ -328,16 +410,14 @@ export default function HomeScreen() {
 
   const handleDayPress = (dayKey: string, hasSessoes: boolean) => {
     if (selectionMode) {
-      // Em modo seleção, toggle o dia
       toggleSelectDay(dayKey);
     } else if (hasSessoes) {
-      // Expande/colapsa
       setExpandedDay(expandedDay === dayKey ? null : dayKey);
     }
   };
 
   const handleDayLongPress = (dayKey: string, hasSessoes: boolean) => {
-    if (!hasSessoes) return; // Não seleciona dias vazios
+    if (!hasSessoes) return;
     
     if (!selectionMode) {
       setSelectionMode(true);
@@ -372,6 +452,7 @@ export default function HomeScreen() {
 
   const openManualEntry = (date: Date) => {
     setEditingSessionId(null);
+    setEditingSessionTipo('manual');
     setManualDate(date);
     setManualLocalId(locais[0]?.id || '');
     setManualEntrada('');
@@ -382,9 +463,9 @@ export default function HomeScreen() {
 
   const openEditSession = (sessao: SessaoComputada) => {
     setEditingSessionId(sessao.id);
+    setEditingSessionTipo(sessao.tipo as 'automatico' | 'manual');
     setManualDate(new Date(sessao.entrada));
     setManualLocalId(sessao.local_id);
-    // Converter para formato HH:MM
     const entradaDate = new Date(sessao.entrada);
     const saidaDate = sessao.saida ? new Date(sessao.saida) : null;
     setManualEntrada(`${entradaDate.getHours().toString().padStart(2, '0')}:${entradaDate.getMinutes().toString().padStart(2, '0')}`);
@@ -429,7 +510,6 @@ export default function HomeScreen() {
       return;
     }
 
-    // Validar pausa (opcional)
     let pausaMinutos = 0;
     if (manualPausa.trim()) {
       pausaMinutos = parseInt(manualPausa, 10);
@@ -455,7 +535,6 @@ export default function HomeScreen() {
 
     try {
       if (editingSessionId) {
-        // Editando sessão existente
         await editarRegistro(editingSessionId, {
           entrada: entradaDate.toISOString(),
           saida: saidaDate.toISOString(),
@@ -465,7 +544,6 @@ export default function HomeScreen() {
         });
         Alert.alert('✅ Sucesso', 'Registro atualizado!');
       } else {
-        // Criando novo registro manual
         const local = locais.find(l => l.id === manualLocalId);
         await criarRegistroManual({
           localId: manualLocalId,
@@ -487,11 +565,10 @@ export default function HomeScreen() {
   };
 
   // ============================================
-  // EXPORTAR (formato compacto)
+  // EXPORTAR
   // ============================================
 
   const handleExport = async () => {
-    // Pega sessões dos dias selecionados ou todas da semana
     let sessoesToExport: SessaoComputada[];
     
     if (selectionMode && selectedDays.size > 0) {
@@ -513,20 +590,13 @@ export default function HomeScreen() {
       return;
     }
 
-    // Perguntar formato
     Alert.alert(
       '📤 Exportar Relatório',
       'Como deseja exportar?',
       [
         { text: 'Cancelar', style: 'cancel' },
-        { 
-          text: '💬 Texto (WhatsApp)', 
-          onPress: () => exportarComoTexto(sessoesFinalizadas) 
-        },
-        { 
-          text: '📄 Arquivo', 
-          onPress: () => exportarComoArquivo(sessoesFinalizadas) 
-        },
+        { text: '💬 Texto (WhatsApp)', onPress: () => exportarComoTexto(sessoesFinalizadas) },
+        { text: '📄 Arquivo', onPress: () => exportarComoArquivo(sessoesFinalizadas) },
       ]
     );
   };
@@ -535,7 +605,6 @@ export default function HomeScreen() {
     let txt = '';
     let totalGeralMinutos = 0;
 
-    // Agrupar por data
     const porData = new Map<string, SessaoComputada[]>();
     sessoes.forEach(s => {
       const dataKey = new Date(s.entrada).toDateString();
@@ -545,12 +614,10 @@ export default function HomeScreen() {
       porData.get(dataKey)!.push(s);
     });
 
-    // Ordenar por data
     const datasOrdenadas = Array.from(porData.keys()).sort((a, b) => 
       new Date(a).getTime() - new Date(b).getTime()
     );
 
-    // Nome só uma vez no início
     txt += `${userName || 'Relatório de Horas'}\n`;
     txt += '────────────────────\n\n';
 
@@ -561,46 +628,38 @@ export default function HomeScreen() {
       const dataObj = new Date(dataKey);
       let totalDiaMinutos = 0;
       
-      // Data
       txt += `📅 ${formatDateExport(dataObj)}\n`;
       
       sessoesDia.forEach(sessao => {
         const isAjustado = sessao.editado_manualmente === 1 || sessao.tipo === 'manual';
+        const pausaMin = sessao.pausa_minutos || 0;
         
-        // Local (só se diferente do anterior)
         if (sessao.local_nome !== localAnterior) {
           txt += `📍 ${sessao.local_nome}\n`;
           localAnterior = sessao.local_nome || '';
         }
         
-        // Horário GPS (real)
         txt += `${formatTimeAMPM(sessao.entrada)} → ${formatTimeAMPM(sessao.saida!)}\n`;
         
-        // Horário ajustado (se houver)
         if (isAjustado) {
-          txt += `*Ajustado: ${formatTimeAMPM(sessao.entrada)} → ${formatTimeAMPM(sessao.saida!)}\n`;
+          txt += `*Ajustado\n`;
         }
         
-        // TODO: Pausa
-        // if (sessao.pausa_minutos > 0) {
-        //   txt += `Pausa: ${formatarDuracao(sessao.pausa_minutos)}\n`;
-        //   totalDiaMinutos -= sessao.pausa_minutos;
-        // }
+        if (pausaMin > 0) {
+          txt += `Pausa: ${formatarDuracao(pausaMin)}\n`;
+        }
         
-        totalDiaMinutos += sessao.duracao_minutos;
+        totalDiaMinutos += Math.max(0, sessao.duracao_minutos - pausaMin);
       });
       
-      // Subtotal do dia
       txt += `▸ ${formatarDuracao(totalDiaMinutos)}\n`;
       totalGeralMinutos += totalDiaMinutos;
       
-      // Separador entre dias
       if (index < datasOrdenadas.length - 1) {
         txt += '\n';
       }
     });
 
-    // Total geral
     txt += '\n════════════════════\n';
     txt += `TOTAL: ${formatarDuracao(totalGeralMinutos)}\n`;
 
@@ -611,10 +670,7 @@ export default function HomeScreen() {
     const txt = gerarRelatorioTexto(sessoes);
     
     try {
-      await Share.share({
-        message: txt,
-        title: 'Relatório de Horas',
-      });
+      await Share.share({ message: txt, title: 'Relatório de Horas' });
       cancelSelection();
     } catch (error) {
       console.error('Erro ao compartilhar:', error);
@@ -657,12 +713,9 @@ export default function HomeScreen() {
       contentContainerStyle={styles.content}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
     >
-      {/* SAUDAÇÃO */}
       <Text style={styles.greeting}>Olá, {userName || 'Trabalhador'}! 👋</Text>
 
-      {/* ════════════════════════════════════════════
-          SEÇÃO 1: CRONÔMETRO
-          ════════════════════════════════════════════ */}
+      {/* CRONÔMETRO */}
       <Card style={[
         styles.timerCard,
         sessaoAtual && styles.timerCardActive,
@@ -672,6 +725,14 @@ export default function HomeScreen() {
           <>
             <Text style={styles.timerLocal}>{sessaoAtual.local_nome}</Text>
             <Text style={[styles.timer, isPaused && styles.timerPaused]}>{cronometro}</Text>
+
+            {/* MINI CRONÔMETRO DE PAUSA */}
+            <View style={styles.pausaContainer}>
+              <Text style={styles.pausaLabel}>⏸️ Pausa:</Text>
+              <Text style={[styles.pausaTimer, isPaused && styles.pausaTimerActive]}>
+                {pausaCronometro}
+              </Text>
+            </View>
 
             <View style={styles.timerActions}>
               {isPaused ? (
@@ -706,12 +767,9 @@ export default function HomeScreen() {
         )}
       </Card>
 
-      {/* Separador sutil */}
       <View style={styles.sectionDivider} />
 
-      {/* ════════════════════════════════════════════
-          SEÇÃO 2: NAVEGAÇÃO SEMANAL
-          ════════════════════════════════════════════ */}
+      {/* NAVEGAÇÃO SEMANAL */}
       <Card style={styles.weekCard}>
         <View style={styles.calendarHeader}>
           <TouchableOpacity style={styles.navBtn} onPress={goToPreviousWeek}>
@@ -719,12 +777,8 @@ export default function HomeScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity onPress={goToCurrentWeek} style={styles.calendarCenter}>
-            <Text style={styles.calendarTitle}>
-              {formatDateRange(inicioSemana, fimSemana)}
-            </Text>
-            <Text style={styles.calendarTotal}>
-              {formatarDuracao(totalSemanaMinutos)}
-            </Text>
+            <Text style={styles.calendarTitle}>{formatDateRange(inicioSemana, fimSemana)}</Text>
+            <Text style={styles.calendarTotal}>{formatarDuracao(totalSemanaMinutos)}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.navBtn} onPress={goToNextWeek}>
@@ -733,14 +787,9 @@ export default function HomeScreen() {
         </View>
       </Card>
 
-      {/* Separador sutil */}
       <View style={styles.sectionDivider} />
 
-      {/* ════════════════════════════════════════════
-          SEÇÃO 3: RELATÓRIOS DIÁRIOS
-          ════════════════════════════════════════════ */}
-
-      {/* Botão cancelar seleção */}
+      {/* SELEÇÃO */}
       {selectionMode && (
         <View style={styles.selectionBar}>
           <Text style={styles.selectionText}>{selectedDays.size} dia(s) selecionado(s)</Text>
@@ -773,45 +822,31 @@ export default function HomeScreen() {
             delayLongPress={400}
             activeOpacity={0.7}
           >
-            {/* CHECKBOX (modo seleção) */}
             {selectionMode && hasSessoes && (
               <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
                 {isSelected && <Text style={styles.checkmark}>✓</Text>}
               </View>
             )}
 
-            {/* DATA */}
             <View style={styles.dayLeft}>
-              <Text style={[styles.dayName, isDiaHoje && styles.dayNameToday]}>
-                {dia.diaSemana}
-              </Text>
+              <Text style={[styles.dayName, isDiaHoje && styles.dayNameToday]}>{dia.diaSemana}</Text>
               <View style={[styles.dayCircle, isDiaHoje && styles.dayCircleToday]}>
-                <Text style={[styles.dayNumber, isDiaHoje && styles.dayNumberToday]}>
-                  {dia.diaNumero}
-                </Text>
+                <Text style={[styles.dayNumber, isDiaHoje && styles.dayNumberToday]}>{dia.diaNumero}</Text>
               </View>
             </View>
 
-            {/* CONTEÚDO */}
             <View style={styles.dayRight}>
               {!hasSessoes ? (
                 <View style={styles.dayEmpty}>
                   <Text style={styles.dayEmptyText}>Sem registro</Text>
                   {!selectionMode && (
-                    <TouchableOpacity
-                      style={styles.addBtn}
-                      onPress={(e) => {
-                        e.stopPropagation();
-                        openManualEntry(dia.data);
-                      }}
-                    >
+                    <TouchableOpacity style={styles.addBtn} onPress={(e) => { e.stopPropagation(); openManualEntry(dia.data); }}>
                       <Text style={styles.addBtnText}>+</Text>
                     </TouchableOpacity>
                   )}
                 </View>
               ) : (
                 <>
-                  {/* Preview (colapsado) */}
                   {!isExpanded && (
                     <View style={styles.dayPreview}>
                       <Text style={styles.dayPreviewTime}>
@@ -824,77 +859,52 @@ export default function HomeScreen() {
                     </View>
                   )}
 
-                  {/* Expandido - Relatório Compacto */}
                   {isExpanded && (
                     <View style={styles.dayExpanded}>
                       {sessoesFinalizadas.map((sessao) => {
                         const isManual = sessao.tipo === 'manual';
                         const isAjustado = sessao.editado_manualmente === 1 && !isManual;
                         const pausaMin = sessao.pausa_minutos || 0;
-                        const totalLiquido = sessao.duracao_minutos - pausaMin;
+                        const totalLiquido = Math.max(0, sessao.duracao_minutos - pausaMin);
                         
                         return (
                           <View key={sessao.id} style={styles.reportCard}>
-                            {/* Header com local + botões */}
                             <View style={styles.reportHeader}>
                               <Text style={styles.reportLocal}>{sessao.local_nome}</Text>
                               <View style={styles.reportActions}>
-                                <TouchableOpacity
-                                  style={styles.actionBtnInline}
-                                  onPress={() => openEditSession(sessao)}
-                                >
+                                <TouchableOpacity style={styles.actionBtnInline} onPress={() => openEditSession(sessao)}>
                                   <Text style={styles.actionBtnInlineText}>✏️</Text>
                                 </TouchableOpacity>
-                                <TouchableOpacity
-                                  style={styles.actionBtnInline}
-                                  onPress={() => handleDeleteSession(sessao)}
-                                >
+                                <TouchableOpacity style={styles.actionBtnInline} onPress={() => handleDeleteSession(sessao)}>
                                   <Text style={styles.actionBtnInlineText}>🗑️</Text>
                                 </TouchableOpacity>
                               </View>
                             </View>
                             
-                            {/* Se é manual: só mostra a hora inserida (com *) */}
                             {isManual ? (
                               <Text style={styles.reportTimeAdjusted}>
                                 *{formatTimeAMPM(sessao.entrada)} → {formatTimeAMPM(sessao.saida!)}
                               </Text>
                             ) : (
                               <>
-                                {/* Horário GPS (real) */}
                                 <Text style={styles.reportTime}>
                                   {formatTimeAMPM(sessao.entrada)} → {formatTimeAMPM(sessao.saida!)}
                                 </Text>
-                                
-                                {/* Se ajustado após GPS: mostra linha ajustada */}
-                                {isAjustado && (
-                                  <Text style={styles.reportTimeAdjusted}>
-                                    *Ajustado
-                                  </Text>
-                                )}
+                                {isAjustado && <Text style={styles.reportTimeAdjusted}>*Ajustado</Text>}
                               </>
                             )}
                             
-                            {/* Pausa (se houver) */}
                             {pausaMin > 0 && (
-                              <Text style={styles.reportPausa}>
-                                Pausa: {formatarDuracao(pausaMin)}
-                              </Text>
+                              <Text style={styles.reportPausa}>Pausa: {formatarDuracao(pausaMin)}</Text>
                             )}
                             
-                            {/* Total */}
-                            <Text style={styles.reportTotal}>
-                              {formatarDuracao(totalLiquido)}
-                            </Text>
+                            <Text style={styles.reportTotal}>{formatarDuracao(totalLiquido)}</Text>
                           </View>
                         );
                       })}
                       
-                      {/* Total do dia se múltiplas sessões */}
                       {sessoesFinalizadas.length > 1 && (
-                        <Text style={styles.dayTotalText}>
-                          Total do dia: {formatarDuracao(dia.totalMinutos)}
-                        </Text>
+                        <Text style={styles.dayTotalText}>Total do dia: {formatarDuracao(dia.totalMinutos)}</Text>
                       )}
                     </View>
                   )}
@@ -909,7 +919,7 @@ export default function HomeScreen() {
         );
       })}
 
-      {/* BOTÃO EXPORTAR */}
+      {/* EXPORTAR */}
       {selectionMode ? (
         <TouchableOpacity style={styles.exportBtn} onPress={handleExport}>
           <Text style={styles.exportBtnText}>📤 Exportar {selectedDays.size} dia(s)</Text>
@@ -920,7 +930,7 @@ export default function HomeScreen() {
         </TouchableOpacity>
       )}
 
-      {/* MODAL ENTRADA MANUAL / EDIÇÃO */}
+      {/* MODAL */}
       <Modal
         visible={showManualModal}
         transparent
@@ -936,30 +946,35 @@ export default function HomeScreen() {
               {manualDate.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}
             </Text>
 
-            {/* Local picker */}
-            <Text style={styles.inputLabel}>Local:</Text>
-            <View style={styles.localPicker}>
-              {locais.map(local => (
-                <TouchableOpacity
-                  key={local.id}
-                  style={[
-                    styles.localOption,
-                    manualLocalId === local.id && styles.localOptionActive
-                  ]}
-                  onPress={() => setManualLocalId(local.id)}
-                >
-                  <View style={[styles.localDot, { backgroundColor: local.cor }]} />
-                  <Text style={[
-                    styles.localOptionText,
-                    manualLocalId === local.id && styles.localOptionTextActive
-                  ]}>
-                    {local.nome}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+            {/* Local picker - só editável se manual */}
+            {(!editingSessionId || editingSessionTipo === 'manual') ? (
+              <>
+                <Text style={styles.inputLabel}>Local:</Text>
+                <View style={styles.localPicker}>
+                  {locais.map(local => (
+                    <TouchableOpacity
+                      key={local.id}
+                      style={[styles.localOption, manualLocalId === local.id && styles.localOptionActive]}
+                      onPress={() => setManualLocalId(local.id)}
+                    >
+                      <View style={[styles.localDot, { backgroundColor: local.cor }]} />
+                      <Text style={[styles.localOptionText, manualLocalId === local.id && styles.localOptionTextActive]}>
+                        {local.nome}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </>
+            ) : (
+              <>
+                <Text style={styles.inputLabel}>Local (GPS):</Text>
+                <View style={styles.localGpsInfo}>
+                  <Text style={styles.localGpsText}>📍 {locais.find(l => l.id === manualLocalId)?.nome || 'Local'}</Text>
+                  <Text style={styles.localGpsHint}>Local registrado por GPS não pode ser alterado</Text>
+                </View>
+              </>
+            )}
 
-            {/* Horários */}
             <View style={styles.timeRow}>
               <View style={styles.timeField}>
                 <Text style={styles.inputLabel}>Entrada:</Text>
@@ -987,7 +1002,6 @@ export default function HomeScreen() {
               </View>
             </View>
 
-            {/* Pausa */}
             <View style={styles.pausaRow}>
               <Text style={styles.inputLabel}>Pausa (min):</Text>
               <TextInput
@@ -1005,10 +1019,7 @@ export default function HomeScreen() {
             <Text style={styles.inputHint}>Horário formato HH:MM • Pausa em minutos</Text>
 
             <View style={styles.modalActions}>
-              <TouchableOpacity 
-                style={styles.cancelBtn} 
-                onPress={() => { setShowManualModal(false); setEditingSessionId(null); }}
-              >
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => { setShowManualModal(false); setEditingSessionId(null); }}>
                 <Text style={styles.cancelBtnText}>Cancelar</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.saveBtn} onPress={handleSaveManual}>
@@ -1032,496 +1043,113 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.backgroundSecondary },
   content: { padding: 16 },
 
-  greeting: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: colors.text,
-    marginBottom: 12,
-  },
+  greeting: { fontSize: 18, fontWeight: '600', color: colors.text, marginBottom: 12 },
 
-  // Timer
-  timerCard: {
-    padding: 20,
-    marginBottom: 0,
-    alignItems: 'center',
-  },
-  timerCardActive: {
-    backgroundColor: withOpacity(colors.success, 0.1),
-    borderWidth: 1,
-    borderColor: colors.success,
-  },
-  timerCardIdle: {
-    backgroundColor: withOpacity(colors.primary, 0.1),
-  },
-  timerLocal: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: colors.text,
-    marginBottom: 8,
-  },
-  timerHint: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    marginBottom: 8,
-  },
-  timer: {
-    fontSize: 48,
-    fontWeight: 'bold',
-    fontVariant: ['tabular-nums'],
-    color: colors.text,
-    marginBottom: 16,
-  },
+  timerCard: { padding: 20, marginBottom: 0, alignItems: 'center' },
+  timerCardActive: { backgroundColor: withOpacity(colors.success, 0.1), borderWidth: 1, borderColor: colors.success },
+  timerCardIdle: { backgroundColor: withOpacity(colors.primary, 0.1) },
+  timerLocal: { fontSize: 18, fontWeight: '600', color: colors.text, marginBottom: 8 },
+  timerHint: { fontSize: 14, color: colors.textSecondary, marginBottom: 8 },
+  timer: { fontSize: 48, fontWeight: 'bold', fontVariant: ['tabular-nums'], color: colors.text, marginBottom: 8 },
   timerPaused: { opacity: 0.4 },
-  timerActions: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 12,
-  },
-  actionBtn: {
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 20,
-    minWidth: 110,
-    alignItems: 'center',
-  },
-  actionBtnText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.white,
-  },
+  timerActions: { flexDirection: 'row', justifyContent: 'center', gap: 12 },
+  actionBtn: { paddingVertical: 10, paddingHorizontal: 20, borderRadius: 20, minWidth: 110, alignItems: 'center' },
+  actionBtnText: { fontSize: 14, fontWeight: '600', color: colors.white },
   pauseBtn: { backgroundColor: colors.warning },
   continueBtn: { backgroundColor: colors.success },
   stopBtn: { backgroundColor: colors.error },
   startBtn: { backgroundColor: colors.primary },
 
-  // Separador entre seções
-  sectionDivider: {
-    height: 1,
-    backgroundColor: colors.border,
-    marginVertical: 16,
-    marginHorizontal: 20,
-    opacity: 0.5,
-  },
+  pausaContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.05)', paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20, marginBottom: 16, gap: 8 },
+  pausaLabel: { fontSize: 14, color: colors.textSecondary },
+  pausaTimer: { fontSize: 18, fontWeight: '600', fontVariant: ['tabular-nums'], color: colors.textSecondary },
+  pausaTimerActive: { color: colors.warning },
 
-  // Week Card
-  weekCard: {
-    padding: 16,
-    marginBottom: 0,
-  },
+  sectionDivider: { height: 1, backgroundColor: colors.border, marginVertical: 16, marginHorizontal: 20, opacity: 0.5 },
 
-  // Calendar Header
-  calendarHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  calendarCenter: {
-    alignItems: 'center',
-  },
-  navBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  navBtnText: {
-    color: colors.white,
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  calendarTitle: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: colors.textSecondary,
-    textAlign: 'center',
-  },
-  calendarTotal: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: colors.primary,
-    textAlign: 'center',
-  },
+  weekCard: { padding: 16, marginBottom: 0 },
+  calendarHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  calendarCenter: { alignItems: 'center' },
+  navBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.primary, justifyContent: 'center', alignItems: 'center' },
+  navBtnText: { color: colors.white, fontSize: 14, fontWeight: 'bold' },
+  calendarTitle: { fontSize: 14, fontWeight: '500', color: colors.textSecondary, textAlign: 'center' },
+  calendarTotal: { fontSize: 22, fontWeight: 'bold', color: colors.primary, textAlign: 'center' },
 
-  // Day Row
-  dayRow: {
-    flexDirection: 'row',
-    backgroundColor: colors.white,
-    borderRadius: 10,
-    padding: 10,
-    marginBottom: 6,
-    alignItems: 'center',
-  },
-  dayRowToday: {
-    borderWidth: 2,
-    borderColor: colors.primary,
-  },
-  dayRowSelected: {
-    backgroundColor: withOpacity(colors.primary, 0.1),
-    borderWidth: 2,
-    borderColor: colors.primary,
-  },
+  dayRow: { flexDirection: 'row', backgroundColor: colors.white, borderRadius: 10, padding: 10, marginBottom: 6, alignItems: 'center' },
+  dayRowToday: { borderWidth: 2, borderColor: colors.primary },
+  dayRowSelected: { backgroundColor: withOpacity(colors.primary, 0.1), borderWidth: 2, borderColor: colors.primary },
   
-  // Checkbox
-  checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: colors.border,
-    marginRight: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  checkboxSelected: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  checkmark: {
-    color: colors.white,
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
+  checkbox: { width: 24, height: 24, borderRadius: 6, borderWidth: 2, borderColor: colors.border, marginRight: 10, justifyContent: 'center', alignItems: 'center' },
+  checkboxSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
+  checkmark: { color: colors.white, fontSize: 14, fontWeight: 'bold' },
   
-  // Selection bar
-  selectionBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: colors.primary,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    marginBottom: 12,
-  },
-  selectionText: {
-    color: colors.white,
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  selectionCancel: {
-    color: colors.white,
-    fontSize: 14,
-    fontWeight: '600',
-  },
+  selectionBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.primary, paddingVertical: 8, paddingHorizontal: 16, borderRadius: 8, marginBottom: 12 },
+  selectionText: { color: colors.white, fontSize: 14, fontWeight: '500' },
+  selectionCancel: { color: colors.white, fontSize: 14, fontWeight: '600' },
   
-  dayLeft: {
-    width: 44,
-    alignItems: 'center',
-    marginRight: 10,
-  },
-  dayName: {
-    fontSize: 11,
-    color: colors.textSecondary,
-    fontWeight: '500',
-  },
-  dayNameToday: {
-    color: colors.primary,
-  },
-  dayCircle: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    borderWidth: 2,
-    borderColor: colors.border,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 2,
-  },
-  dayCircleToday: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primary,
-  },
-  dayNumber: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: colors.text,
-  },
-  dayNumberToday: {
-    color: colors.white,
-  },
-  dayRight: {
-    flex: 1,
-  },
-  dayEmpty: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  dayEmptyText: {
-    fontSize: 13,
-    color: colors.textSecondary,
-    fontStyle: 'italic',
-  },
-  addBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  addBtnText: {
-    color: colors.white,
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginTop: -2,
-  },
-  dayPreview: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  dayPreviewTime: {
-    fontSize: 14,
-    color: colors.text,
-  },
-  dayPreviewDuration: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.primary,
-  },
-  expandIcon: {
-    fontSize: 10,
-    color: colors.textSecondary,
-    marginLeft: 8,
-  },
+  dayLeft: { width: 44, alignItems: 'center', marginRight: 10 },
+  dayName: { fontSize: 11, color: colors.textSecondary, fontWeight: '500' },
+  dayNameToday: { color: colors.primary },
+  dayCircle: { width: 30, height: 30, borderRadius: 15, borderWidth: 2, borderColor: colors.border, justifyContent: 'center', alignItems: 'center', marginTop: 2 },
+  dayCircleToday: { borderColor: colors.primary, backgroundColor: colors.primary },
+  dayNumber: { fontSize: 14, fontWeight: 'bold', color: colors.text },
+  dayNumberToday: { color: colors.white },
+  dayRight: { flex: 1 },
+  dayEmpty: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  dayEmptyText: { fontSize: 13, color: colors.textSecondary, fontStyle: 'italic' },
+  addBtn: { width: 28, height: 28, borderRadius: 14, backgroundColor: colors.primary, justifyContent: 'center', alignItems: 'center' },
+  addBtnText: { color: colors.white, fontSize: 18, fontWeight: 'bold', marginTop: -2 },
+  dayPreview: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  dayPreviewTime: { fontSize: 14, color: colors.text },
+  dayPreviewDuration: { fontSize: 14, fontWeight: '600', color: colors.primary },
+  expandIcon: { fontSize: 10, color: colors.textSecondary, marginLeft: 8 },
 
-  // Expanded
-  dayExpanded: {
-    marginTop: 8,
-  },
+  dayExpanded: { marginTop: 8 },
   
-  // Report Card (formato compacto)
-  reportCard: {
-    backgroundColor: colors.backgroundSecondary,
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 8,
-  },
-  reportHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  reportLocal: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.text,
-    flex: 1,
-  },
-  reportActions: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  actionBtnInline: {
-    padding: 4,
-  },
-  actionBtnInlineText: {
-    fontSize: 16,
-  },
-  reportTime: {
-    fontSize: 15,
-    color: colors.text,
-    marginBottom: 2,
-  },
-  reportTimeAdjusted: {
-    fontSize: 14,
-    color: colors.error,
-    marginBottom: 2,
-  },
-  reportPausa: {
-    fontSize: 13,
-    color: colors.warning,
-    marginBottom: 2,
-  },
-  reportTotal: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: colors.primary,
-    marginTop: 4,
-  },
+  reportCard: { backgroundColor: colors.backgroundSecondary, borderRadius: 8, padding: 10, marginBottom: 8 },
+  reportHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
+  reportLocal: { fontSize: 14, fontWeight: '600', color: colors.text, flex: 1 },
+  reportActions: { flexDirection: 'row', gap: 8 },
+  actionBtnInline: { padding: 4 },
+  actionBtnInlineText: { fontSize: 16 },
+  reportTime: { fontSize: 15, color: colors.text, marginBottom: 2 },
+  reportTimeAdjusted: { fontSize: 14, color: colors.error, marginBottom: 2 },
+  reportPausa: { fontSize: 13, color: colors.warning, marginBottom: 2 },
+  reportTotal: { fontSize: 16, fontWeight: 'bold', color: colors.primary, marginTop: 4 },
   
-  dayTotalText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.primary,
-    textAlign: 'right',
-    marginTop: 4,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
+  dayTotalText: { fontSize: 14, fontWeight: '600', color: colors.primary, textAlign: 'right', marginTop: 4, paddingTop: 8, borderTopWidth: 1, borderTopColor: colors.border },
 
-  // Export
-  exportBtn: {
-    backgroundColor: colors.primary,
-    paddingVertical: 14,
-    borderRadius: 10,
-    alignItems: 'center',
-    marginTop: 12,
-  },
-  exportBtnText: {
-    color: colors.white,
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  exportBtnSecondary: {
-    backgroundColor: colors.white,
-    paddingVertical: 14,
-    borderRadius: 10,
-    alignItems: 'center',
-    marginTop: 12,
-    borderWidth: 1,
-    borderColor: colors.primary,
-  },
-  exportBtnSecondaryText: {
-    color: colors.primary,
-    fontSize: 15,
-    fontWeight: '600',
-  },
+  exportBtn: { backgroundColor: colors.primary, paddingVertical: 14, borderRadius: 10, alignItems: 'center', marginTop: 12 },
+  exportBtnText: { color: colors.white, fontSize: 15, fontWeight: '600' },
+  exportBtnSecondary: { backgroundColor: colors.white, paddingVertical: 14, borderRadius: 10, alignItems: 'center', marginTop: 12, borderWidth: 1, borderColor: colors.primary },
+  exportBtnSecondaryText: { color: colors.primary, fontSize: 15, fontWeight: '600' },
 
-  // Modal
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: withOpacity(colors.black, 0.5),
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    backgroundColor: colors.white,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 20,
-    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: colors.text,
-    textAlign: 'center',
-  },
-  modalSubtitle: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  inputLabel: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: colors.text,
-    marginBottom: 6,
-  },
-  localPicker: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 16,
-  },
-  localOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 20,
-    backgroundColor: colors.backgroundSecondary,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  localOptionActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  localDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    marginRight: 8,
-  },
-  localOptionText: {
-    fontSize: 13,
-    color: colors.text,
-  },
-  localOptionTextActive: {
-    color: colors.white,
-    fontWeight: '500',
-  },
-  timeRow: {
-    flexDirection: 'row',
-    gap: 16,
-    marginBottom: 12,
-  },
-  timeField: {
-    flex: 1,
-  },
-  timeInput: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 18,
-    textAlign: 'center',
-    fontWeight: '600',
-    backgroundColor: colors.white,
-  },
-  pausaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginBottom: 8,
-  },
-  pausaInput: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    fontSize: 16,
-    textAlign: 'center',
-    fontWeight: '600',
-    width: 70,
-    backgroundColor: colors.white,
-  },
-  pausaHint: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    flex: 1,
-  },
-  inputHint: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  modalActions: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  cancelBtn: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: 10,
-    backgroundColor: colors.backgroundSecondary,
-    alignItems: 'center',
-  },
-  cancelBtnText: {
-    fontSize: 15,
-    color: colors.textSecondary,
-    fontWeight: '600',
-  },
-  saveBtn: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: 10,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-  },
-  saveBtnText: {
-    fontSize: 15,
-    color: colors.white,
-    fontWeight: '600',
-  },
+  modalOverlay: { flex: 1, backgroundColor: withOpacity(colors.black, 0.5), justifyContent: 'flex-end' },
+  modalContent: { backgroundColor: colors.white, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: Platform.OS === 'ios' ? 34 : 20 },
+  modalTitle: { fontSize: 18, fontWeight: 'bold', color: colors.text, textAlign: 'center' },
+  modalSubtitle: { fontSize: 14, color: colors.textSecondary, textAlign: 'center', marginBottom: 16 },
+  inputLabel: { fontSize: 13, fontWeight: '500', color: colors.text, marginBottom: 6 },
+  localPicker: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
+  localOption: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 20, backgroundColor: colors.backgroundSecondary, borderWidth: 1, borderColor: colors.border },
+  localOptionActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  localDot: { width: 10, height: 10, borderRadius: 5, marginRight: 8 },
+  localOptionText: { fontSize: 13, color: colors.text },
+  localOptionTextActive: { color: colors.white, fontWeight: '500' },
+
+  localGpsInfo: { backgroundColor: 'rgba(0,0,0,0.05)', padding: 12, borderRadius: 8, marginBottom: 16 },
+  localGpsText: { fontSize: 16, fontWeight: '600', color: colors.text, marginBottom: 4 },
+  localGpsHint: { fontSize: 12, color: colors.textSecondary, fontStyle: 'italic' },
+
+  timeRow: { flexDirection: 'row', gap: 16, marginBottom: 12 },
+  timeField: { flex: 1 },
+  timeInput: { borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 12, fontSize: 18, textAlign: 'center', fontWeight: '600', backgroundColor: colors.white },
+  pausaRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8 },
+  pausaInput: { borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 10, fontSize: 16, textAlign: 'center', fontWeight: '600', width: 70, backgroundColor: colors.white },
+  pausaHint: { fontSize: 12, color: colors.textSecondary, flex: 1 },
+  inputHint: { fontSize: 12, color: colors.textSecondary, textAlign: 'center', marginBottom: 16 },
+  modalActions: { flexDirection: 'row', gap: 12 },
+  cancelBtn: { flex: 1, paddingVertical: 14, borderRadius: 10, backgroundColor: colors.backgroundSecondary, alignItems: 'center' },
+  cancelBtnText: { fontSize: 15, color: colors.textSecondary, fontWeight: '600' },
+  saveBtn: { flex: 1, paddingVertical: 14, borderRadius: 10, backgroundColor: colors.primary, alignItems: 'center' },
+  saveBtnText: { fontSize: 15, color: colors.white, fontWeight: '600' },
 });
