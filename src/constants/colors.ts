@@ -94,4 +94,12 @@ export const localColors = [
 
 export function getLocalColor(index: number): string {
   return localColors[index % localColors.length];
+
+  /**
+ * Retorna uma cor aleatória para geofence
+ */
+export function getRandomGeofenceColor(): string {
+  const randomIndex = Math.floor(Math.random() * localColors.length);
+  return localColors[randomIndex];
+}
 }
