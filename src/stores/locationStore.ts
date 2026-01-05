@@ -30,8 +30,8 @@ import {
 } from '../lib/location';
 import {
   criarLocal,
-  getLocaisAtivos,
-  deletarLocal,
+  getLocais,          // ✅ EXISTE
+  removerLocal,       // ✅ EXISTE
   atualizarLocal,
   initDatabase,
   registrarHeartbeat,
@@ -386,7 +386,7 @@ export const useLocationStore = create<LocationState>((set, get) => ({
 
     logger.info('geofence', `🗑️ Removendo local`, { id });
 
-    await deletarLocal(id, userId);
+    await removerLocal(userId, id);
     
     // Remove do estado
     set(state => ({
@@ -417,7 +417,7 @@ export const useLocationStore = create<LocationState>((set, get) => ({
       throw new Error('Usuário não autenticado');
     }
 
-    await atualizarLocal(id, userId, updates);
+    await atualizarLocal(id, updates);
     await get().recarregarLocais();
 
     // Reinicia geofencing se estiver ativo
@@ -441,7 +441,7 @@ export const useLocationStore = create<LocationState>((set, get) => ({
         return;
       }
 
-      const locaisDB = await getLocaisAtivos(userId);
+      const locaisDB = await getLocais(userId);
       const locais: LocalDeTrabalho[] = locaisDB.map(l => ({
         id: l.id,
         nome: l.nome,

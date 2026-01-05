@@ -22,8 +22,8 @@ import { useWorkSessionStore } from '../stores/workSessionStore';
 import { useRegistroStore } from '../stores/registroStore';
 import { supabase, isSupabaseConfigured, getSupabaseConfig } from '../lib/supabase';
 import { 
-  getLocaisPendentesSync, 
-  getRegistrosPendentesSync,
+  getLocaisParaSync,          // ✅
+  getRegistrosParaSync,       // ✅
   getHeartbeatStats,
   getDbStats,
 } from '../lib/database';
@@ -159,8 +159,8 @@ export function DevMonitor() {
       return;
     }
 
-    const locais = await getLocaisPendentesSync(userId);
-    const registros = await getRegistrosPendentesSync(userId);
+    const locais = await getLocaisParaSync(userId);
+    const registros = await getRegistrosParaSync(userId);
 
     Alert.alert(
       '📋 Pendentes de Sync',
@@ -257,19 +257,19 @@ export function DevMonitor() {
             )}
           </Section>
 
-          {/* LOCATION */}
-          <Section title="📍 Location">
-            <Row label="Permissão" value={locationStore.hasPermission ? 'OK' : 'NÃO'} 
-                 color={locationStore.hasPermission ? colors.success : colors.error} />
-            <Row label="Background" value={locationStore.hasBackgroundPermission ? 'OK' : 'NÃO'} 
-                 color={locationStore.hasBackgroundPermission ? colors.success : colors.error} />
-            <Row label="Geofencing" value={locationStore.isGeofencingActive ? 'Ativo' : 'Inativo'} 
-                 color={locationStore.isGeofencingActive ? colors.success : colors.warning} />
-            <Row label="Locais" value={`${locationStore.locais.length}`} />
-            <Row label="Dentro de" value={locationStore.activeGeofence ? 
-                 locationStore.locais.find(l => l.id === locationStore.activeGeofence)?.nome || 'ID' : 
-                 'Nenhum'} />
-          </Section>
+        {/* LOCATION */}
+<Section title="📍 Location">
+  <Row label="Permissão" value={locationStore.permissoes.foreground ? 'OK' : 'NÃO'} 
+       color={locationStore.permissoes.foreground ? colors.success : colors.error} />
+  <Row label="Background" value={locationStore.permissoes.background ? 'OK' : 'NÃO'} 
+       color={locationStore.permissoes.background ? colors.success : colors.error} />
+  <Row label="Geofencing" value={locationStore.isGeofencingAtivo ? 'Ativo' : 'Inativo'} 
+       color={locationStore.isGeofencingAtivo ? colors.success : colors.warning} />
+  <Row label="Locais" value={`${locationStore.locais.length}`} />
+  <Row label="Dentro de" value={locationStore.geofenceAtivo ? 
+       locationStore.locais.find(l => l.id === locationStore.geofenceAtivo)?.nome || 'ID' : 
+       'Nenhum'} />
+</Section>
 
           {/* SESSÃO */}
           <Section title="⏱️ Sessão">

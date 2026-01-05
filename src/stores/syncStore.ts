@@ -9,15 +9,14 @@ import NetInfo from '@react-native-community/netinfo';
 import { logger } from '../lib/logger';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import {
-  getLocaisPendentesSync,
-  getRegistrosPendentesSync,
+ getLocaisParaSync,          // ✅
+  getRegistrosParaSync,       // ✅
   marcarLocalSincronizado,
   marcarRegistroSincronizado,
   upsertLocalFromSync,
   upsertRegistroFromSync,
-  purgeLocaisDeletados,
   registrarSyncLog,
-  getTodosLocais,
+  getLocais,
   type LocalDB,
   type RegistroDB,
 } from '../lib/database';

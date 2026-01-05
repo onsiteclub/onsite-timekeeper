@@ -51,6 +51,14 @@ export const colors = {
   warning: '#FF9800',        // Laranja - aviso, pausa
   error: '#F44336',          // Vermelho - erro, deletar
   info: '#2196F3',           // Azul - informação
+  success: '#4CAF50',        // Verde - sucesso, ativo
+  warning: '#FF9800',        // Laranja - aviso, pausa
+  error: '#F44336',          // Vermelho - erro, deletar
+  errorLight: 'rgba(244, 67, 54, 0.1)',  // ✅ ADICIONAR - Vermelho claro para backgrounds
+  info: '#2196F3',           // Azul - informação
+
+
+
   
   // ============================================
   // COMPONENTES ESPECÍFICOS
