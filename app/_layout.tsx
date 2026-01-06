@@ -1,7 +1,5 @@
 /**
  * Root Layout - OnSite Timekeeper
- * 
- * CORRIGIDO: syncStore.initialize() agora é chamado após login
  */
 
 import React, { useEffect, useState, useRef } from 'react';
@@ -18,6 +16,7 @@ import { logger } from '../src/lib/logger';
 import { initDatabase } from '../src/lib/database';
 import { GeofenceAlert } from '../src/components/GeofenceAlert';
 import { DevMonitor } from '../src/components/DevMonitor';
+import { SplashAnimated } from '../src/components/SplashAnimated';
 import { useAuthStore } from '../src/stores/authStore';
 import { useLocationStore } from '../src/stores/locationStore';
 import { useRegistroStore } from '../src/stores/registroStore';
@@ -28,6 +27,7 @@ import { useSettingsStore } from '../src/stores/settingsStore';
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
+  const [showSplash, setShowSplash] = useState(true);
   const [isReady, setIsReady] = useState(false);
   const [storesInitialized, setStoresInitialized] = useState(false);
   const router = useRouter();
@@ -35,10 +35,10 @@ export default function RootLayout() {
 
   const { isAuthenticated, isLoading: authLoading, initialize: initAuth } = useAuthStore();
   
-  // ✅ Ref para evitar inicialização dupla
+  // Ref para evitar inicialização dupla
   const initRef = useRef(false);
 
-  // ✅ Função para inicializar stores (reutilizável)
+  // Função para inicializar stores (reutilizável)
   const initializeStores = async () => {
     if (storesInitialized) return;
     
@@ -93,7 +93,7 @@ export default function RootLayout() {
     bootstrap();
   }, []);
 
-  // ✅ NOVO: Inicializa stores quando usuário faz LOGIN
+  // Inicializa stores quando usuário faz LOGIN
   useEffect(() => {
     if (isReady && isAuthenticated && !storesInitialized) {
       logger.info('boot', '🔐 Login detectado - inicializando stores...');
@@ -114,6 +114,11 @@ export default function RootLayout() {
     }
   }, [isReady, authLoading, isAuthenticated, segments]);
 
+  // SPLASH ANIMADA PRIMEIRO (antes de tudo)
+  if (showSplash) {
+    return <SplashAnimated onFinish={() => setShowSplash(false)} />;
+  }
+
   if (!isReady || authLoading) {
     return (
       <View style={styles.loadingContainer}>
@@ -124,7 +129,7 @@ export default function RootLayout() {
 
   return (
     <>
-      <StatusBar style="auto" />
+      <StatusBar style="light" />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(tabs)" />

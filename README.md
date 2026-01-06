@@ -61,6 +61,36 @@ npx expo run:android
 npx expo run:ios
 ```
 
+## Scripts Disponíveis
+
+```bash
+npm start          # Inicia o Expo
+npm run android    # Abre no Android
+npm run ios        # Abre no iOS
+npm run web        # Abre no navegador
+
+# Validação (rodar antes de push)
+npm run typecheck  # Verifica erros TypeScript
+npm run doctor     # Verifica configuração Expo
+```
+
+## CI/CD Pipeline
+
+O projeto usa GitHub Actions para validação automática e build do APK.
+
+```
+Push/Manual → Checks (typecheck + doctor) → Build APK → Download
+                    ~2 min                    ~12 min
+```
+
+**Como usar:**
+1. Vá em **Actions** no GitHub
+2. Selecione **"Build Android APK"**
+3. Clique **"Run workflow"**
+4. Baixe o APK em **Artifacts**
+
+📖 [Documentação completa do Pipeline](docs/PIPELINE.md)
+
 ## Estrutura do Projeto
 
 ```
@@ -103,10 +133,16 @@ onsite-timekeeper/
 │       ├── settingsStore.ts
 │       ├── syncStore.ts
 │       └── workSessionStore.ts
+├── docs/
+│   └── PIPELINE.md               # Documentação CI/CD
 ├── supabase/
 │   └── migrations/
 │       └── 001_create_tables.sql
+├── .github/
+│   └── workflows/
+│       └── build.yml             # GitHub Actions
 ├── app.json
+├── eas.json
 ├── package.json
 └── tsconfig.json
 ```
@@ -200,7 +236,7 @@ onsite-timekeeper/
 
 ## DevMonitor
 
-Botão flutuante (🔍) disponível em desenvolvimento:
+Botão flutuante (🔧) disponível em desenvolvimento:
 
 - **Logs**: Tempo real com filtros por nível
 - **Stats**: Contagem de tabelas, status de sync
@@ -230,6 +266,9 @@ npx eas build --platform ios
 # Build local
 npx expo run:android --variant release
 npx expo run:ios --configuration Release
+
+# Via GitHub Actions (recomendado)
+# Vá em Actions > Build Android APK > Run workflow
 ```
 
 ## Troubleshooting
@@ -248,6 +287,19 @@ npx expo run:ios --configuration Release
 1. Use DevMonitor > Actions > Purge Deletados
 2. Force Full Sync
 3. Se persistir, Reset Database
+
+### TypeScript errors no build
+1. Rode `npm run typecheck` localmente
+2. Corrija os erros listados
+3. Faça push novamente
+
+## Contributing
+
+1. Rode `npm run typecheck` antes de cada push
+2. Teste no Expo Go / dev build
+3. Use commits descritivos
+
+📖 [Ver documentação do Pipeline](docs/PIPELINE.md)
 
 ## License
 

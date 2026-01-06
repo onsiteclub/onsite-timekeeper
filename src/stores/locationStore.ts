@@ -56,6 +56,7 @@ import { useAuthStore } from './authStore';
 
 const POLLING_INTERVAL = 30000; // 30 segundos
 const STORAGE_KEY_MONITORING = '@onsite_monitoring_active';
+const HISTERESE_SAIDA = 1.5; // Saída usa raio × 1.5 (evita ping-pong)
 
 // ============================================
 // TIPOS
@@ -339,6 +340,55 @@ export const useLocationStore = create<LocationState>((set, get) => ({
       throw new Error('Usuário não autenticado');
     }
 
+    const { locais } = get();
+
+    // ============================================
+    // VALIDAÇÃO 1: Nome duplicado
+    // ============================================
+    const nomeDuplicado = locais.some(
+      l => l.nome.toLowerCase().trim() === local.nome.toLowerCase().trim()
+    );
+    if (nomeDuplicado) {
+      throw new Error(`Já existe um local com o nome "${local.nome}"`);
+    }
+
+    // ============================================
+    // VALIDAÇÃO 2: Raio mínimo/máximo
+    // ============================================
+    const RAIO_MINIMO = 200;
+    const RAIO_MAXIMO = 1500;
+    
+    if (local.raio < RAIO_MINIMO) {
+      throw new Error(`Raio mínimo é ${RAIO_MINIMO} metros`);
+    }
+    if (local.raio > RAIO_MAXIMO) {
+      throw new Error(`Raio máximo é ${RAIO_MAXIMO} metros`);
+    }
+
+    // ============================================
+    // VALIDAÇÃO 3: Sobreposição de fences
+    // ============================================
+    const locaisAtivos = locais.filter(l => l.status === 'active');
+    
+    for (const existente of locaisAtivos) {
+      const distancia = calcularDistancia(
+        { latitude: local.latitude, longitude: local.longitude },
+        { latitude: existente.latitude, longitude: existente.longitude }
+      );
+      
+      const somaRaios = local.raio + existente.raio;
+      
+      if (distancia < somaRaios) {
+        throw new Error(
+          `Este local sobrepõe "${existente.nome}". ` +
+          `Distância: ${Math.round(distancia)}m, mínimo necessário: ${somaRaios}m`
+        );
+      }
+    }
+
+    // ============================================
+    // CRIAR LOCAL (passou nas validações)
+    // ============================================
     logger.info('geofence', `➕ Adicionando local: ${local.nome}`);
 
     const id = await criarLocal({
@@ -540,6 +590,9 @@ export const useLocationStore = create<LocationState>((set, get) => ({
     logger.info('geofence', '⏹️ Monitoramento parado (geofence + heartbeat + polling)');
   },
 
+  // ============================================
+  // VERIFICAR GEOFENCE COM HISTERESE
+  // ============================================
   verificarGeofenceAtual: () => {
     const { localizacaoAtual, locais, geofenceAtivo, isProcessandoEvento, precisao } = get();
     
@@ -548,19 +601,23 @@ export const useLocationStore = create<LocationState>((set, get) => ({
 
     const locaisAtivos = locais.filter(l => l.status === 'active');
 
+    // ============================================
+    // VERIFICA ENTRADA (raio normal)
+    // ============================================
     for (const local of locaisAtivos) {
-      const dentro = estaDentroGeofence(localizacaoAtual, {
-        identifier: local.id,
+      const distancia = calcularDistancia(localizacaoAtual, {
         latitude: local.latitude,
         longitude: local.longitude,
-        radius: local.raio,
       });
 
-      if (dentro) {
+      const dentroRaioNormal = distancia <= local.raio;
+
+      if (dentroRaioNormal) {
         if (geofenceAtivo !== local.id) {
           // Entrou no geofence
-          logger.info('geofence', `✅ DENTRO: ${local.nome}`, {
-            distancia: calcularDistancia(localizacaoAtual, { latitude: local.latitude, longitude: local.longitude }).toFixed(0) + 'm',
+          logger.info('geofence', `✅ ENTRADA: ${local.nome}`, {
+            distancia: distancia.toFixed(0) + 'm',
+            raio: local.raio + 'm',
           });
 
           set({ geofenceAtivo: local.id, isProcessandoEvento: true });
@@ -578,22 +635,43 @@ export const useLocationStore = create<LocationState>((set, get) => ({
       }
     }
 
-    // Não está em nenhum geofence
+    // ============================================
+    // VERIFICA SAÍDA (raio × HISTERESE)
+    // ============================================
     if (geofenceAtivo !== null) {
       const localAnterior = locais.find(l => l.id === geofenceAtivo);
       
-      logger.info('geofence', `🚪 SAIU: ${localAnterior?.nome || 'desconhecido'}`);
-
-      // Notifica workSessionStore
       if (localAnterior) {
-        const workSession = useWorkSessionStore.getState();
-        workSession.handleGeofenceExit(localAnterior.id, localAnterior.nome, {
-          ...localizacaoAtual!,
-          accuracy: precisao ?? undefined,
+        const distancia = calcularDistancia(localizacaoAtual, {
+          latitude: localAnterior.latitude,
+          longitude: localAnterior.longitude,
         });
-      }
 
-      set({ geofenceAtivo: null });
+        const raioExpandido = localAnterior.raio * HISTERESE_SAIDA;
+        const foraRaioExpandido = distancia > raioExpandido;
+
+        if (foraRaioExpandido) {
+          // Realmente saiu (passou do raio expandido)
+          logger.info('geofence', `🚪 SAÍDA: ${localAnterior.nome}`, {
+            distancia: distancia.toFixed(0) + 'm',
+            raioExpandido: raioExpandido.toFixed(0) + 'm',
+          });
+
+          const workSession = useWorkSessionStore.getState();
+          workSession.handleGeofenceExit(localAnterior.id, localAnterior.nome, {
+            ...localizacaoAtual,
+            accuracy: precisao ?? undefined,
+          });
+
+          set({ geofenceAtivo: null });
+        } else {
+          // Ainda dentro da zona de histerese - não faz nada
+          logger.debug('geofence', `⏸️ Histerese: ${localAnterior.nome}`, {
+            distancia: distancia.toFixed(0) + 'm',
+            raioExpandido: raioExpandido.toFixed(0) + 'm',
+          });
+        }
+      }
     }
   },
 
@@ -649,6 +727,7 @@ export const useLocationStore = create<LocationState>((set, get) => ({
 
 /**
  * Processa evento de geofence vindo do callback nativo
+ * COM HISTERESE: Saída só é confirmada se estiver fora do raio expandido
  */
 function processarEventoGeofence(
   evento: GeofenceEvent,
@@ -673,6 +752,28 @@ function processarEventoGeofence(
     set({ geofenceAtivo: local.id });
     workSession.handleGeofenceEnter(local.id, local.nome, coords);
   } else {
+    // ============================================
+    // SAÍDA: Verificar histerese antes de confirmar
+    // ============================================
+    if (localizacaoAtual) {
+      const distancia = calcularDistancia(localizacaoAtual, {
+        latitude: local.latitude,
+        longitude: local.longitude,
+      });
+
+      const raioExpandido = local.raio * HISTERESE_SAIDA;
+
+      if (distancia <= raioExpandido) {
+        // Ainda dentro da zona de histerese - ignora evento de saída
+        logger.info('geofence', `⏸️ Saída ignorada (histerese): ${local.nome}`, {
+          distancia: distancia.toFixed(0) + 'm',
+          raioExpandido: raioExpandido.toFixed(0) + 'm',
+        });
+        return;
+      }
+    }
+
+    // Confirmada saída
     set({ geofenceAtivo: null });
     workSession.handleGeofenceExit(local.id, local.nome, coords);
   }

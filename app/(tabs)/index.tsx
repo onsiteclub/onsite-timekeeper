@@ -2,6 +2,7 @@
  * Home/Dashboard Screen - OnSite Timekeeper
  * 
  * UI Consolidada:
+ * - Header com logo
  * - Cronômetro com stats inline
  * - Cronômetro de pausa acumulativo
  * - Calendário semanal integrado
@@ -22,6 +23,8 @@ import {
   TextInput,
   Platform,
   Share,
+  Image,
+  type ViewStyle,
 } from 'react-native';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
@@ -713,14 +716,22 @@ export default function HomeScreen() {
       contentContainerStyle={styles.content}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
     >
-      <Text style={styles.greeting}>Olá, {userName || 'Trabalhador'}! 👋</Text>
+      {/* HEADER COM LOGO */}
+      <View style={styles.header}>
+        <Text style={styles.greeting}>Olá, {userName || 'Trabalhador'}! 👋</Text>
+        <Image 
+          source={require('../../assets/logo-text-white.png')} 
+          style={styles.headerLogo}
+          resizeMode="contain"
+        />
+      </View>
 
       {/* CRONÔMETRO */}
       <Card style={[
-        styles.timerCard,
-        sessaoAtual && styles.timerCardActive,
-        podeRecomecar && styles.timerCardIdle
-      ]}>
+  styles.timerCard,
+  sessaoAtual && styles.timerCardActive,
+  podeRecomecar && styles.timerCardIdle
+].filter(Boolean) as ViewStyle[]}>
         {sessaoAtual ? (
           <>
             <Text style={styles.timerLocal}>{sessaoAtual.local_nome}</Text>
@@ -1040,10 +1051,21 @@ export default function HomeScreen() {
 // ============================================
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.backgroundSecondary },
+  container: { flex: 1, backgroundColor: colors.background },
   content: { padding: 16 },
 
-  greeting: { fontSize: 18, fontWeight: '600', color: colors.text, marginBottom: 12 },
+  // HEADER COM LOGO
+  header: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    marginBottom: 16 
+  },
+  headerLogo: { 
+    width: 80, 
+    height: 28 
+  },
+  greeting: { fontSize: 18, fontWeight: '600', color: colors.text },
 
   timerCard: { padding: 20, marginBottom: 0, alignItems: 'center' },
   timerCardActive: { backgroundColor: withOpacity(colors.success, 0.1), borderWidth: 1, borderColor: colors.success },
@@ -1060,7 +1082,7 @@ const styles = StyleSheet.create({
   stopBtn: { backgroundColor: colors.error },
   startBtn: { backgroundColor: colors.primary },
 
-  pausaContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.05)', paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20, marginBottom: 16, gap: 8 },
+  pausaContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.1)', paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20, marginBottom: 16, gap: 8 },
   pausaLabel: { fontSize: 14, color: colors.textSecondary },
   pausaTimer: { fontSize: 18, fontWeight: '600', fontVariant: ['tabular-nums'], color: colors.textSecondary },
   pausaTimerActive: { color: colors.warning },
@@ -1071,21 +1093,21 @@ const styles = StyleSheet.create({
   calendarHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   calendarCenter: { alignItems: 'center' },
   navBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.primary, justifyContent: 'center', alignItems: 'center' },
-  navBtnText: { color: colors.white, fontSize: 14, fontWeight: 'bold' },
+  navBtnText: { color: colors.black, fontSize: 14, fontWeight: 'bold' },
   calendarTitle: { fontSize: 14, fontWeight: '500', color: colors.textSecondary, textAlign: 'center' },
   calendarTotal: { fontSize: 22, fontWeight: 'bold', color: colors.primary, textAlign: 'center' },
 
-  dayRow: { flexDirection: 'row', backgroundColor: colors.white, borderRadius: 10, padding: 10, marginBottom: 6, alignItems: 'center' },
+  dayRow: { flexDirection: 'row', backgroundColor: colors.card, borderRadius: 10, padding: 10, marginBottom: 6, alignItems: 'center' },
   dayRowToday: { borderWidth: 2, borderColor: colors.primary },
   dayRowSelected: { backgroundColor: withOpacity(colors.primary, 0.1), borderWidth: 2, borderColor: colors.primary },
   
   checkbox: { width: 24, height: 24, borderRadius: 6, borderWidth: 2, borderColor: colors.border, marginRight: 10, justifyContent: 'center', alignItems: 'center' },
   checkboxSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
-  checkmark: { color: colors.white, fontSize: 14, fontWeight: 'bold' },
+  checkmark: { color: colors.black, fontSize: 14, fontWeight: 'bold' },
   
   selectionBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.primary, paddingVertical: 8, paddingHorizontal: 16, borderRadius: 8, marginBottom: 12 },
-  selectionText: { color: colors.white, fontSize: 14, fontWeight: '500' },
-  selectionCancel: { color: colors.white, fontSize: 14, fontWeight: '600' },
+  selectionText: { color: colors.black, fontSize: 14, fontWeight: '500' },
+  selectionCancel: { color: colors.black, fontSize: 14, fontWeight: '600' },
   
   dayLeft: { width: 44, alignItems: 'center', marginRight: 10 },
   dayName: { fontSize: 11, color: colors.textSecondary, fontWeight: '500' },
@@ -1093,12 +1115,12 @@ const styles = StyleSheet.create({
   dayCircle: { width: 30, height: 30, borderRadius: 15, borderWidth: 2, borderColor: colors.border, justifyContent: 'center', alignItems: 'center', marginTop: 2 },
   dayCircleToday: { borderColor: colors.primary, backgroundColor: colors.primary },
   dayNumber: { fontSize: 14, fontWeight: 'bold', color: colors.text },
-  dayNumberToday: { color: colors.white },
+  dayNumberToday: { color: colors.black },
   dayRight: { flex: 1 },
   dayEmpty: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   dayEmptyText: { fontSize: 13, color: colors.textSecondary, fontStyle: 'italic' },
   addBtn: { width: 28, height: 28, borderRadius: 14, backgroundColor: colors.primary, justifyContent: 'center', alignItems: 'center' },
-  addBtnText: { color: colors.white, fontSize: 18, fontWeight: 'bold', marginTop: -2 },
+  addBtnText: { color: colors.black, fontSize: 18, fontWeight: 'bold', marginTop: -2 },
   dayPreview: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   dayPreviewTime: { fontSize: 14, color: colors.text },
   dayPreviewDuration: { fontSize: 14, fontWeight: '600', color: colors.primary },
@@ -1106,7 +1128,7 @@ const styles = StyleSheet.create({
 
   dayExpanded: { marginTop: 8 },
   
-  reportCard: { backgroundColor: colors.backgroundSecondary, borderRadius: 8, padding: 10, marginBottom: 8 },
+  reportCard: { backgroundColor: colors.backgroundTertiary, borderRadius: 8, padding: 10, marginBottom: 8 },
   reportHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
   reportLocal: { fontSize: 14, fontWeight: '600', color: colors.text, flex: 1 },
   reportActions: { flexDirection: 'row', gap: 8 },
@@ -1120,36 +1142,36 @@ const styles = StyleSheet.create({
   dayTotalText: { fontSize: 14, fontWeight: '600', color: colors.primary, textAlign: 'right', marginTop: 4, paddingTop: 8, borderTopWidth: 1, borderTopColor: colors.border },
 
   exportBtn: { backgroundColor: colors.primary, paddingVertical: 14, borderRadius: 10, alignItems: 'center', marginTop: 12 },
-  exportBtnText: { color: colors.white, fontSize: 15, fontWeight: '600' },
-  exportBtnSecondary: { backgroundColor: colors.white, paddingVertical: 14, borderRadius: 10, alignItems: 'center', marginTop: 12, borderWidth: 1, borderColor: colors.primary },
+  exportBtnText: { color: colors.black, fontSize: 15, fontWeight: '600' },
+  exportBtnSecondary: { backgroundColor: colors.backgroundSecondary, paddingVertical: 14, borderRadius: 10, alignItems: 'center', marginTop: 12, borderWidth: 1, borderColor: colors.primary },
   exportBtnSecondaryText: { color: colors.primary, fontSize: 15, fontWeight: '600' },
 
-  modalOverlay: { flex: 1, backgroundColor: withOpacity(colors.black, 0.5), justifyContent: 'flex-end' },
-  modalContent: { backgroundColor: colors.white, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: Platform.OS === 'ios' ? 34 : 20 },
+  modalOverlay: { flex: 1, backgroundColor: withOpacity(colors.black, 0.7), justifyContent: 'flex-end' },
+  modalContent: { backgroundColor: colors.backgroundSecondary, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: Platform.OS === 'ios' ? 34 : 20 },
   modalTitle: { fontSize: 18, fontWeight: 'bold', color: colors.text, textAlign: 'center' },
   modalSubtitle: { fontSize: 14, color: colors.textSecondary, textAlign: 'center', marginBottom: 16 },
   inputLabel: { fontSize: 13, fontWeight: '500', color: colors.text, marginBottom: 6 },
   localPicker: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
-  localOption: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 20, backgroundColor: colors.backgroundSecondary, borderWidth: 1, borderColor: colors.border },
+  localOption: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 20, backgroundColor: colors.backgroundTertiary, borderWidth: 1, borderColor: colors.border },
   localOptionActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   localDot: { width: 10, height: 10, borderRadius: 5, marginRight: 8 },
   localOptionText: { fontSize: 13, color: colors.text },
-  localOptionTextActive: { color: colors.white, fontWeight: '500' },
+  localOptionTextActive: { color: colors.black, fontWeight: '500' },
 
-  localGpsInfo: { backgroundColor: 'rgba(0,0,0,0.05)', padding: 12, borderRadius: 8, marginBottom: 16 },
+  localGpsInfo: { backgroundColor: colors.backgroundTertiary, padding: 12, borderRadius: 8, marginBottom: 16 },
   localGpsText: { fontSize: 16, fontWeight: '600', color: colors.text, marginBottom: 4 },
   localGpsHint: { fontSize: 12, color: colors.textSecondary, fontStyle: 'italic' },
 
   timeRow: { flexDirection: 'row', gap: 16, marginBottom: 12 },
   timeField: { flex: 1 },
-  timeInput: { borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 12, fontSize: 18, textAlign: 'center', fontWeight: '600', backgroundColor: colors.white },
+  timeInput: { borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 12, fontSize: 18, textAlign: 'center', fontWeight: '600', backgroundColor: colors.backgroundTertiary, color: colors.text },
   pausaRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8 },
-  pausaInput: { borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 10, fontSize: 16, textAlign: 'center', fontWeight: '600', width: 70, backgroundColor: colors.white },
+  pausaInput: { borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 10, fontSize: 16, textAlign: 'center', fontWeight: '600', width: 70, backgroundColor: colors.backgroundTertiary, color: colors.text },
   pausaHint: { fontSize: 12, color: colors.textSecondary, flex: 1 },
   inputHint: { fontSize: 12, color: colors.textSecondary, textAlign: 'center', marginBottom: 16 },
   modalActions: { flexDirection: 'row', gap: 12 },
-  cancelBtn: { flex: 1, paddingVertical: 14, borderRadius: 10, backgroundColor: colors.backgroundSecondary, alignItems: 'center' },
+  cancelBtn: { flex: 1, paddingVertical: 14, borderRadius: 10, backgroundColor: colors.backgroundTertiary, alignItems: 'center' },
   cancelBtnText: { fontSize: 15, color: colors.textSecondary, fontWeight: '600' },
   saveBtn: { flex: 1, paddingVertical: 14, borderRadius: 10, backgroundColor: colors.primary, alignItems: 'center' },
-  saveBtnText: { fontSize: 15, color: colors.white, fontWeight: '600' },
+  saveBtnText: { fontSize: 15, color: colors.black, fontWeight: '600' },
 });

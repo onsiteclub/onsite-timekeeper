@@ -39,20 +39,20 @@ export function Button({
   style,
   ...props
 }: ButtonProps) {
-  const buttonStyles: ViewStyle[] = [
+  const buttonStyles = [
     styles.button,
-    styles[`button_${variant}`],
-    styles[`button_${size}`],
+    styles[`button_${variant}` as keyof typeof styles],
+    styles[`button_${size}` as keyof typeof styles],
     (disabled || loading) && styles.button_disabled,
-    style as ViewStyle,
-  ].filter(Boolean);
+    style,
+  ].filter(Boolean) as ViewStyle[];
 
-  const textStyles: TextStyle[] = [
+  const textStyles = [
     styles.buttonText,
-    styles[`buttonText_${variant}`],
-    styles[`buttonText_${size}`],
+    styles[`buttonText_${variant}` as keyof typeof styles],
+    styles[`buttonText_${size}` as keyof typeof styles],
     (disabled || loading) && styles.buttonText_disabled,
-  ].filter(Boolean);
+  ].filter(Boolean) as TextStyle[];
 
   return (
     <TouchableOpacity
@@ -95,18 +95,20 @@ export function Input({
   style,
   ...props
 }: InputProps) {
+  const inputStyles = [
+    styles.input,
+    leftIcon && styles.input_withLeftIcon,
+    rightIcon && styles.input_withRightIcon,
+    style,
+  ].filter(Boolean) as TextStyle[];
+
   return (
     <View style={styles.inputContainer}>
       {label && <Text style={styles.inputLabel}>{label}</Text>}
       <View style={[styles.inputWrapper, error && styles.inputWrapper_error]}>
         {leftIcon && <View style={styles.inputIcon}>{leftIcon}</View>}
         <TextInput
-          style={[
-            styles.input,
-            leftIcon && styles.input_withLeftIcon,
-            rightIcon && styles.input_withRightIcon,
-            style,
-          ]}
+          style={inputStyles}
           placeholderTextColor={colors.textTertiary}
           {...props}
         />
@@ -123,11 +125,12 @@ export function Input({
 
 interface CardProps {
   children: React.ReactNode;
-  style?: ViewStyle;
+  style?: ViewStyle | ViewStyle[];
 }
 
 export function Card({ children, style }: CardProps) {
-  return <View style={[styles.card, style]}>{children}</View>;
+  const cardStyles = [styles.card, style].flat().filter(Boolean) as ViewStyle[];
+  return <View style={cardStyles}>{children}</View>;
 }
 
 // ============================================

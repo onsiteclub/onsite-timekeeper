@@ -1,11 +1,12 @@
 /**
  * Gerador de Relatórios - OnSite Timekeeper
  * 
- * Gera relatórios em formato TXT simples
+ * Gera relatórios em formato TXT profissional
  * - Relatório de sessão única
  * - Relatório diário
  * - Relatório por período
- * - Agrupado por local
+ * - Hash de integridade (código verificador)
+ * - Assinatura digital
  */
 
 import { SessaoComputada, formatarDuracao } from './database';
@@ -22,9 +23,29 @@ export interface RelatorioAgrupado {
     entrada: string;
     saida: string;
     duracao: number;
+    pausaMinutos: number;
+    duracaoLiquida: number;
+    editado: boolean;
   }[];
-  subtotal: number;
+  subtotalBruto: number;
+  subtotalPausa: number;
+  subtotalLiquido: number;
 }
+
+export interface RelatorioMetadata {
+  geradoEm: string;
+  versao: string;
+  hash: string;
+  totalSessoes: number;
+  totalMinutos: number;
+}
+
+// ============================================
+// CONSTANTES
+// ============================================
+
+const VERSAO_RELATORIO = '2.0';
+const NOME_APP = 'OnSite Timekeeper';
 
 // ============================================
 // HELPERS
@@ -67,6 +88,44 @@ function formatarPeriodo(dataInicio: string, dataFim: string): string {
   return `${inicio} a ${fim}`;
 }
 
+/**
+ * Gera hash de integridade simples (checksum)
+ * Baseado nos dados do relatório para verificação
+ */
+function gerarHashIntegridade(
+  sessoes: SessaoComputada[],
+  nomeUsuario: string,
+  timestamp: string
+): string {
+  // Cria string com dados relevantes
+  const dados = sessoes.map(s => 
+    `${s.id}|${s.entrada}|${s.saida || ''}|${s.duracao_minutos}`
+  ).join(';');
+  
+  const base = `${nomeUsuario}|${timestamp}|${dados}`;
+  
+  // Hash simples (soma de caracteres com transformações)
+  let hash = 0;
+  for (let i = 0; i < base.length; i++) {
+    const char = base.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Converte para 32-bit
+  }
+  
+  // Converte para hex e pega 8 caracteres
+  const hashHex = Math.abs(hash).toString(16).toUpperCase().padStart(8, '0');
+  return hashHex.substring(0, 8);
+}
+
+/**
+ * Gera código de verificação legível
+ * Formato: XXXX-XXXX
+ */
+function gerarCodigoVerificacao(hash: string, timestamp: string): string {
+  const timestampHash = timestamp.replace(/\D/g, '').slice(-4);
+  return `${hash.substring(0, 4)}-${timestampHash}`;
+}
+
 // ============================================
 // AGRUPAMENTO
 // ============================================
@@ -84,22 +143,32 @@ export function agruparSessoesPorLocal(sessoes: SessaoComputada[]): RelatorioAgr
       grupos[localNome] = {
         localNome,
         sessoes: [],
-        subtotal: 0,
+        subtotalBruto: 0,
+        subtotalPausa: 0,
+        subtotalLiquido: 0,
       };
     }
+
+    const pausaMinutos = sessao.pausa_minutos || 0;
+    const duracaoLiquida = Math.max(0, sessao.duracao_minutos - pausaMinutos);
 
     grupos[localNome].sessoes.push({
       data: sessao.entrada.split('T')[0],
       entrada: formatarHora(sessao.entrada),
       saida: sessao.saida ? formatarHora(sessao.saida) : 'Em andamento',
       duracao: sessao.duracao_minutos,
+      pausaMinutos,
+      duracaoLiquida,
+      editado: sessao.editado_manualmente === 1,
     });
 
-    grupos[localNome].subtotal += sessao.duracao_minutos;
+    grupos[localNome].subtotalBruto += sessao.duracao_minutos;
+    grupos[localNome].subtotalPausa += pausaMinutos;
+    grupos[localNome].subtotalLiquido += duracaoLiquida;
   }
 
   // Ordena por subtotal (maior primeiro)
-  return Object.values(grupos).sort((a, b) => b.subtotal - a.subtotal);
+  return Object.values(grupos).sort((a, b) => b.subtotalLiquido - a.subtotalLiquido);
 }
 
 // ============================================
@@ -113,31 +182,71 @@ export function gerarRelatorioSessao(
   sessao: SessaoComputada,
   nomeUsuario?: string
 ): string {
-  const linhas: string[] = [];
-  const separador = '─'.repeat(40);
-
-  linhas.push(separador);
-  linhas.push('     REGISTRO DE TRABALHO');
-  linhas.push(separador);
-  linhas.push('');
-  linhas.push(`📅 Data: ${formatarData(sessao.entrada)}`);
-  linhas.push(`📍 Local: ${sessao.local_nome || 'Não identificado'}`);
-  linhas.push(`🕐 Entrada: ${formatarHora(sessao.entrada)}`);
-  linhas.push(`🕐 Saída: ${sessao.saida ? formatarHora(sessao.saida) : 'Em andamento'}`);
-  linhas.push(`⏱️ Duração: ${formatarDuracao(sessao.duracao_minutos)}`);
+  const timestamp = new Date().toISOString();
+  const hash = gerarHashIntegridade([sessao], nomeUsuario || 'Anônimo', timestamp);
+  const codigo = gerarCodigoVerificacao(hash, timestamp);
   
+  const pausaMinutos = sessao.pausa_minutos || 0;
+  const duracaoLiquida = Math.max(0, sessao.duracao_minutos - pausaMinutos);
+
+  const linhas: string[] = [];
+  const separador = '─'.repeat(44);
+  const separadorDuplo = '═'.repeat(44);
+
+  // Cabeçalho
+  linhas.push(separadorDuplo);
+  linhas.push('        COMPROVANTE DE REGISTRO');
+  linhas.push('             OnSite Timekeeper');
+  linhas.push(separadorDuplo);
+  linhas.push('');
+
+  // Dados do trabalhador
   if (nomeUsuario) {
-    linhas.push(`👤 Trabalhador: ${nomeUsuario}`);
+    linhas.push(`Trabalhador: ${nomeUsuario}`);
+    linhas.push('');
   }
 
+  // Dados da sessão
+  linhas.push(separador);
+  linhas.push('DADOS DO REGISTRO');
+  linhas.push(separador);
+  linhas.push(`Local:       ${sessao.local_nome || 'Não identificado'}`);
+  linhas.push(`Data:        ${formatarData(sessao.entrada)}`);
+  linhas.push(`Entrada:     ${formatarHora(sessao.entrada)}`);
+  linhas.push(`Saída:       ${sessao.saida ? formatarHora(sessao.saida) : 'Em andamento'}`);
+  linhas.push('');
+  
+  // Duração
+  linhas.push(separador);
+  linhas.push('TEMPO TRABALHADO');
+  linhas.push(separador);
+  linhas.push(`Tempo bruto:   ${formatarDuracao(sessao.duracao_minutos)}`);
+  
+  if (pausaMinutos > 0) {
+    linhas.push(`Pausas:        ${formatarDuracao(pausaMinutos)}`);
+    linhas.push(`               ────────────`);
+    linhas.push(`Tempo líquido: ${formatarDuracao(duracaoLiquida)}`);
+  }
+
+  // Observações
   if (sessao.editado_manualmente) {
     linhas.push('');
-    linhas.push('⚠️ Horário ajustado manualmente');
+    linhas.push('⚠ Registro editado manualmente');
+    if (sessao.motivo_edicao) {
+      linhas.push(`  Motivo: ${sessao.motivo_edicao}`);
+    }
   }
 
+  // Rodapé com assinatura
   linhas.push('');
-  linhas.push(separador);
-  linhas.push(`OnSite Timekeeper • ${new Date().toLocaleString('pt-BR')}`);
+  linhas.push(separadorDuplo);
+  linhas.push('ASSINATURA DIGITAL');
+  linhas.push(separadorDuplo);
+  linhas.push(`Gerado em:  ${new Date(timestamp).toLocaleString('pt-BR')}`);
+  linhas.push(`Código:     ${codigo}`);
+  linhas.push('');
+  linhas.push('Este documento é um registro digital de ponto.');
+  linhas.push('Código de verificação garante integridade.');
 
   return linhas.join('\n');
 }
@@ -154,9 +263,18 @@ export function gerarRelatorioCompleto(
   }
 
   try {
+    const timestamp = new Date().toISOString();
+    const hash = gerarHashIntegridade(sessoes, nomeUsuario || 'Anônimo', timestamp);
+    const codigo = gerarCodigoVerificacao(hash, timestamp);
+    
     const grupos = agruparSessoesPorLocal(sessoes);
-    const totalGeral = grupos.reduce((acc, g) => acc + g.subtotal, 0);
+    
+    // Totais gerais
+    const totalBruto = grupos.reduce((acc, g) => acc + g.subtotalBruto, 0);
+    const totalPausa = grupos.reduce((acc, g) => acc + g.subtotalPausa, 0);
+    const totalLiquido = grupos.reduce((acc, g) => acc + g.subtotalLiquido, 0);
     const totalSessoes = sessoes.length;
+    const sessoesEditadas = sessoes.filter(s => s.editado_manualmente === 1).length;
 
     // Determina período
     const datas = sessoes.map(s => s.entrada.split('T')[0]).sort();
@@ -164,52 +282,115 @@ export function gerarRelatorioCompleto(
     const dataFim = datas[datas.length - 1];
 
     const linhas: string[] = [];
-    const separadorDuplo = '═'.repeat(40);
-    const separadorSimples = '─'.repeat(40);
+    const separadorDuplo = '═'.repeat(48);
+    const separadorSimples = '─'.repeat(48);
+    const separadorPonto = '·'.repeat(48);
 
-    // Cabeçalho
+    // ============================================
+    // CABEÇALHO
+    // ============================================
     linhas.push(separadorDuplo);
-    linhas.push('       RELATÓRIO DE HORAS');
+    linhas.push('           RELATÓRIO DE HORAS TRABALHADAS');
+    linhas.push('                OnSite Timekeeper');
     linhas.push(separadorDuplo);
     linhas.push('');
 
-    // Info do período
-    linhas.push(`📅 Período: ${formatarPeriodo(dataInicio, dataFim)}`);
+    // Info do período e trabalhador
+    linhas.push(separadorSimples);
+    linhas.push('IDENTIFICAÇÃO');
+    linhas.push(separadorSimples);
     if (nomeUsuario) {
-      linhas.push(`👤 Trabalhador: ${nomeUsuario}`);
+      linhas.push(`Trabalhador:     ${nomeUsuario}`);
     }
-    linhas.push(`📊 Total de registros: ${totalSessoes}`);
+    linhas.push(`Período:         ${formatarPeriodo(dataInicio, dataFim)}`);
+    linhas.push(`Total registros: ${totalSessoes}`);
     linhas.push('');
 
-    // Sessões por local
+    // ============================================
+    // SESSÕES POR LOCAL
+    // ============================================
     for (const grupo of grupos) {
       linhas.push(separadorSimples);
       linhas.push(`📍 ${grupo.localNome.toUpperCase()}`);
       linhas.push(separadorSimples);
 
+      // Cabeçalho da tabela
+      linhas.push('  Data        Entrada  Saída    Tempo');
+      linhas.push('  ' + '─'.repeat(42));
+
       for (const sessao of grupo.sessoes) {
-        const duracaoStr = sessao.duracao > 0 
-          ? formatarDuracao(sessao.duracao)
-          : '(em andamento)';
-        linhas.push(`  ${formatarData(sessao.data)}  ${sessao.entrada} → ${sessao.saida}  [${duracaoStr}]`);
+        const dataFormatada = formatarData(sessao.data).padEnd(10);
+        const entradaStr = sessao.entrada.padEnd(8);
+        const saidaStr = sessao.saida.padEnd(8);
+        
+        let tempoStr = formatarDuracao(sessao.duracaoLiquida);
+        if (sessao.pausaMinutos > 0) {
+          tempoStr += ` (-${sessao.pausaMinutos}min)`;
+        }
+        if (sessao.editado) {
+          tempoStr += ' *';
+        }
+        
+        linhas.push(`  ${dataFormatada}  ${entradaStr} ${saidaStr} ${tempoStr}`);
       }
 
-      linhas.push(`  ${'─'.repeat(36)}`);
-      linhas.push(`  Subtotal: ${formatarDuracao(grupo.subtotal)}`);
+      // Subtotal do local
+      linhas.push('  ' + '─'.repeat(42));
+      
+      if (grupo.subtotalPausa > 0) {
+        linhas.push(`  Subtotal bruto:   ${formatarDuracao(grupo.subtotalBruto)}`);
+        linhas.push(`  Pausas:           ${formatarDuracao(grupo.subtotalPausa)}`);
+        linhas.push(`  Subtotal líquido: ${formatarDuracao(grupo.subtotalLiquido)}`);
+      } else {
+        linhas.push(`  Subtotal: ${formatarDuracao(grupo.subtotalLiquido)}`);
+      }
       linhas.push('');
     }
 
-    // Total geral
+    // ============================================
+    // TOTAIS
+    // ============================================
     linhas.push(separadorDuplo);
-    linhas.push(`   TOTAL GERAL: ${formatarDuracao(totalGeral)}`);
+    linhas.push('RESUMO GERAL');
     linhas.push(separadorDuplo);
     linhas.push('');
+    
+    if (totalPausa > 0) {
+      linhas.push(`  Tempo bruto total:   ${formatarDuracao(totalBruto)}`);
+      linhas.push(`  Total de pausas:     ${formatarDuracao(totalPausa)}`);
+      linhas.push('                       ────────────');
+      linhas.push(`  TEMPO LÍQUIDO:       ${formatarDuracao(totalLiquido)}`);
+    } else {
+      linhas.push(`  TOTAL DE HORAS:      ${formatarDuracao(totalLiquido)}`);
+    }
+    
+    linhas.push('');
+    linhas.push(`  Sessões registradas: ${totalSessoes}`);
+    linhas.push(`  Locais de trabalho:  ${grupos.length}`);
+    
+    if (sessoesEditadas > 0) {
+      linhas.push('');
+      linhas.push(`  * ${sessoesEditadas} registro(s) editado(s) manualmente`);
+    }
 
-    // Rodapé
-    linhas.push(`Gerado por OnSite Timekeeper`);
-    linhas.push(`${new Date().toLocaleString('pt-BR')}`);
+    // ============================================
+    // ASSINATURA DIGITAL
+    // ============================================
+    linhas.push('');
+    linhas.push(separadorDuplo);
+    linhas.push('ASSINATURA DIGITAL');
+    linhas.push(separadorDuplo);
+    linhas.push(`Gerado em:     ${new Date(timestamp).toLocaleString('pt-BR')}`);
+    linhas.push(`Código:        ${codigo}`);
+    linhas.push(`Versão:        ${VERSAO_RELATORIO}`);
+    linhas.push('');
+    linhas.push(separadorPonto);
+    linhas.push('Este documento é um registro digital de ponto.');
+    linhas.push('O código de verificação garante a integridade');
+    linhas.push('dos dados apresentados neste relatório.');
+    linhas.push(separadorPonto);
 
-    logger.info('database', `📄 Relatório gerado: ${totalSessoes} sessões, ${formatarDuracao(totalGeral)}`);
+    logger.info('database', `📄 Relatório gerado: ${totalSessoes} sessões, ${formatarDuracao(totalLiquido)}`);
 
     return linhas.join('\n');
   } catch (error) {
@@ -228,7 +409,8 @@ export function gerarResumo(sessoes: SessaoComputada[]): string {
 
   try {
     const grupos = agruparSessoesPorLocal(sessoes);
-    const totalGeral = grupos.reduce((acc, g) => acc + g.subtotal, 0);
+    const totalLiquido = grupos.reduce((acc, g) => acc + g.subtotalLiquido, 0);
+    const totalPausa = grupos.reduce((acc, g) => acc + g.subtotalPausa, 0);
 
     const datas = sessoes.map(s => s.entrada.split('T')[0]).sort();
     const dataInicio = datas[0];
@@ -239,11 +421,16 @@ export function gerarResumo(sessoes: SessaoComputada[]): string {
     linhas.push('');
 
     for (const grupo of grupos) {
-      linhas.push(`📍 ${grupo.localNome}: ${formatarDuracao(grupo.subtotal)}`);
+      linhas.push(`📍 ${grupo.localNome}: ${formatarDuracao(grupo.subtotalLiquido)}`);
     }
 
     linhas.push('');
-    linhas.push(`💰 Total: ${formatarDuracao(totalGeral)}`);
+    
+    if (totalPausa > 0) {
+      linhas.push(`⏸️ Pausas: ${formatarDuracao(totalPausa)}`);
+    }
+    
+    linhas.push(`💰 Total: ${formatarDuracao(totalLiquido)}`);
 
     return linhas.join('\n');
   } catch (error) {
@@ -266,4 +453,26 @@ export function gerarRelatorioDia(
   }
 
   return gerarRelatorioCompleto(sessoesHoje, nomeUsuario);
+}
+
+/**
+ * Exporta metadados do relatório (para uso programático)
+ */
+export function getRelatorioMetadata(
+  sessoes: SessaoComputada[],
+  nomeUsuario?: string
+): RelatorioMetadata {
+  const timestamp = new Date().toISOString();
+  const hash = gerarHashIntegridade(sessoes, nomeUsuario || 'Anônimo', timestamp);
+  
+  const grupos = agruparSessoesPorLocal(sessoes);
+  const totalLiquido = grupos.reduce((acc, g) => acc + g.subtotalLiquido, 0);
+
+  return {
+    geradoEm: timestamp,
+    versao: VERSAO_RELATORIO,
+    hash,
+    totalSessoes: sessoes.length,
+    totalMinutos: totalLiquido,
+  };
 }

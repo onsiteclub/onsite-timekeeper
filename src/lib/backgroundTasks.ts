@@ -21,6 +21,7 @@ import { LOCATION_TASK_NAME, GEOFENCE_TASK_NAME } from './location';
 
 export const HEARTBEAT_TASK_NAME = 'onsite-heartbeat-task';
 export const HEARTBEAT_INTERVAL = 15 * 60; // 15 minutos em segundos
+const HISTERESE_SAIDA = 1.5; // Saída usa raio × 1.5 (evita ping-pong)
 
 // ============================================
 // TIPOS
@@ -143,10 +144,12 @@ function calcularDistancia(
 
 /**
  * Verifica em qual fence o ponto está dentro
+ * @param usarHisterese Se true, usa raio expandido (para verificar saída)
  */
 function verificarDentroFence(
   latitude: number, 
-  longitude: number
+  longitude: number,
+  usarHisterese: boolean = false
 ): { isInside: boolean; fenceId: string | null; fenceName: string | null } {
   for (const fence of activeFences) {
     const distancia = calcularDistancia(
@@ -156,7 +159,9 @@ function verificarDentroFence(
       fence.longitude
     );
     
-    if (distancia <= fence.radius) {
+    const raioEfetivo = usarHisterese ? fence.radius * HISTERESE_SAIDA : fence.radius;
+    
+    if (distancia <= raioEfetivo) {
       return { isInside: true, fenceId: fence.id, fenceName: fence.nome };
     }
   }
@@ -167,7 +172,7 @@ function verificarDentroFence(
 // TASK: GEOFENCING (Nativo)
 // ============================================
 
-TaskManager.defineTask(GEOFENCE_TASK_NAME, ({ data, error }) => {
+TaskManager.defineTask(GEOFENCE_TASK_NAME, async ({ data, error }) => {
   if (error) {
     logger.error('geofence', 'Erro na task de geofence', { error: error.message });
     return;
@@ -206,7 +211,7 @@ TaskManager.defineTask(GEOFENCE_TASK_NAME, ({ data, error }) => {
 // TASK: BACKGROUND LOCATION
 // ============================================
 
-TaskManager.defineTask(LOCATION_TASK_NAME, ({ data, error }) => {
+TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
   if (error) {
     logger.error('gps', 'Erro na task de location', { error: error.message });
     return;
@@ -255,8 +260,8 @@ TaskManager.defineTask(HEARTBEAT_TASK_NAME, async () => {
 
     logger.info('heartbeat', `📍 Posição: ${latitude.toFixed(6)}, ${longitude.toFixed(6)} (±${accuracy?.toFixed(0)}m)`);
 
-    // 2. Verifica se está dentro de alguma fence
-    const { isInside, fenceId, fenceName } = verificarDentroFence(latitude, longitude);
+    // 2. Verifica se está dentro de alguma fence (usa histerese para saída)
+    const { isInside, fenceId, fenceName } = verificarDentroFence(latitude, longitude, true);
 
     // 3. Tenta pegar nível de bateria (pode não estar disponível)
     let batteryLevel: number | null = null;
@@ -362,7 +367,9 @@ export async function executeHeartbeatNow(): Promise<HeartbeatResult | null> {
     });
 
     const { latitude, longitude, accuracy } = location.coords;
-    const { isInside, fenceId, fenceName } = verificarDentroFence(latitude, longitude);
+    
+    // Usa histerese para verificação manual também
+    const { isInside, fenceId, fenceName } = verificarDentroFence(latitude, longitude, true);
 
     const result: HeartbeatResult = {
       isInsideFence: isInside,
@@ -448,7 +455,7 @@ export async function getTasksStatus(): Promise<{
     location,
     heartbeat,
     activeFences: activeFences.length,
-    backgroundFetchStatus: statusNames[bgStatus] || 'Unknown',
+    backgroundFetchStatus: bgStatus !== null ? statusNames[bgStatus] : 'Unknown',
   };
 }
 
@@ -461,4 +468,5 @@ logger.info('boot', '📋 Background tasks definidas', {
   location: LOCATION_TASK_NAME,
   heartbeat: HEARTBEAT_TASK_NAME,
   heartbeatInterval: `${HEARTBEAT_INTERVAL / 60} min`,
+  histerese: `${HISTERESE_SAIDA}x`,
 });

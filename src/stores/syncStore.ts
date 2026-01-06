@@ -162,8 +162,7 @@ export const useSyncStore = create<SyncState>((set, get) => ({
       stats.downloadedRegistros = registrosDown.count;
       stats.errors.push(...registrosDown.errors);
 
-      // 5. Purge
-      await purgeLocaisDeletados(7);
+    
 
       // ✅ Se chegou aqui sem erro, está online!
       set({ 
@@ -268,7 +267,7 @@ async function uploadLocais(userId: string): Promise<{ count: number; errors: st
   const errors: string[] = [];
 
   try {
-    const locais = await getLocaisPendentesSync(userId);
+    const locais = await getLocaisParaSync(userId);
     logger.info('sync', `📤 ${locais.length} locais pendentes`);
 
     for (const local of locais) {
@@ -312,7 +311,7 @@ async function uploadRegistros(userId: string): Promise<{ count: number; errors:
   const errors: string[] = [];
 
   try {
-    const registros = await getRegistrosPendentesSync(userId);
+    const registros = await getRegistrosParaSync(userId);
     logger.info('sync', `📤 ${registros.length} registros pendentes`);
 
     for (const reg of registros) {

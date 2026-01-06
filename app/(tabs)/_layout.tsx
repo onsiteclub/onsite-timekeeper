@@ -1,86 +1,80 @@
 /**
  * Tabs Layout - OnSite Timekeeper
  * 
- * Navegação simplificada:
- * - Home (cronômetro + histórico integrado)
- * - Locais (mapa)
- * - Configurações
+ * Configuração das abas: Home, Locais, Ajustes
  */
 
 import React from 'react';
-import { Text, Platform } from 'react-native';
 import { Tabs } from 'expo-router';
+import { View, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../../src/constants/colors';
 
 export default function TabsLayout() {
   return (
     <Tabs
       screenOptions={{
-        headerShown: true,
-        headerStyle: {
-          backgroundColor: colors.primary,
-        },
-        headerTintColor: colors.white,
-        headerTitleStyle: {
-          fontWeight: '600',
-        },
+        headerShown: false,
+        tabBarStyle: styles.tabBar,
         tabBarActiveTintColor: colors.primary,
-        tabBarInactiveTintColor: colors.textSecondary,
-        tabBarStyle: {
-          backgroundColor: colors.white,
-          borderTopColor: colors.border,
-          paddingBottom: Platform.OS === 'ios' ? 20 : 8,
-          paddingTop: 8,
-          height: Platform.OS === 'ios' ? 85 : 65,
-        },
-        tabBarLabelStyle: {
-          fontSize: 12,
-          fontWeight: '500',
-        },
+        tabBarInactiveTintColor: colors.tabInactive,
+        tabBarLabelStyle: styles.tabLabel,
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
-          title: 'OnSite',
-          headerTitle: 'OnSite Timekeeper',
-          tabBarLabel: 'Home',
-          tabBarIcon: () => <TabIcon emoji="🏠" />,
+          title: 'Home',
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons 
+              name={focused ? 'home' : 'home-outline'} 
+              size={size} 
+              color={color} 
+            />
+          ),
         }}
       />
-
       <Tabs.Screen
-        name="map"
+        name="locais"
         options={{
           title: 'Locais',
-          headerTitle: 'Meus Locais',
-          tabBarLabel: 'Locais',
-          tabBarIcon: () => <TabIcon emoji="📍" />,
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons 
+              name={focused ? 'location' : 'location-outline'} 
+              size={size} 
+              color={color} 
+            />
+          ),
         }}
       />
-
       <Tabs.Screen
-        name="settings"
+        name="ajustes"
         options={{
           title: 'Ajustes',
-          headerTitle: 'Configurações',
-          tabBarLabel: 'Ajustes',
-          tabBarIcon: () => <TabIcon emoji="⚙️" />,
-        }}
-      />
-
-      {/* ESCONDE a tab history se ainda existir o arquivo */}
-      <Tabs.Screen
-        name="history"
-        options={{
-          href: null, // Esconde da navegação
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons 
+              name={focused ? 'settings' : 'settings-outline'} 
+              size={size} 
+              color={color} 
+            />
+          ),
         }}
       />
     </Tabs>
   );
 }
 
-// Componente simples de ícone com emoji
-function TabIcon({ emoji }: { emoji: string }) {
-  return <Text style={{ fontSize: 22 }}>{emoji}</Text>;
-}
+const styles = StyleSheet.create({
+  tabBar: {
+    backgroundColor: colors.tabBar,
+    borderTopColor: colors.tabBarBorder,
+    borderTopWidth: 1,
+    height: 60,
+    paddingBottom: 8,
+    paddingTop: 8,
+  },
+  tabLabel: {
+    fontSize: 11,
+    fontWeight: '500',
+  },
+});

@@ -307,8 +307,6 @@ export default function MapScreen() {
               fillColor={withOpacity(local.cor, 0.25)}
               strokeColor={local.cor}
               strokeWidth={2}
-              tappable={true}
-              onPress={() => handleCirclePress(local.id)}
             />
             <Marker
               coordinate={{ latitude: local.latitude, longitude: local.longitude }}

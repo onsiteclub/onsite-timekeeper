@@ -195,7 +195,6 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 8,
     marginBottom: 16,
-    errorLight: 'rgba(239, 68, 68, 0.1)'
   },
   errorText: {
     color: colors.error,

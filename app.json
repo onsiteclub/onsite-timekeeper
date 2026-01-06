@@ -6,12 +6,13 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "onsite-timekeeper",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0D0D0D",
     "newArchEnabled": false,
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#1A1A1A"
+      "backgroundColor": "#0D0D0D"
     },
     "ios": {
       "supportsTablet": true,
@@ -26,14 +27,15 @@
         "UIBackgroundModes": [
           "location",
           "fetch",
-          "remote-notification"
+          "remote-notification",
+          "audio"
         ]
       }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#1A1A1A"
+        "backgroundColor": "#0D0D0D"
       },
       "package": "com.onsiteclub.timekeeper",
       "config": {
@@ -77,6 +79,12 @@
         {
           "icon": "./assets/notification-icon.png",
           "color": "#F7B324"
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": false
         }
       ],
       [

@@ -16,7 +16,9 @@ type LogCategory =
   | 'notification'
   | 'session'
   | 'ui'
-  | 'boot';
+  | 'boot'
+  | 'heartbeat'   
+  | 'registro';
 
 export interface LogEntry {
   id: string;
@@ -52,7 +54,9 @@ const categoryColor: Record<LogCategory, string> = {
   notification: '\x1b[31m', // red
   session: '\x1b[95m',   // light magenta
   ui: '\x1b[94m',        // light blue
-  boot: '\x1b[96m',      // light cyan
+  boot: '\x1b[96m',
+  heartbeat: '\x1b[93m',  
+  registro: '\x1b[92m',      
 };
 
 // Storage de logs em memória

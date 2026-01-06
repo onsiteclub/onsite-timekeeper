@@ -5,6 +5,7 @@
  * - CRUD de locais
  * - CRUD de registros (sessões)
  * - Auditoria via sync_log
+ * - Geopontos (auditoria GPS)
  * - Validações de negócio
  */
 
@@ -22,6 +23,7 @@ export type LocalStatus = 'active' | 'deleted' | 'pending_delete' | 'syncing';
 export type RegistroTipo = 'automatico' | 'manual';
 export type SyncLogAction = 'create' | 'update' | 'delete' | 'sync_up' | 'sync_down';
 export type SyncLogStatus = 'pending' | 'synced' | 'conflict' | 'failed';
+export type GeopontoFonte = 'polling' | 'geofence' | 'heartbeat' | 'background' | 'manual';
 
 export interface LocalDB {
   id: string;
@@ -52,7 +54,7 @@ export interface RegistroDB {
   hash_integridade: string | null;
   cor: string | null;
   device_id: string | null;
-  pausa_minutos: number | null; // NOVO CAMPO
+  pausa_minutos: number | null;
   created_at: string;
   synced_at: string | null;
 }
@@ -94,6 +96,22 @@ export interface HeartbeatLogDB {
   sessao_id: string | null;
   battery_level: number | null;
   created_at: string;
+}
+
+export interface GeopontoDB {
+  id: string;
+  sessao_id: string | null;
+  user_id: string;
+  latitude: number;
+  longitude: number;
+  accuracy: number | null;
+  timestamp: string;
+  fonte: GeopontoFonte;
+  dentro_fence: number; // 0 ou 1
+  fence_id: string | null;
+  fence_nome: string | null;
+  created_at: string;
+  synced_at: string | null;
 }
 
 
@@ -203,6 +221,31 @@ export async function initDatabase(): Promise<void> {
     db.execSync(`CREATE INDEX IF NOT EXISTS idx_heartbeat_timestamp ON heartbeat_log(timestamp)`);
     db.execSync(`CREATE INDEX IF NOT EXISTS idx_heartbeat_sessao ON heartbeat_log(sessao_id)`);
 
+    // ============================================
+    // TABELA GEOPONTOS (Auditoria GPS)
+    // ============================================
+    db.execSync(`
+      CREATE TABLE IF NOT EXISTS geopontos (
+        id TEXT PRIMARY KEY,
+        sessao_id TEXT,
+        user_id TEXT NOT NULL,
+        latitude REAL NOT NULL,
+        longitude REAL NOT NULL,
+        accuracy REAL,
+        timestamp TEXT NOT NULL,
+        fonte TEXT DEFAULT 'polling',
+        dentro_fence INTEGER DEFAULT 0,
+        fence_id TEXT,
+        fence_nome TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        synced_at TEXT
+      )
+    `);
+
+    // Índices para geopontos
+    db.execSync(`CREATE INDEX IF NOT EXISTS idx_geopontos_user ON geopontos(user_id)`);
+    db.execSync(`CREATE INDEX IF NOT EXISTS idx_geopontos_sessao ON geopontos(sessao_id)`);
+    db.execSync(`CREATE INDEX IF NOT EXISTS idx_geopontos_timestamp ON geopontos(timestamp)`);
 
     // Índices para performance
     db.execSync(`CREATE INDEX IF NOT EXISTS idx_locais_user ON locais(user_id)`);
@@ -826,6 +869,7 @@ export async function getDbStats(): Promise<{
   registros_total: number;
   registros_abertos: number;
   sync_logs: number;
+  geopontos_total: number;
 }> {
   try {
     const locaisTotal = db.getFirstSync<{ count: number }>(`SELECT COUNT(*) as count FROM locais`);
@@ -834,6 +878,7 @@ export async function getDbStats(): Promise<{
     const registrosTotal = db.getFirstSync<{ count: number }>(`SELECT COUNT(*) as count FROM registros`);
     const registrosAbertos = db.getFirstSync<{ count: number }>(`SELECT COUNT(*) as count FROM registros WHERE saida IS NULL`);
     const syncLogs = db.getFirstSync<{ count: number }>(`SELECT COUNT(*) as count FROM sync_log`);
+    const geopontosTotal = db.getFirstSync<{ count: number }>(`SELECT COUNT(*) as count FROM geopontos`);
 
     return {
       locais_total: locaisTotal?.count || 0,
@@ -842,6 +887,7 @@ export async function getDbStats(): Promise<{
       registros_total: registrosTotal?.count || 0,
       registros_abertos: registrosAbertos?.count || 0,
       sync_logs: syncLogs?.count || 0,
+      geopontos_total: geopontosTotal?.count || 0,
     };
   } catch (error) {
     logger.error('database', 'Erro ao obter stats', { error: String(error) });
@@ -852,6 +898,7 @@ export async function getDbStats(): Promise<{
       registros_total: 0,
       registros_abertos: 0,
       sync_logs: 0,
+      geopontos_total: 0,
     };
   }
 }
@@ -865,12 +912,18 @@ export async function resetDatabase(): Promise<void> {
     db.execSync(`DELETE FROM sync_log`);
     db.execSync(`DELETE FROM registros`);
     db.execSync(`DELETE FROM locais`);
+    db.execSync(`DELETE FROM geopontos`);
+    db.execSync(`DELETE FROM heartbeat_log`);
     logger.info('database', '✅ Database resetado');
   } catch (error) {
     logger.error('database', 'Erro ao resetar database', { error: String(error) });
     throw error;
   }
 }
+
+// ============================================
+// HEARTBEAT LOG
+// ============================================
 
 /**
  * Registra um heartbeat
@@ -1013,5 +1066,216 @@ export async function getHeartbeatStats(userId: string): Promise<{
   } catch (error) {
     logger.error('database', 'Erro ao obter stats de heartbeat', { error: String(error) });
     return { total: 0, hoje: 0, ultimoTimestamp: null };
+  }
+}
+
+// ============================================
+// GEOPONTOS (Auditoria GPS)
+// ============================================
+
+/**
+ * Registra um geoponto (leitura GPS)
+ */
+export async function registrarGeoponto(
+  userId: string,
+  latitude: number,
+  longitude: number,
+  accuracy: number | null,
+  fonte: GeopontoFonte,
+  dentroFence: boolean,
+  fenceId: string | null,
+  fenceNome: string | null,
+  sessaoId: string | null
+): Promise<string> {
+  const id = generateUUID();
+  const timestamp = now();
+  
+  try {
+    db.runSync(
+      `INSERT INTO geopontos (id, sessao_id, user_id, latitude, longitude, accuracy, 
+       timestamp, fonte, dentro_fence, fence_id, fence_nome, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, sessaoId, userId, latitude, longitude, accuracy, 
+       timestamp, fonte, dentroFence ? 1 : 0, fenceId, fenceNome, timestamp]
+    );
+    
+    logger.debug('database', 'Geoponto registrado', { 
+      id, 
+      fonte, 
+      dentroFence, 
+      accuracy: accuracy?.toFixed(0) 
+    });
+    return id;
+  } catch (error) {
+    logger.error('database', 'Erro ao registrar geoponto', { error: String(error) });
+    throw error;
+  }
+}
+
+/**
+ * Busca geopontos de uma sessão específica
+ */
+export async function getGeopontosSessao(sessaoId: string): Promise<GeopontoDB[]> {
+  try {
+    return db.getAllSync<GeopontoDB>(
+      `SELECT * FROM geopontos WHERE sessao_id = ? ORDER BY timestamp ASC`,
+      [sessaoId]
+    );
+  } catch (error) {
+    logger.error('database', 'Erro ao buscar geopontos da sessão', { error: String(error) });
+    return [];
+  }
+}
+
+/**
+ * Busca geopontos por período
+ */
+export async function getGeopontosPorPeriodo(
+  userId: string,
+  dataInicio: string,
+  dataFim: string
+): Promise<GeopontoDB[]> {
+  try {
+    return db.getAllSync<GeopontoDB>(
+      `SELECT * FROM geopontos WHERE user_id = ? AND timestamp >= ? AND timestamp <= ? ORDER BY timestamp ASC`,
+      [userId, dataInicio, dataFim]
+    );
+  } catch (error) {
+    logger.error('database', 'Erro ao buscar geopontos por período', { error: String(error) });
+    return [];
+  }
+}
+
+/**
+ * Busca último geoponto do usuário
+ */
+export async function getUltimoGeoponto(userId: string): Promise<GeopontoDB | null> {
+  try {
+    return db.getFirstSync<GeopontoDB>(
+      `SELECT * FROM geopontos WHERE user_id = ? ORDER BY timestamp DESC LIMIT 1`,
+      [userId]
+    );
+  } catch (error) {
+    logger.error('database', 'Erro ao buscar último geoponto', { error: String(error) });
+    return null;
+  }
+}
+
+/**
+ * Limpa geopontos antigos (mais de X dias)
+ */
+export async function limparGeopontosAntigos(diasManter: number = 90): Promise<number> {
+  try {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - diasManter);
+    
+    const result = db.runSync(
+      `DELETE FROM geopontos WHERE timestamp < ?`,
+      [cutoff.toISOString()]
+    );
+    
+    const deletados = result.changes || 0;
+    if (deletados > 0) {
+      logger.info('database', `Geopontos antigos limpos: ${deletados}`);
+    }
+    return deletados;
+  } catch (error) {
+    logger.error('database', 'Erro ao limpar geopontos', { error: String(error) });
+    return 0;
+  }
+}
+
+/**
+ * Estatísticas de geopontos
+ */
+export async function getGeopontosStats(userId: string): Promise<{
+  total: number;
+  hoje: number;
+  porFonte: Record<GeopontoFonte, number>;
+  ultimoTimestamp: string | null;
+}> {
+  try {
+    const hoje = new Date().toISOString().split('T')[0];
+    
+    const total = db.getFirstSync<{ count: number }>(
+      `SELECT COUNT(*) as count FROM geopontos WHERE user_id = ?`,
+      [userId]
+    );
+    
+    const hojeCount = db.getFirstSync<{ count: number }>(
+      `SELECT COUNT(*) as count FROM geopontos WHERE user_id = ? AND timestamp LIKE ?`,
+      [userId, `${hoje}%`]
+    );
+    
+    const ultimo = db.getFirstSync<{ timestamp: string }>(
+      `SELECT timestamp FROM geopontos WHERE user_id = ? ORDER BY timestamp DESC LIMIT 1`,
+      [userId]
+    );
+
+    // Conta por fonte
+    const fontes: GeopontoFonte[] = ['polling', 'geofence', 'heartbeat', 'background', 'manual'];
+    const porFonte: Record<GeopontoFonte, number> = {
+      polling: 0,
+      geofence: 0,
+      heartbeat: 0,
+      background: 0,
+      manual: 0,
+    };
+
+    for (const fonte of fontes) {
+      const count = db.getFirstSync<{ count: number }>(
+        `SELECT COUNT(*) as count FROM geopontos WHERE user_id = ? AND fonte = ?`,
+        [userId, fonte]
+      );
+      porFonte[fonte] = count?.count || 0;
+    }
+    
+    return {
+      total: total?.count || 0,
+      hoje: hojeCount?.count || 0,
+      porFonte,
+      ultimoTimestamp: ultimo?.timestamp || null,
+    };
+  } catch (error) {
+    logger.error('database', 'Erro ao obter stats de geopontos', { error: String(error) });
+    return { 
+      total: 0, 
+      hoje: 0, 
+      porFonte: { polling: 0, geofence: 0, heartbeat: 0, background: 0, manual: 0 },
+      ultimoTimestamp: null 
+    };
+  }
+}
+
+/**
+ * Busca geopontos para sync (não sincronizados)
+ */
+export async function getGeopontosParaSync(userId: string, limit: number = 100): Promise<GeopontoDB[]> {
+  try {
+    return db.getAllSync<GeopontoDB>(
+      `SELECT * FROM geopontos WHERE user_id = ? AND synced_at IS NULL ORDER BY timestamp ASC LIMIT ?`,
+      [userId, limit]
+    );
+  } catch (error) {
+    logger.error('database', 'Erro ao buscar geopontos para sync', { error: String(error) });
+    return [];
+  }
+}
+
+/**
+ * Marca geopontos como sincronizados
+ */
+export async function marcarGeopontosSincronizados(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  
+  try {
+    const placeholders = ids.map(() => '?').join(',');
+    db.runSync(
+      `UPDATE geopontos SET synced_at = ? WHERE id IN (${placeholders})`,
+      [now(), ...ids]
+    );
+    logger.debug('database', `${ids.length} geopontos marcados como sincronizados`);
+  } catch (error) {
+    logger.error('database', 'Erro ao marcar geopontos sincronizados', { error: String(error) });
   }
 }

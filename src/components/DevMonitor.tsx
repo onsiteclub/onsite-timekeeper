@@ -105,11 +105,10 @@ export function DevMonitor() {
         tasks,
         database: dbStats,
         location: {
-          hasPermission: locationStore.hasPermission,
-          hasBackgroundPermission: locationStore.hasBackgroundPermission,
-          isGeofencingActive: locationStore.isGeofencingActive,
-          locaisCount: locationStore.locais.length,
-          activeGeofence: locationStore.activeGeofence,
+          hasPermission: locationStore.permissoes.foreground,
+          hasBackgroundPermission: locationStore.permissoes.background,
+          isGeofencingActive: locationStore.isGeofencingAtivo,
+          activeGeofence: locationStore.geofenceAtivo,
         },
       };
 
