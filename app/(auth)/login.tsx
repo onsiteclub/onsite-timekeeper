@@ -34,15 +34,15 @@ export default function LoginScreen() {
     const newErrors: typeof errors = {};
 
     if (!email) {
-      newErrors.email = 'Email é obrigatório';
+      newErrors.email = 'Email is required';
     } else if (!/\S+@\S+\.\S+/.test(email)) {
-      newErrors.email = 'Email inválido';
+      newErrors.email = 'Invalid email';
     }
 
     if (!password) {
-      newErrors.password = 'Senha é obrigatória';
+      newErrors.password = 'Password is required';
     } else if (password.length < 6) {
-      newErrors.password = 'Senha deve ter pelo menos 6 caracteres';
+      newErrors.password = 'Password must be at least 6 characters';
     }
 
     setErrors(newErrors);
@@ -54,8 +54,8 @@ export default function LoginScreen() {
 
     if (!isSupabaseConfigured()) {
       Alert.alert(
-        'Configuração necessária',
-        'Configure as variáveis de ambiente do Supabase:\n\nEXPO_PUBLIC_SUPABASE_URL\nEXPO_PUBLIC_SUPABASE_ANON_KEY'
+        'Configuration required',
+        'Configure Supabase environment variables:\n\nEXPO_PUBLIC_SUPABASE_URL\nEXPO_PUBLIC_SUPABASE_ANON_KEY'
       );
       return;
     }
@@ -87,7 +87,7 @@ export default function LoginScreen() {
         <View style={styles.header}>
           <Text style={styles.emoji}>📍</Text>
           <Text style={styles.title}>OnSite Timekeeper</Text>
-          <Text style={styles.subtitle}>Registro de ponto inteligente</Text>
+          <Text style={styles.subtitle}>Smart time tracking</Text>
         </View>
 
         {/* Form */}
@@ -103,8 +103,8 @@ export default function LoginScreen() {
             <Text style={styles.label}>Email</Text>
             <TextInput
               style={[styles.input, errors.email && styles.inputError]}
-              placeholder="seu@email.com"
-              placeholderTextColor={colors.textSecondary}
+              placeholder="your@email.com"
+              placeholderTextColor={colors.textTertiary}
               keyboardType="email-address"
               autoCapitalize="none"
               autoComplete="email"
@@ -116,12 +116,12 @@ export default function LoginScreen() {
 
           {/* Password Input with Eye Toggle */}
           <View style={styles.inputContainer}>
-            <Text style={styles.label}>Senha</Text>
+            <Text style={styles.label}>Password</Text>
             <View style={[styles.passwordContainer, errors.password && styles.inputError]}>
               <TextInput
                 style={styles.passwordInput}
                 placeholder="••••••••"
-                placeholderTextColor={colors.textSecondary}
+                placeholderTextColor={colors.textTertiary}
                 secureTextEntry={!showPassword}
                 autoComplete="password"
                 value={password}
@@ -139,16 +139,16 @@ export default function LoginScreen() {
           </View>
 
           <Button
-            title="Entrar"
+            title="Sign In"
             onPress={handleLogin}
             loading={loading}
             style={styles.button}
           />
 
           <View style={styles.linkContainer}>
-            <Text style={styles.linkText}>Não tem conta? </Text>
+            <Text style={styles.linkText}>Don't have an account? </Text>
             <Link href="/(auth)/register" asChild>
-              <Text style={styles.link}>Criar conta</Text>
+              <Text style={styles.link}>Create account</Text>
             </Link>
           </View>
         </View>
@@ -218,7 +218,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     fontSize: 16,
     color: colors.text,
-    backgroundColor: colors.white,
+    backgroundColor: colors.backgroundTertiary,
   },
   inputError: {
     borderColor: colors.error,
@@ -235,7 +235,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 12,
-    backgroundColor: colors.white,
+    backgroundColor: colors.backgroundTertiary,
   },
   passwordInput: {
     flex: 1,

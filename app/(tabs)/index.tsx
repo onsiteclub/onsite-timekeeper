@@ -24,6 +24,7 @@ import {
   Platform,
   Share,
   Image,
+  StatusBar,
   type ViewStyle,
 } from 'react-native';
 import * as FileSystem from 'expo-file-system';
@@ -36,6 +37,7 @@ import { useRegistroStore } from '../../src/stores/registroStore';
 import { useSyncStore } from '../../src/stores/syncStore';
 import { formatarDuracao } from '../../src/lib/database';
 import type { SessaoComputada } from '../../src/lib/database';
+import { gerarRelatorioCompleto } from '../../src/lib/reports';
 
 // ============================================
 // HELPERS
@@ -76,9 +78,6 @@ function formatTimeAMPM(iso: string): string {
   return `${hours}:${minutes.toString().padStart(2, '0')} ${ampm}`;
 }
 
-function formatDateExport(date: Date): string {
-  return date.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' });
-}
 
 function isSameDay(d1: Date, d2: Date): boolean {
   return d1.getFullYear() === d2.getFullYear() &&
@@ -604,88 +603,23 @@ export default function HomeScreen() {
     );
   };
 
-  const gerarRelatorioTexto = (sessoes: SessaoComputada[]): string => {
-    let txt = '';
-    let totalGeralMinutos = 0;
-
-    const porData = new Map<string, SessaoComputada[]>();
-    sessoes.forEach(s => {
-      const dataKey = new Date(s.entrada).toDateString();
-      if (!porData.has(dataKey)) {
-        porData.set(dataKey, []);
-      }
-      porData.get(dataKey)!.push(s);
-    });
-
-    const datasOrdenadas = Array.from(porData.keys()).sort((a, b) => 
-      new Date(a).getTime() - new Date(b).getTime()
-    );
-
-    txt += `${userName || 'Relatório de Horas'}\n`;
-    txt += '────────────────────\n\n';
-
-    let localAnterior = '';
-
-    datasOrdenadas.forEach((dataKey, index) => {
-      const sessoesDia = porData.get(dataKey)!;
-      const dataObj = new Date(dataKey);
-      let totalDiaMinutos = 0;
-      
-      txt += `📅 ${formatDateExport(dataObj)}\n`;
-      
-      sessoesDia.forEach(sessao => {
-        const isAjustado = sessao.editado_manualmente === 1 || sessao.tipo === 'manual';
-        const pausaMin = sessao.pausa_minutos || 0;
-        
-        if (sessao.local_nome !== localAnterior) {
-          txt += `📍 ${sessao.local_nome}\n`;
-          localAnterior = sessao.local_nome || '';
-        }
-        
-        txt += `${formatTimeAMPM(sessao.entrada)} → ${formatTimeAMPM(sessao.saida!)}\n`;
-        
-        if (isAjustado) {
-          txt += `*Ajustado\n`;
-        }
-        
-        if (pausaMin > 0) {
-          txt += `Pausa: ${formatarDuracao(pausaMin)}\n`;
-        }
-        
-        totalDiaMinutos += Math.max(0, sessao.duracao_minutos - pausaMin);
-      });
-      
-      txt += `▸ ${formatarDuracao(totalDiaMinutos)}\n`;
-      totalGeralMinutos += totalDiaMinutos;
-      
-      if (index < datasOrdenadas.length - 1) {
-        txt += '\n';
-      }
-    });
-
-    txt += '\n════════════════════\n';
-    txt += `TOTAL: ${formatarDuracao(totalGeralMinutos)}\n`;
-
-    return txt;
-  };
-
   const exportarComoTexto = async (sessoes: SessaoComputada[]) => {
-    const txt = gerarRelatorioTexto(sessoes);
+    const txt = gerarRelatorioCompleto(sessoes, userName || undefined);
     
     try {
-      await Share.share({ message: txt, title: 'Relatório de Horas' });
+      await Share.share({ message: txt, title: 'Time Report' });
       cancelSelection();
     } catch (error) {
-      console.error('Erro ao compartilhar:', error);
+      console.error('Error sharing:', error);
     }
   };
 
   const exportarComoArquivo = async (sessoes: SessaoComputada[]) => {
-    const txt = gerarRelatorioTexto(sessoes);
+    const txt = gerarRelatorioCompleto(sessoes, userName || undefined);
     
     try {
       const now = new Date();
-      const fileName = `relatorio_${now.toISOString().split('T')[0]}.txt`;
+      const fileName = `report_${now.toISOString().split('T')[0]}.txt`;
       const filePath = `${FileSystem.cacheDirectory}${fileName}`;
 
       await FileSystem.writeAsStringAsync(filePath, txt, {
@@ -695,16 +629,17 @@ export default function HomeScreen() {
       if (await Sharing.isAvailableAsync()) {
         await Sharing.shareAsync(filePath, {
           mimeType: 'text/plain',
-          dialogTitle: 'Salvar Relatório',
+          dialogTitle: 'Save Report',
         });
       }
       
       cancelSelection();
     } catch (error) {
-      console.error('Erro ao exportar arquivo:', error);
-      Alert.alert('Erro', 'Não foi possível criar o arquivo');
+      console.error('Error exporting file:', error);
+      Alert.alert('Error', 'Could not create file');
     }
   };
+
 
   // ============================================
   // RENDER
@@ -1052,7 +987,10 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  content: { padding: 16 },
+  content: { 
+    padding: 16,
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 24) + 16 : 60,
+  },
 
   // HEADER COM LOGO
   header: { 

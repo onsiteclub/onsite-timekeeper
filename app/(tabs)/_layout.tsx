@@ -1,12 +1,12 @@
 /**
  * Tabs Layout - OnSite Timekeeper
  * 
- * Configuração das abas: Home, Locais, Ajustes
+ * Tabs: Home, Map, Settings
  */
 
 import React from 'react';
 import { Tabs } from 'expo-router';
-import { View, StyleSheet } from 'react-native';
+import { StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../../src/constants/colors';
 
@@ -35,9 +35,9 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="locais"
+        name="map"
         options={{
-          title: 'Locais',
+          title: 'Locations',
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons 
               name={focused ? 'location' : 'location-outline'} 
@@ -48,9 +48,9 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="ajustes"
+        name="settings"
         options={{
-          title: 'Ajustes',
+          title: 'Settings',
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons 
               name={focused ? 'settings' : 'settings-outline'} 

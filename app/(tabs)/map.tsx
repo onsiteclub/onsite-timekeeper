@@ -3,8 +3,7 @@
  * 
  * Tela simplificada para gerenciar locais de trabalho
  * - Busca por endereço no topo
- * - Clique no mapa = pin temporário
- * - Botão +Add Local = confirma
+ * - Long press no mapa = pin + modal nome
  * - Long press no círculo = deletar
  * - Clique no círculo = ajustar raio
  */
@@ -22,6 +21,7 @@ import {
   Dimensions,
   Keyboard,
   Platform,
+  Animated,
 } from 'react-native';
 import MapView, { Marker, Circle, Region, PROVIDER_DEFAULT } from 'react-native-maps';
 import { colors, withOpacity, getRandomGeofenceColor } from '../../src/constants/colors';
@@ -38,15 +38,16 @@ const DEFAULT_REGION: Region = {
   longitudeDelta: 0.01,
 };
 
-// Raio padrão em metros
-const DEFAULT_RADIUS = 50;
+// Raio padrão em metros (mínimo 200)
+const DEFAULT_RADIUS = 200;
 
-// Opções de raio disponíveis
-const RADIUS_OPTIONS = [30, 50, 75, 100, 150, 200];
+// Opções de raio disponíveis (mínimo 200m)
+const RADIUS_OPTIONS = [200, 250, 300, 400, 500];
 
 export default function MapScreen() {
   const mapRef = useRef<MapView>(null);
   const searchInputRef = useRef<TextInput>(null);
+  const nameInputRef = useRef<TextInput>(null);
   
   const {
     locais,
@@ -77,9 +78,14 @@ export default function MapScreen() {
   // Loading
   const [isAdding, setIsAdding] = useState(false);
   
-  // Modal de nome do local (Android não suporta Alert.prompt)
+  // Modal de nome do local
   const [showNameModal, setShowNameModal] = useState(false);
   const [newLocalName, setNewLocalName] = useState('');
+  const [newLocalRadius, setNewLocalRadius] = useState(DEFAULT_RADIUS);
+  const [nameInputError, setNameInputError] = useState(false);
+  
+  // Animação para shake do input
+  const shakeAnimation = useRef(new Animated.Value(0)).current;
 
   // Região inicial
   const getInitialRegion = (): Region => {
@@ -113,6 +119,35 @@ export default function MapScreen() {
   }, [localizacaoAtual]);
 
   // ============================================
+  // HELPERS
+  // ============================================
+
+  const shakeInput = () => {
+    setNameInputError(true);
+    Animated.sequence([
+      Animated.timing(shakeAnimation, { toValue: 10, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnimation, { toValue: -10, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnimation, { toValue: 10, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnimation, { toValue: -10, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnimation, { toValue: 0, duration: 50, useNativeDriver: true }),
+    ]).start();
+    
+    // Focus no input
+    nameInputRef.current?.focus();
+    
+    // Remove erro depois de 2s
+    setTimeout(() => setNameInputError(false), 2000);
+  };
+
+  const cancelAndClearPin = () => {
+    setShowNameModal(false);
+    setTempPin(null);
+    setNewLocalName('');
+    setNewLocalRadius(DEFAULT_RADIUS);
+    setNameInputError(false);
+  };
+
+  // ============================================
   // HANDLERS
   // ============================================
 
@@ -139,12 +174,14 @@ export default function MapScreen() {
     
     // Já abre o popup do nome automaticamente
     setNewLocalName('');
+    setNewLocalRadius(DEFAULT_RADIUS);
+    setNameInputError(false);
     setShowNameModal(true);
   };
 
   const handleSearch = async () => {
     if (searchQuery.length < 3) {
-      Alert.alert('Busca', 'Digite pelo menos 3 caracteres');
+      Alert.alert('Search', 'Enter at least 3 characters');
       return;
     }
     
@@ -154,7 +191,7 @@ export default function MapScreen() {
       setSearchResults(results);
       setShowSearchResults(true);
     } catch (error) {
-      Alert.alert('Erro', 'Não foi possível buscar o endereço');
+      Alert.alert('Error', 'Could not search address');
     } finally {
       setIsSearching(false);
     }
@@ -180,6 +217,8 @@ export default function MapScreen() {
     // Já abre o popup do nome automaticamente (com pequeno delay para ver o mapa)
     setTimeout(() => {
       setNewLocalName('');
+      setNewLocalRadius(DEFAULT_RADIUS);
+      setNameInputError(false);
       setShowNameModal(true);
     }, 600);
   };
@@ -193,13 +232,14 @@ export default function MapScreen() {
         longitudeDelta: 0.01,
       }, 500);
     } else {
-      Alert.alert('GPS', 'Localização não disponível');
+      Alert.alert('GPS', 'Location not available');
     }
   };
 
   const handleConfirmAddLocal = async () => {
+    // Validação: se não tem nome, shake e não fecha
     if (!newLocalName.trim()) {
-      Alert.alert('Erro', 'Digite um nome para o local');
+      shakeInput();
       return;
     }
     if (!tempPin) return;
@@ -210,19 +250,21 @@ export default function MapScreen() {
         nome: newLocalName.trim(),
         latitude: tempPin.lat,
         longitude: tempPin.lng,
-        raio: DEFAULT_RADIUS,
+        raio: newLocalRadius,
         cor: getRandomGeofenceColor(),
       });
       
-      // Limpa
+      // Limpa tudo
       setTempPin(null);
       setShowNameModal(false);
       setNewLocalName('');
+      setNewLocalRadius(DEFAULT_RADIUS);
+      setNameInputError(false);
       
       // Feedback
-      Alert.alert('✅ Sucesso', `Local "${newLocalName}" adicionado!`);
+      Alert.alert('✅ Success', `Location "${newLocalName}" added!`);
     } catch (error: any) {
-      Alert.alert('Erro', error.message || 'Não foi possível adicionar');
+      Alert.alert('Error', error.message || 'Could not add location');
     } finally {
       setIsAdding(false);
     }
@@ -235,18 +277,18 @@ export default function MapScreen() {
 
   const handleCircleLongPress = (localId: string, localNome: string) => {
     Alert.alert(
-      '🗑️ Remover Local',
-      `Deseja remover "${localNome}"?`,
+      '🗑️ Remove Location',
+      `Remove "${localNome}"?`,
       [
-        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Remover',
+          text: 'Remove',
           style: 'destructive',
           onPress: async () => {
             try {
               await removerLocal(localId);
             } catch (error: any) {
-              Alert.alert('Erro', error.message || 'Não foi possível remover');
+              Alert.alert('Error', error.message || 'Could not remove');
             }
           },
         },
@@ -262,7 +304,7 @@ export default function MapScreen() {
       setShowRadiusModal(false);
       setSelectedLocalId(null);
     } catch (error: any) {
-      Alert.alert('Erro', error.message || 'Não foi possível alterar o raio');
+      Alert.alert('Error', error.message || 'Could not change radius');
     }
   };
 
@@ -271,7 +313,7 @@ export default function MapScreen() {
       pararMonitoramento();
     } else {
       if (locais.length === 0) {
-        Alert.alert('Aviso', 'Adicione pelo menos um local primeiro');
+        Alert.alert('Warning', 'Add at least one location first');
         return;
       }
       iniciarMonitoramento();
@@ -311,7 +353,7 @@ export default function MapScreen() {
             <Marker
               coordinate={{ latitude: local.latitude, longitude: local.longitude }}
               title={local.nome}
-              description={`Raio: ${local.raio}m`}
+              description={`Radius: ${local.raio}m`}
               onPress={() => handleCirclePress(local.id)}
               onCalloutPress={() => handleCirclePress(local.id)}
             >
@@ -322,12 +364,12 @@ export default function MapScreen() {
           </React.Fragment>
         ))}
 
-        {/* Pin temporário */}
-        {tempPin && (
+        {/* Pin temporário - só mostra se modal está aberto */}
+        {tempPin && showNameModal && (
           <>
             <Circle
               center={{ latitude: tempPin.lat, longitude: tempPin.lng }}
-              radius={DEFAULT_RADIUS}
+              radius={newLocalRadius}
               fillColor={withOpacity(colors.primary, 0.2)}
               strokeColor={colors.primary}
               strokeWidth={2}
@@ -335,11 +377,6 @@ export default function MapScreen() {
             />
             <Marker
               coordinate={{ latitude: tempPin.lat, longitude: tempPin.lng }}
-              draggable
-              onDragEnd={(e) => {
-                const { latitude, longitude } = e.nativeEvent.coordinate;
-                setTempPin({ lat: latitude, lng: longitude });
-              }}
             >
               <View style={[styles.marker, styles.tempMarker]}>
                 <Text style={styles.markerText}>📌</Text>
@@ -356,7 +393,7 @@ export default function MapScreen() {
           <TextInput
             ref={searchInputRef}
             style={styles.searchInput}
-            placeholder="Buscar endereço..."
+            placeholder="Search address..."
             placeholderTextColor={colors.textSecondary}
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -403,7 +440,7 @@ export default function MapScreen() {
         onPress={toggleMonitoramento}
       >
         <Text style={[styles.monitorText, isGeofencingAtivo && styles.monitorTextActive]}>
-          {isGeofencingAtivo ? '🟢 Monitorando' : '⚪ Monitoramento OFF'}
+          {isGeofencingAtivo ? '🟢 Monitoring' : '⚪ Monitoring OFF'}
         </Text>
       </TouchableOpacity>
 
@@ -433,27 +470,11 @@ export default function MapScreen() {
         </View>
       )}
 
-      {/* BOTÃO +ADD LOCAL (só aparece se tem pin mas fechou o popup) */}
-      {tempPin && !showNameModal && (
-        <TouchableOpacity
-          style={styles.addButton}
-          onPress={() => {
-            setNewLocalName('');
-            setShowNameModal(true);
-          }}
-          disabled={isAdding}
-        >
-          <Text style={styles.addButtonText}>
-            {isAdding ? '⏳' : '+'} Add Local
-          </Text>
-        </TouchableOpacity>
-      )}
-
-      {/* DICA quando não tem pin */}
-      {!tempPin && locais.length === 0 && (
+      {/* DICA quando não tem locais */}
+      {locais.length === 0 && (
         <View style={styles.hintContainer}>
           <Text style={styles.hintText}>
-            👆 Pressione e segure no mapa ou busque um endereço para adicionar um local
+            👆 Long press on the map or search an address to add a location
           </Text>
         </View>
       )}
@@ -472,11 +493,11 @@ export default function MapScreen() {
         >
           <View style={styles.radiusModal}>
             <Text style={styles.radiusModalTitle}>
-              📏 Ajustar Raio
+              📏 Adjust Radius
             </Text>
             {selectedLocal && (
               <Text style={styles.radiusModalSubtitle}>
-                {selectedLocal.nome} • Atual: {selectedLocal.raio}m
+                {selectedLocal.nome} • Current: {selectedLocal.raio}m
               </Text>
             )}
             
@@ -509,7 +530,7 @@ export default function MapScreen() {
                 }
               }}
             >
-              <Text style={styles.radiusDeleteText}>🗑️ Remover Local</Text>
+              <Text style={styles.radiusDeleteText}>🗑️ Remove Location</Text>
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
@@ -520,49 +541,85 @@ export default function MapScreen() {
         visible={showNameModal}
         transparent
         animationType="fade"
-        onRequestClose={() => setShowNameModal(false)}
+        onRequestClose={cancelAndClearPin}
       >
         <TouchableOpacity
           style={styles.modalOverlay}
           activeOpacity={1}
-          onPress={() => setShowNameModal(false)}
+          onPress={cancelAndClearPin}
         >
-          <View style={styles.nameModal}>
-            <Text style={styles.nameModalTitle}>📍 Nome do Local</Text>
-            <Text style={styles.nameModalSubtitle}>
-              Digite um nome para identificar este local
-            </Text>
-            
-            <TextInput
-              style={styles.nameInput}
-              placeholder="Ex: Escritório, Obra Centro..."
-              placeholderTextColor={colors.textSecondary}
-              value={newLocalName}
-              onChangeText={setNewLocalName}
-              autoFocus
-              returnKeyType="done"
-              onSubmitEditing={handleConfirmAddLocal}
-            />
-            
-            <View style={styles.nameModalActions}>
-              <TouchableOpacity
-                style={styles.nameModalCancel}
-                onPress={() => setShowNameModal(false)}
-              >
-                <Text style={styles.nameModalCancelText}>Cancelar</Text>
-              </TouchableOpacity>
+          <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.nameModal}>
+              <Text style={styles.nameModalTitle}>📍 Location Name</Text>
+              <Text style={styles.nameModalSubtitle}>
+                Enter a name to identify this location
+              </Text>
               
-              <TouchableOpacity
-                style={[styles.nameModalConfirm, isAdding && styles.nameModalConfirmDisabled]}
-                onPress={handleConfirmAddLocal}
-                disabled={isAdding}
-              >
-                <Text style={styles.nameModalConfirmText}>
-                  {isAdding ? '⏳' : 'Adicionar'}
-                </Text>
-              </TouchableOpacity>
+              <Animated.View style={{ transform: [{ translateX: shakeAnimation }] }}>
+                <TextInput
+                  ref={nameInputRef}
+                  style={[
+                    styles.nameInput,
+                    nameInputError && styles.nameInputError,
+                  ]}
+                  placeholder="e.g. Office, Construction Site..."
+                  placeholderTextColor={colors.textTertiary}
+                  value={newLocalName}
+                  onChangeText={(text) => {
+                    setNewLocalName(text);
+                    if (nameInputError) setNameInputError(false);
+                  }}
+                  autoFocus
+                  returnKeyType="done"
+                  onSubmitEditing={handleConfirmAddLocal}
+                />
+              </Animated.View>
+              {nameInputError && (
+                <Text style={styles.nameInputErrorText}>Please enter a name</Text>
+              )}
+
+              {/* SELETOR DE RAIO */}
+              <Text style={styles.radiusSectionTitle}>📏 Geofence Radius</Text>
+              <View style={styles.radiusOptionsInline}>
+                {RADIUS_OPTIONS.map((r) => (
+                  <TouchableOpacity
+                    key={r}
+                    style={[
+                      styles.radiusOptionSmall,
+                      newLocalRadius === r && styles.radiusOptionSmallActive,
+                    ]}
+                    onPress={() => setNewLocalRadius(r)}
+                  >
+                    <Text style={[
+                      styles.radiusOptionSmallText,
+                      newLocalRadius === r && styles.radiusOptionSmallTextActive,
+                    ]}>
+                      {r}m
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              
+              <View style={styles.nameModalActions}>
+                <TouchableOpacity
+                  style={styles.nameModalCancel}
+                  onPress={cancelAndClearPin}
+                >
+                  <Text style={styles.nameModalCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                  style={[styles.nameModalConfirm, isAdding && styles.nameModalConfirmDisabled]}
+                  onPress={handleConfirmAddLocal}
+                  disabled={isAdding}
+                >
+                  <Text style={styles.nameModalConfirmText}>
+                    {isAdding ? '⏳' : 'Add'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
+          </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
     </View>
@@ -613,7 +670,7 @@ const styles = StyleSheet.create({
   searchBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.white,
+    backgroundColor: colors.card,
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 10,
@@ -639,7 +696,7 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   searchResults: {
-    backgroundColor: colors.white,
+    backgroundColor: colors.card,
     borderRadius: 12,
     marginTop: 8,
     shadowColor: colors.black,
@@ -674,7 +731,7 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: colors.white,
+    backgroundColor: colors.card,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: colors.black,
@@ -691,7 +748,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: Platform.OS === 'ios' ? 130 : 86,
     left: 16,
-    backgroundColor: colors.white,
+    backgroundColor: colors.card,
     paddingVertical: 10,
     paddingHorizontal: 16,
     borderRadius: 20,
@@ -723,7 +780,7 @@ const styles = StyleSheet.create({
   localChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.white,
+    backgroundColor: colors.card,
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 20,
@@ -746,27 +803,6 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: colors.text,
     maxWidth: 100,
-  },
-
-  // Add button
-  addButton: {
-    position: 'absolute',
-    bottom: 90,
-    right: 16,
-    backgroundColor: colors.primary,
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    borderRadius: 25,
-    shadowColor: colors.black,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
-    shadowRadius: 5,
-    elevation: 6,
-  },
-  addButtonText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: colors.white,
   },
 
   // Hint
@@ -793,7 +829,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   radiusModal: {
-    backgroundColor: colors.white,
+    backgroundColor: colors.card,
     borderRadius: 20,
     padding: 24,
     width: width - 48,
@@ -836,7 +872,7 @@ const styles = StyleSheet.create({
     color: colors.text,
   },
   radiusOptionTextActive: {
-    color: colors.white,
+    color: colors.black,
   },
   radiusDeleteButton: {
     paddingVertical: 12,
@@ -852,7 +888,7 @@ const styles = StyleSheet.create({
 
   // Name Modal
   nameModal: {
-    backgroundColor: colors.white,
+    backgroundColor: colors.card,
     borderRadius: 20,
     padding: 24,
     width: width - 48,
@@ -879,7 +915,50 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     fontSize: 16,
     color: colors.text,
+    backgroundColor: colors.backgroundTertiary,
+  },
+  nameInputError: {
+    borderColor: colors.error,
+    borderWidth: 2,
+  },
+  nameInputErrorText: {
+    fontSize: 12,
+    color: colors.error,
+    marginTop: 6,
+    textAlign: 'center',
+  },
+  radiusSectionTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text,
+    marginTop: 16,
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  radiusOptionsInline: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  radiusOptionSmall: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 16,
     backgroundColor: colors.backgroundSecondary,
+    minWidth: 55,
+    alignItems: 'center',
+  },
+  radiusOptionSmallActive: {
+    backgroundColor: colors.primary,
+  },
+  radiusOptionSmallText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  radiusOptionSmallTextActive: {
+    color: colors.black,
   },
   nameModalActions: {
     flexDirection: 'row',
@@ -911,7 +990,7 @@ const styles = StyleSheet.create({
   },
   nameModalConfirmText: {
     fontSize: 15,
-    color: colors.white,
+    color: colors.black,
     fontWeight: '600',
   },
 });

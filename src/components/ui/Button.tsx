@@ -64,7 +64,7 @@ export function Button({
       {loading ? (
         <ActivityIndicator
           size="small"
-          color={variant === 'primary' ? colors.white : colors.primary}
+          color={variant === 'primary' ? colors.black : colors.primary}
         />
       ) : (
         <>
@@ -189,7 +189,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   buttonText_primary: {
-    color: colors.white,
+    color: colors.black,
   },
   buttonText_secondary: {
     color: colors.text,
@@ -213,7 +213,7 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   
-  // Input
+  // Input - DARK MODE
   inputContainer: {
     marginBottom: 16,
   },
@@ -229,7 +229,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 12,
-    backgroundColor: colors.white,
+    backgroundColor: colors.backgroundTertiary,
   },
   inputWrapper_error: {
     borderColor: colors.error,
@@ -256,15 +256,12 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   
-  // Card
+  // Card - DARK MODE
   card: {
-    backgroundColor: colors.white,
+    backgroundColor: colors.card,
     borderRadius: 16,
     padding: 16,
-    shadowColor: colors.black,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
   },
 });
