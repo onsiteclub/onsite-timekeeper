@@ -4,7 +4,7 @@
  * Funções utilitárias para manipulação de datas e calendário
  */
 
-import type { SessaoComputada } from '../../src/lib/database';
+import type { SessaoComputada } from '../../lib/database';
 
 // ============================================
 // CONSTANTES

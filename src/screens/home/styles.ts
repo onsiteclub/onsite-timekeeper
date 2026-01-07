@@ -3,7 +3,7 @@
  */
 
 import { StyleSheet, Dimensions, Platform, StatusBar } from 'react-native';
-import { colors, withOpacity } from '../../src/constants/colors';
+import { colors, withOpacity } from '../../constants/colors';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 export const MONTH_DAY_SIZE = (SCREEN_WIDTH - 32 - 12) / 7;
@@ -30,8 +30,8 @@ export const styles = StyleSheet.create({
 
   // TIMER
   timerCard: { padding: 20, marginBottom: 0, alignItems: 'center' },
-  timerCardActive: { backgroundColor: withOpacity(colors.success, 0.1), borderWidth: 1, borderColor: colors.success },
-  timerCardIdle: { backgroundColor: withOpacity(colors.primary, 0.1) },
+  timerCardActive: { backgroundColor: colors.primarySoft, borderWidth: 1, borderColor: colors.primary },
+  timerCardIdle: { backgroundColor: colors.backgroundTertiary },
   
   locationBadge: {
     backgroundColor: colors.primary,
@@ -43,24 +43,32 @@ export const styles = StyleSheet.create({
   locationBadgeText: {
     fontSize: 14,
     fontWeight: '600',
-    color: colors.black,
+    color: colors.buttonPrimaryText,
   },
   
   timerHint: { fontSize: 14, color: colors.textSecondary, marginBottom: 8 },
   timer: { fontSize: 48, fontWeight: 'bold', fontVariant: ['tabular-nums'], color: colors.text, marginBottom: 8 },
-  timerPaused: { opacity: 0.4 },
+  timerPaused: { opacity: 0.5 },
   timerActions: { flexDirection: 'row', justifyContent: 'center', gap: 12 },
-  actionBtn: { paddingVertical: 10, paddingHorizontal: 20, borderRadius: 20, minWidth: 110, alignItems: 'center' },
-  actionBtnText: { fontSize: 14, fontWeight: '600', color: colors.white },
-  pauseBtn: { backgroundColor: colors.warning },
-  continueBtn: { backgroundColor: colors.success },
+  actionBtn: { paddingVertical: 12, paddingHorizontal: 24, borderRadius: 24, minWidth: 120, alignItems: 'center' },
+  actionBtnText: { fontSize: 14, fontWeight: '600' },
+  // Pause: fundo secundário, texto claro
+  pauseBtn: { backgroundColor: colors.backgroundElevated, borderWidth: 1, borderColor: colors.border },
+  pauseBtnText: { color: colors.text },
+  // Resume: amarelo
+  continueBtn: { backgroundColor: colors.primary },
+  continueBtnText: { color: colors.buttonPrimaryText },
+  // Stop: vermelho discreto
   stopBtn: { backgroundColor: colors.error },
+  stopBtnText: { color: colors.white },
+  // Start: amarelo
   startBtn: { backgroundColor: colors.primary },
+  startBtnText: { color: colors.buttonPrimaryText },
 
-  pausaContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.1)', paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20, marginBottom: 16, gap: 8 },
+  pausaContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: colors.backgroundTertiary, paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20, marginBottom: 16, gap: 8 },
   pausaLabel: { fontSize: 14, color: colors.textSecondary },
   pausaTimer: { fontSize: 18, fontWeight: '600', fontVariant: ['tabular-nums'], color: colors.textSecondary },
-  pausaTimerActive: { color: colors.warning },
+  pausaTimerActive: { color: colors.primary },
 
   sectionDivider: { height: 1, backgroundColor: colors.border, marginVertical: 16, marginHorizontal: 20, opacity: 0.5 },
 

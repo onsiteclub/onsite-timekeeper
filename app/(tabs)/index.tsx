@@ -4,13 +4,15 @@
  * Tela principal com timer e calendário de sessões.
  * 
  * Estrutura refatorada:
- * - index.tsx        → JSX (este arquivo)
- * - index.hooks.ts   → Lógica (states, effects, handlers)
- * - index.helpers.ts → Funções utilitárias
- * - index.styles.ts  → StyleSheet
+ * - index.tsx         → JSX (este arquivo)
+ * - _index.hooks.ts   → Lógica (states, effects, handlers)
+ * - _index.helpers.ts → Funções utilitárias
+ * - _index.styles.ts  → StyleSheet
+ * 
+ * NOTA: Arquivos começam com _ para não aparecer na tab bar
  */
 
-import React from 'react';
+import React, { useRef } from 'react';
 import {
   View,
   Text,
@@ -25,16 +27,24 @@ import {
 
 import { Card } from '../../src/components/ui/Button';
 import { colors } from '../../src/constants/colors';
+import type { SessaoComputada } from '../../src/lib/database';
+import type { LocalDeTrabalho } from '../../src/stores/locationStore';
 
-import { useHomeScreen } from './index.hooks';
-import { styles, MONTH_DAY_SIZE } from './index.styles';
-import { DIAS_SEMANA_SHORT } from './index.helpers';
+import { useHomeScreen } from '../../src/screens/home/hooks';
+import { styles, MONTH_DAY_SIZE } from '../../src/screens/home/styles';
+import { DIAS_SEMANA_SHORT, type DiaCalendario } from '../../src/screens/home/helpers';
 
 // ============================================
 // COMPONENT
 // ============================================
 
 export default function HomeScreen() {
+  // Refs para auto-pulo entre campos de tempo
+  const entradaMRef = useRef<TextInput>(null);
+  const saidaHRef = useRef<TextInput>(null);
+  const saidaMRef = useRef<TextInput>(null);
+  const pausaRef = useRef<TextInput>(null);
+
   const {
     // Data
     userName,
@@ -133,7 +143,7 @@ export default function HomeScreen() {
 
   const renderDayReport = (date: Date) => {
     const sessoesDodia = getSessoesForDay(date);
-    const sessoesFinalizadas = sessoesDodia.filter(s => s.saida);
+    const sessoesFinalizadas = sessoesDodia.filter((s: SessaoComputada) => s.saida);
     const dayKey = getDayKey(date);
     const totalMinutos = getTotalMinutosForDay(date);
 
@@ -164,7 +174,7 @@ export default function HomeScreen() {
           </View>
 
           {/* Sessions */}
-          {sessoesFinalizadas.map((sessao) => {
+          {sessoesFinalizadas.map((sessao: SessaoComputada) => {
             const isManual = sessao.tipo === 'manual';
             const isAjustado = sessao.editado_manualmente === 1 && !isManual;
             const pausaMin = sessao.pausa_minutos || 0;
@@ -248,15 +258,15 @@ export default function HomeScreen() {
             <View style={styles.timerActions}>
               {isPaused ? (
                 <TouchableOpacity style={[styles.actionBtn, styles.continueBtn]} onPress={handleContinuar}>
-                  <Text style={styles.actionBtnText}>▶️ Resume</Text>
+                  <Text style={[styles.actionBtnText, styles.continueBtnText]}>▶ Resume</Text>
                 </TouchableOpacity>
               ) : (
                 <TouchableOpacity style={[styles.actionBtn, styles.pauseBtn]} onPress={handlePausar}>
-                  <Text style={styles.actionBtnText}>⏸️ Pause</Text>
+                  <Text style={[styles.actionBtnText, styles.pauseBtnText]}>⏸ Pause</Text>
                 </TouchableOpacity>
               )}
               <TouchableOpacity style={[styles.actionBtn, styles.stopBtn]} onPress={handleParar}>
-                <Text style={styles.actionBtnText}>⏹️ Stop</Text>
+                <Text style={[styles.actionBtnText, styles.stopBtnText]}>⏹ End</Text>
               </TouchableOpacity>
             </View>
           </>
@@ -267,7 +277,7 @@ export default function HomeScreen() {
             </View>
             <Text style={styles.timer}>00:00:00</Text>
             <TouchableOpacity style={[styles.actionBtn, styles.startBtn]} onPress={handleRecomecar}>
-              <Text style={styles.actionBtnText}>▶️ Start</Text>
+              <Text style={[styles.actionBtnText, styles.startBtnText]}>▶ Start</Text>
             </TouchableOpacity>
           </>
         ) : (
@@ -347,12 +357,12 @@ export default function HomeScreen() {
       {/* WEEK VIEW */}
       {viewMode === 'week' && (
         <>
-          {diasCalendarioSemana.map((dia) => {
+          {diasCalendarioSemana.map((dia: DiaCalendario) => {
             const dayKey = getDayKey(dia.data);
             const isExpanded = expandedDay === dayKey && !selectionMode;
             const hasSessoes = dia.sessoes.length > 0;
             const isDiaHoje = isToday(dia.data);
-            const hasAtiva = dia.sessoes.some(s => !s.saida);
+            const hasAtiva = dia.sessoes.some((s: SessaoComputada) => !s.saida);
             const isSelected = selectedDays.has(dayKey);
 
             return (
@@ -418,14 +428,14 @@ export default function HomeScreen() {
         <View style={styles.monthContainer}>
           {/* Weekday headers */}
           <View style={styles.monthWeekHeader}>
-            {DIAS_SEMANA_SHORT.map((d, i) => (
+            {DIAS_SEMANA_SHORT.map((d: string, i: number) => (
               <Text key={i} style={styles.monthWeekHeaderText}>{d}</Text>
             ))}
           </View>
 
           {/* Days grid */}
           <View style={styles.monthGrid}>
-            {diasCalendarioMes.map((date, index) => {
+            {diasCalendarioMes.map((date: Date | null, index: number) => {
               if (!date) {
                 return <View key={`empty-${index}`} style={styles.monthDayEmpty} />;
               }
@@ -504,7 +514,7 @@ export default function HomeScreen() {
 
             <Text style={styles.inputLabel}>Location:</Text>
             <View style={styles.localPicker}>
-              {locais.map((local) => (
+              {locais.map((local: LocalDeTrabalho) => (
                 <TouchableOpacity
                   key={local.id}
                   style={[styles.localOption, manualLocalId === local.id && styles.localOptionActive]}
@@ -527,18 +537,27 @@ export default function HomeScreen() {
                     placeholder="08"
                     placeholderTextColor={colors.textSecondary}
                     value={manualEntradaH}
-                    onChangeText={(t) => setManualEntradaH(t.replace(/[^0-9]/g, '').slice(0, 2))}
+                    onChangeText={(t) => {
+                      const clean = t.replace(/[^0-9]/g, '').slice(0, 2);
+                      setManualEntradaH(clean);
+                      if (clean.length === 2) entradaMRef.current?.focus();
+                    }}
                     keyboardType="number-pad"
                     maxLength={2}
                     selectTextOnFocus
                   />
                   <Text style={styles.timeSeparator}>:</Text>
                   <TextInput
+                    ref={entradaMRef}
                     style={styles.timeInputSmall}
                     placeholder="00"
                     placeholderTextColor={colors.textSecondary}
                     value={manualEntradaM}
-                    onChangeText={(t) => setManualEntradaM(t.replace(/[^0-9]/g, '').slice(0, 2))}
+                    onChangeText={(t) => {
+                      const clean = t.replace(/[^0-9]/g, '').slice(0, 2);
+                      setManualEntradaM(clean);
+                      if (clean.length === 2) saidaHRef.current?.focus();
+                    }}
                     keyboardType="number-pad"
                     maxLength={2}
                     selectTextOnFocus
@@ -549,22 +568,32 @@ export default function HomeScreen() {
                 <Text style={styles.inputLabel}>Exit:</Text>
                 <View style={styles.timeInputRow}>
                   <TextInput
+                    ref={saidaHRef}
                     style={styles.timeInputSmall}
                     placeholder="17"
                     placeholderTextColor={colors.textSecondary}
                     value={manualSaidaH}
-                    onChangeText={(t) => setManualSaidaH(t.replace(/[^0-9]/g, '').slice(0, 2))}
+                    onChangeText={(t) => {
+                      const clean = t.replace(/[^0-9]/g, '').slice(0, 2);
+                      setManualSaidaH(clean);
+                      if (clean.length === 2) saidaMRef.current?.focus();
+                    }}
                     keyboardType="number-pad"
                     maxLength={2}
                     selectTextOnFocus
                   />
                   <Text style={styles.timeSeparator}>:</Text>
                   <TextInput
+                    ref={saidaMRef}
                     style={styles.timeInputSmall}
                     placeholder="00"
                     placeholderTextColor={colors.textSecondary}
                     value={manualSaidaM}
-                    onChangeText={(t) => setManualSaidaM(t.replace(/[^0-9]/g, '').slice(0, 2))}
+                    onChangeText={(t) => {
+                      const clean = t.replace(/[^0-9]/g, '').slice(0, 2);
+                      setManualSaidaM(clean);
+                      if (clean.length === 2) pausaRef.current?.focus();
+                    }}
                     keyboardType="number-pad"
                     maxLength={2}
                     selectTextOnFocus
@@ -576,6 +605,7 @@ export default function HomeScreen() {
             <View style={styles.pausaRow}>
               <Text style={styles.inputLabel}>Break:</Text>
               <TextInput
+                ref={pausaRef}
                 style={styles.pausaInput}
                 placeholder="60"
                 placeholderTextColor={colors.textSecondary}

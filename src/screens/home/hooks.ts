@@ -13,13 +13,13 @@ import { Alert, Share } from 'react-native';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 
-import { useAuthStore } from '../../src/stores/authStore';
-import { useLocationStore } from '../../src/stores/locationStore';
-import { useRegistroStore } from '../../src/stores/registroStore';
-import { useSyncStore } from '../../src/stores/syncStore';
-import { formatarDuracao } from '../../src/lib/database';
-import type { SessaoComputada } from '../../src/lib/database';
-import { gerarRelatorioCompleto } from '../../src/lib/reports';
+import { useAuthStore } from '../../stores/authStore';
+import { useLocationStore } from '../../stores/locationStore';
+import { useRegistroStore } from '../../stores/registroStore';
+import { useSyncStore } from '../../stores/syncStore';
+import { formatarDuracao } from '../../lib/database';
+import type { SessaoComputada } from '../../lib/database';
+import { gerarRelatorioCompleto } from '../../lib/reports';
 
 import {
   DIAS_SEMANA,
@@ -35,7 +35,7 @@ import {
   isToday,
   getDayKey,
   type DiaCalendario,
-} from './index.helpers';
+} from './helpers';
 
 // ============================================
 // HOOK
@@ -75,6 +75,7 @@ export function useHomeScreen() {
   const [pausaAcumuladaSegundos, setPausaAcumuladaSegundos] = useState(0);
   const [pausaCronometro, setPausaCronometro] = useState('00:00:00');
   const [pausaInicioTimestamp, setPausaInicioTimestamp] = useState<number | null>(null);
+  const [tempoCongelado, setTempoCongelado] = useState<string | null>(null);
 
   // Calendar view mode
   const [viewMode, setViewMode] = useState<'week' | 'month'>('week');
@@ -119,7 +120,7 @@ export function useHomeScreen() {
   const fimSemana = getFimSemana(semanaAtual);
 
   // ============================================
-  // TIMER EFFECT
+  // TIMER EFFECT - Principal para quando pausado
   // ============================================
 
   useEffect(() => {
@@ -129,28 +130,37 @@ export function useHomeScreen() {
       setPausaAcumuladaSegundos(0);
       setPausaCronometro('00:00:00');
       setPausaInicioTimestamp(null);
+      setTempoCongelado(null);
+      return;
+    }
+
+    // Se pausado, mostra tempo congelado e não atualiza
+    if (isPaused) {
+      if (tempoCongelado) {
+        setCronometro(tempoCongelado);
+      }
       return;
     }
 
     const updateCronometro = () => {
       const inicio = new Date(sessaoAtual.entrada).getTime();
       const agora = Date.now();
-      const diffMs = agora - inicio;
-      const diffSec = Math.floor(diffMs / 1000);
+      // Subtrai o tempo total de pausas do cálculo
+      const diffMs = agora - inicio - (pausaAcumuladaSegundos * 1000);
+      const diffSec = Math.max(0, Math.floor(diffMs / 1000));
       
       const hours = Math.floor(diffSec / 3600);
       const mins = Math.floor((diffSec % 3600) / 60);
       const secs = diffSec % 60;
       
-      setCronometro(
-        `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
-      );
+      const novoTempo = `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+      setCronometro(novoTempo);
     };
 
     updateCronometro();
     const interval = setInterval(updateCronometro, 1000);
     return () => clearInterval(interval);
-  }, [sessaoAtual]);
+  }, [sessaoAtual, isPaused, tempoCongelado, pausaAcumuladaSegundos]);
 
   // Pause timer effect
   useEffect(() => {
@@ -255,6 +265,8 @@ export function useHomeScreen() {
   // ============================================
 
   const handlePausar = () => {
+    // Congela o tempo atual antes de pausar
+    setTempoCongelado(cronometro);
     setIsPaused(true);
     setPausaInicioTimestamp(Date.now());
   };
@@ -265,6 +277,7 @@ export function useHomeScreen() {
       setPausaAcumuladaSegundos(prev => prev + pausaDuracao);
     }
     setPausaInicioTimestamp(null);
+    setTempoCongelado(null); // Libera para voltar a contar
     setIsPaused(false);
   };
 
