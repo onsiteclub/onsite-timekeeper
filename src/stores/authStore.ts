@@ -5,7 +5,8 @@
  * - Login/Logout
  * - Registro de usuário
  * - Sessão persistente
- * - NOVO: Registra auth events para auditoria
+ * - Registra auth events para auditoria
+ * - Persiste userId para background tasks
  */
 
 import { create } from 'zustand';
@@ -15,6 +16,12 @@ import * as Application from 'expo-application';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { logger } from '../lib/logger';
 import { incrementarTelemetria } from '../lib/database';
+import { 
+  setBackgroundUserId, 
+  clearBackgroundUserId,
+  startHeartbeat,
+  stopHeartbeat,
+} from '../lib/backgroundTasks';
 import type { User, Session } from '@supabase/supabase-js';
 
 // ============================================
@@ -70,7 +77,6 @@ async function registrarAuthEvent(
   if (!isSupabaseConfigured()) return;
 
   try {
-    // Coleta info do device
     const deviceInfo = {
       model: Device.modelName || 'unknown',
       brand: Device.brand || 'unknown',
@@ -81,7 +87,6 @@ async function registrarAuthEvent(
     const appVersion = Application.nativeApplicationVersion || 'unknown';
     const osVersion = `${Platform.OS} ${Platform.Version}`;
 
-    // Insere na tabela app_events
     const { error } = await supabase.from('app_events').insert({
       user_id: userId,
       event_type: eventType,
@@ -101,8 +106,47 @@ async function registrarAuthEvent(
       logger.debug('auth', `📊 Auth event registrado: ${eventType}`);
     }
   } catch (error) {
-    // Não falha silenciosamente, mas não bloqueia o fluxo
     logger.warn('auth', 'Exceção ao registrar auth event', { error: String(error) });
+  }
+}
+
+// ============================================
+// HELPER: Configurar Background após Login
+// ============================================
+
+async function configurarBackgroundParaUsuario(userId: string): Promise<void> {
+  try {
+    // 1. Persiste userId para background tasks
+    await setBackgroundUserId(userId);
+    logger.debug('auth', '✅ UserId salvo para background');
+
+    // 2. Inicia heartbeat (safety net)
+    const heartbeatIniciado = await startHeartbeat();
+    if (heartbeatIniciado) {
+      logger.debug('auth', '✅ Heartbeat iniciado');
+    } else {
+      logger.warn('auth', '⚠️ Heartbeat não pôde ser iniciado');
+    }
+  } catch (error) {
+    logger.error('auth', 'Erro ao configurar background', { error: String(error) });
+  }
+}
+
+// ============================================
+// HELPER: Limpar Background após Logout
+// ============================================
+
+async function limparBackgroundDoUsuario(): Promise<void> {
+  try {
+    // 1. Para heartbeat
+    await stopHeartbeat();
+    logger.debug('auth', '✅ Heartbeat parado');
+
+    // 2. Remove userId do background
+    await clearBackgroundUserId();
+    logger.debug('auth', '✅ UserId removido do background');
+  } catch (error) {
+    logger.error('auth', 'Erro ao limpar background', { error: String(error) });
   }
 }
 
@@ -120,14 +164,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       logger.info('boot', '🔐 Inicializando autenticação...');
 
-      // Verifica se Supabase está configurado
       if (!isSupabaseConfigured()) {
         logger.warn('auth', 'Supabase não configurado - modo offline');
         set({ isLoading: false });
         return;
       }
 
-      // Tenta restaurar sessão existente
       const { data: { session }, error } = await supabase.auth.getSession();
 
       if (error) {
@@ -149,12 +191,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           email: session.user.email 
         });
 
-        // Registra evento de sessão restaurada
+        // ========================================
+        // NOVO: Configura background para usuário
+        // ========================================
+        await configurarBackgroundParaUsuario(session.user.id);
+
+        // Registra evento
         await registrarAuthEvent('session_restored', session.user.id, {
           email: session.user.email,
         });
 
-        // Incrementa app_opens na telemetria
+        // Incrementa app_opens
         await incrementarTelemetria(session.user.id, 'app_opens');
       } else {
         set({ isLoading: false });
@@ -162,10 +209,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
 
       // Listener para mudanças de autenticação
-      supabase.auth.onAuthStateChange((event, session) => {
+      supabase.auth.onAuthStateChange(async (event, session) => {
         logger.debug('auth', `Auth event: ${event}`);
         
-        // Ignora INITIAL_SESSION pois já tratamos no getSession()
         if (event === 'INITIAL_SESSION') {
           return;
         }
@@ -176,10 +222,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           isAuthenticated: !!session,
         });
 
-        if (event === 'SIGNED_IN') {
+        // ========================================
+        // NOVO: Atualiza background conforme evento
+        // ========================================
+        if (event === 'SIGNED_IN' && session?.user) {
           logger.info('auth', '✅ Login realizado');
+          await configurarBackgroundParaUsuario(session.user.id);
         } else if (event === 'SIGNED_OUT') {
           logger.info('auth', '👋 Logout realizado');
+          await limparBackgroundDoUsuario();
         }
       });
     } catch (error) {
@@ -204,13 +255,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       if (error) {
         logger.warn('auth', '❌ Falha no login', { error: error.message });
         
-        // Registra falha de login
         await registrarAuthEvent('login_failed', null, {
           email,
           error: error.message,
         });
         
-        // Traduz mensagens de erro comuns
         let mensagem = error.message;
         if (error.message.includes('Invalid login')) {
           mensagem = 'Email ou senha incorretos';
@@ -227,13 +276,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         isAuthenticated: true,
       });
 
-      // Registra login bem-sucedido
+      // ========================================
+      // NOVO: Configura background para usuário
+      // ========================================
+      if (data.user?.id) {
+        await configurarBackgroundParaUsuario(data.user.id);
+      }
+
       await registrarAuthEvent('login', data.user?.id || null, {
         email,
         method: 'password',
       });
 
-      // Incrementa app_opens na telemetria
       if (data.user?.id) {
         await incrementarTelemetria(data.user.id, 'app_opens');
       }
@@ -275,7 +329,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         return { error: mensagem };
       }
 
-      // Registra signup
       await registrarAuthEvent('signup', data.user?.id || null, {
         email,
         nome,
@@ -295,8 +348,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           isAuthenticated: true,
         });
 
-        // Incrementa app_opens na telemetria
+        // ========================================
+        // NOVO: Configura background para usuário
+        // ========================================
         if (data.user?.id) {
+          await configurarBackgroundParaUsuario(data.user.id);
           await incrementarTelemetria(data.user.id, 'app_opens');
         }
       }
@@ -316,10 +372,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const userId = get().user?.id || null;
       const userEmail = get().user?.email;
 
-      // Registra logout ANTES de limpar o state
+      // Registra logout ANTES de limpar
       await registrarAuthEvent('logout', userId, {
         email: userEmail,
       });
+
+      // ========================================
+      // NOVO: Limpa background ANTES do logout
+      // ========================================
+      await limparBackgroundDoUsuario();
 
       if (isSupabaseConfigured()) {
         await supabase.auth.signOut();
@@ -334,7 +395,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       logger.info('auth', '✅ Logout realizado');
     } catch (error) {
       logger.error('auth', 'Erro no logout', { error: String(error) });
-      // Força logout local mesmo se falhar no servidor
+      // Força logout local mesmo se falhar
       set({
         user: null,
         session: null,

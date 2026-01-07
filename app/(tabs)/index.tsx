@@ -203,6 +203,8 @@ export default function HomeScreen() {
   const [manualSaida, setManualSaida] = useState('');
   const [manualPausa, setManualPausa] = useState('');
 
+  // Session finished modal (controlled, can be dismissed programmatically)
+  const [showSessionFinishedModal, setShowSessionFinishedModal] = useState(false);
   // Active location
   const localAtivo = geofenceAtivo ? locais.find(l => l.id === geofenceAtivo) : null;
   const podeRecomecar = localAtivo && !sessaoAtual;
@@ -266,19 +268,24 @@ export default function HomeScreen() {
     return () => clearInterval(interval);
   }, [isPaused, pausaInicioTimestamp, pausaAcumuladaSegundos, sessaoAtual]);
 
-  // Session finished alert
+  // Session finished - show modal (can be dismissed by geofence events)
   useEffect(() => {
     if (ultimaSessaoFinalizada) {
-      Alert.alert(
-        '✅ Session Finished',
-        `Location: ${ultimaSessaoFinalizada.local_nome}\nDuration: ${formatarDuracao(ultimaSessaoFinalizada.duracao_minutos)}`,
-        [
-          { text: 'OK', onPress: limparUltimaSessao },
-          { text: '📤 Share', onPress: () => { compartilharUltimaSessao(); limparUltimaSessao(); } },
-        ]
-      );
+      setShowSessionFinishedModal(true);
+    } else {
+      setShowSessionFinishedModal(false);
     }
   }, [ultimaSessaoFinalizada]);
+
+  const handleDismissSessionModal = () => {
+    setShowSessionFinishedModal(false);
+    limparUltimaSessao();
+  };
+
+  const handleShareSession = async () => {
+    await compartilharUltimaSessao();
+    handleDismissSessionModal();
+  };
 
   // ============================================
   // LOAD DATA
@@ -1199,6 +1206,47 @@ export default function HomeScreen() {
         </View>
       </Modal>
 
+      {/* SESSION FINISHED MODAL */}
+      <Modal
+        visible={showSessionFinishedModal && !!ultimaSessaoFinalizada}
+        transparent
+        animationType="fade"
+        onRequestClose={handleDismissSessionModal}
+      >
+        <View style={styles.sessionModalOverlay}>
+          <View style={styles.sessionModalContent}>
+            <Text style={styles.sessionModalEmoji}>✅</Text>
+            <Text style={styles.sessionModalTitle}>Session Finished</Text>
+            
+            {ultimaSessaoFinalizada && (
+              <>
+                <Text style={styles.sessionModalLocation}>
+                  📍 {ultimaSessaoFinalizada.local_nome}
+                </Text>
+                <Text style={styles.sessionModalDuration}>
+                  {formatarDuracao(ultimaSessaoFinalizada.duracao_minutos)}
+                </Text>
+              </>
+            )}
+
+            <View style={styles.sessionModalActions}>
+              <TouchableOpacity 
+                style={styles.sessionModalBtnSecondary} 
+                onPress={handleDismissSessionModal}
+              >
+                <Text style={styles.sessionModalBtnSecondaryText}>OK</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.sessionModalBtnPrimary} 
+                onPress={handleShareSession}
+              >
+                <Text style={styles.sessionModalBtnPrimaryText}>📤 Share</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <View style={{ height: 32 }} />
     </ScrollView>
   );
@@ -1506,4 +1554,71 @@ const styles = StyleSheet.create({
   cancelBtnText: { fontSize: 15, color: colors.textSecondary, fontWeight: '600' },
   saveBtn: { flex: 1, paddingVertical: 14, borderRadius: 10, backgroundColor: colors.primary, alignItems: 'center' },
   saveBtnText: { fontSize: 15, color: colors.black, fontWeight: '600' },
+
+  // SESSION FINISHED MODAL
+  sessionModalOverlay: {
+    flex: 1,
+    backgroundColor: withOpacity(colors.black, 0.8),
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 32,
+  },
+  sessionModalContent: {
+    backgroundColor: colors.card,
+    borderRadius: 24,
+    padding: 32,
+    alignItems: 'center',
+    width: '100%',
+    maxWidth: 320,
+  },
+  sessionModalEmoji: {
+    fontSize: 64,
+    marginBottom: 16,
+  },
+  sessionModalTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: colors.text,
+    marginBottom: 16,
+  },
+  sessionModalLocation: {
+    fontSize: 18,
+    color: colors.textSecondary,
+    marginBottom: 8,
+  },
+  sessionModalDuration: {
+    fontSize: 36,
+    fontWeight: 'bold',
+    color: colors.primary,
+    marginBottom: 24,
+  },
+  sessionModalActions: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+  },
+  sessionModalBtnSecondary: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: colors.backgroundTertiary,
+    alignItems: 'center',
+  },
+  sessionModalBtnSecondaryText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  sessionModalBtnPrimary: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+  },
+  sessionModalBtnPrimaryText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.black,
+  },
 });

@@ -6,14 +6,32 @@
  * - LOCATION_TASK: Updates de posição
  * - HEARTBEAT_TASK: Verifica a cada 15 min se ainda está na fence (safety net)
  * 
- * IMPORTANTE: Importar no entry point ANTES de usar
+ * IMPORTANTE: 
+ * - Importar no entry point ANTES de usar
+ * - Tasks processam DIRETO no banco, sem depender de callbacks
+ *   (callbacks são opcionais, para atualizar UI quando app está ativo)
  */
 
 import * as TaskManager from 'expo-task-manager';
 import * as Location from 'expo-location';
 import * as BackgroundFetch from 'expo-background-fetch';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { logger } from './logger';
 import { LOCATION_TASK_NAME, GEOFENCE_TASK_NAME } from './location';
+
+// ============================================
+// IMPORTS DO DATABASE (processamento direto)
+// ============================================
+
+import {
+  getSessaoAtivaGlobal,
+  criarRegistroEntrada,
+  registrarSaida,
+  getLocais,
+  registrarGeoponto,
+  registrarHeartbeat,
+  type LocalDB,
+} from './database';
 
 // ============================================
 // CONSTANTES
@@ -21,7 +39,10 @@ import { LOCATION_TASK_NAME, GEOFENCE_TASK_NAME } from './location';
 
 export const HEARTBEAT_TASK_NAME = 'onsite-heartbeat-task';
 export const HEARTBEAT_INTERVAL = 15 * 60; // 15 minutos em segundos
-const HISTERESE_SAIDA = 1.5; // Saída usa raio × 1.5 (evita ping-pong)
+const HISTERESE_ENTRADA = 1.0; // Entrada usa raio normal
+const HISTERESE_SAIDA = 1.3; // Saída usa raio × 1.3 (evita ping-pong)
+const USER_ID_KEY = '@onsite:userId'; // Chave para persistir userId
+const SKIPPED_TODAY_KEY = '@onsite:skippedToday'; // Chave para persistir locais ignorados
 
 // ============================================
 // TIPOS
@@ -55,7 +76,7 @@ export interface ActiveFence {
 }
 
 // ============================================
-// CALLBACKS (registrados pelos stores)
+// CALLBACKS (OPCIONAIS - para atualizar UI)
 // ============================================
 
 type GeofenceCallback = (event: GeofenceEvent) => void;
@@ -66,11 +87,11 @@ let onGeofenceEvent: GeofenceCallback | null = null;
 let onLocationUpdate: LocationCallback | null = null;
 let onHeartbeat: HeartbeatCallback | null = null;
 
-// Fences ativas (atualizadas pelo locationStore)
-let activeFences: ActiveFence[] = [];
+// Cache de fences (atualizado quando app está ativo)
+let activeFencesCache: ActiveFence[] = [];
 
 /**
- * Registra callback para eventos de geofence
+ * Registra callback para eventos de geofence (opcional, para UI)
  */
 export function setGeofenceCallback(callback: GeofenceCallback): void {
   onGeofenceEvent = callback;
@@ -78,7 +99,7 @@ export function setGeofenceCallback(callback: GeofenceCallback): void {
 }
 
 /**
- * Registra callback para atualizações de localização
+ * Registra callback para atualizações de localização (opcional, para UI)
  */
 export function setLocationCallback(callback: LocationCallback): void {
   onLocationUpdate = callback;
@@ -86,7 +107,7 @@ export function setLocationCallback(callback: LocationCallback): void {
 }
 
 /**
- * Registra callback para heartbeat
+ * Registra callback para heartbeat (opcional, para UI)
  */
 export function setHeartbeatCallback(callback: HeartbeatCallback): void {
   onHeartbeat = callback;
@@ -94,18 +115,18 @@ export function setHeartbeatCallback(callback: HeartbeatCallback): void {
 }
 
 /**
- * Atualiza lista de fences ativas
+ * Atualiza cache de fences ativas
  */
 export function updateActiveFences(fences: ActiveFence[]): void {
-  activeFences = fences;
-  logger.debug('heartbeat', `Fences atualizadas: ${fences.length}`);
+  activeFencesCache = fences;
+  logger.debug('heartbeat', `Fences em cache: ${fences.length}`);
 }
 
 /**
- * Retorna fences ativas
+ * Retorna fences do cache
  */
 export function getActiveFences(): ActiveFence[] {
-  return activeFences;
+  return activeFencesCache;
 }
 
 /**
@@ -116,6 +137,144 @@ export function clearCallbacks(): void {
   onLocationUpdate = null;
   onHeartbeat = null;
   logger.debug('gps', 'Callbacks removidos');
+}
+
+// ============================================
+// PERSISTÊNCIA DO USER ID
+// ============================================
+
+/**
+ * Salva userId para uso em background
+ * Chamar quando usuário faz login
+ */
+export async function setBackgroundUserId(userId: string): Promise<void> {
+  try {
+    await AsyncStorage.setItem(USER_ID_KEY, userId);
+    logger.debug('boot', `UserId salvo para background: ${userId.substring(0, 8)}...`);
+  } catch (error) {
+    logger.error('boot', 'Erro ao salvar userId', { error: String(error) });
+  }
+}
+
+/**
+ * Remove userId (chamar no logout)
+ */
+export async function clearBackgroundUserId(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(USER_ID_KEY);
+    logger.debug('boot', 'UserId removido');
+  } catch (error) {
+    logger.error('boot', 'Erro ao remover userId', { error: String(error) });
+  }
+}
+
+/**
+ * Recupera userId para processamento em background
+ */
+async function getBackgroundUserId(): Promise<string | null> {
+  try {
+    return await AsyncStorage.getItem(USER_ID_KEY);
+  } catch (error) {
+    logger.error('heartbeat', 'Erro ao recuperar userId', { error: String(error) });
+    return null;
+  }
+}
+
+// ============================================
+// PERSISTÊNCIA DO SKIPPED TODAY
+// ============================================
+
+/**
+ * Estrutura do skippedToday persistido
+ */
+interface SkippedTodayData {
+  date: string; // YYYY-MM-DD
+  localIds: string[];
+}
+
+/**
+ * Recupera lista de locais ignorados hoje
+ */
+async function getSkippedToday(): Promise<string[]> {
+  try {
+    const data = await AsyncStorage.getItem(SKIPPED_TODAY_KEY);
+    if (!data) return [];
+    
+    const parsed: SkippedTodayData = JSON.parse(data);
+    const today = new Date().toISOString().split('T')[0];
+    
+    // Se for de outro dia, retorna vazio (reset automático)
+    if (parsed.date !== today) {
+      return [];
+    }
+    
+    return parsed.localIds;
+  } catch (error) {
+    logger.error('geofence', 'Erro ao recuperar skippedToday', { error: String(error) });
+    return [];
+  }
+}
+
+/**
+ * Adiciona local à lista de ignorados hoje
+ */
+export async function addToSkippedToday(localId: string): Promise<void> {
+  try {
+    const current = await getSkippedToday();
+    if (current.includes(localId)) return;
+    
+    const today = new Date().toISOString().split('T')[0];
+    const data: SkippedTodayData = {
+      date: today,
+      localIds: [...current, localId],
+    };
+    
+    await AsyncStorage.setItem(SKIPPED_TODAY_KEY, JSON.stringify(data));
+    logger.debug('geofence', `Local ${localId} adicionado ao skippedToday`);
+  } catch (error) {
+    logger.error('geofence', 'Erro ao adicionar ao skippedToday', { error: String(error) });
+  }
+}
+
+/**
+ * Remove local da lista de ignorados (quando sai da fence)
+ */
+export async function removeFromSkippedToday(localId: string): Promise<void> {
+  try {
+    const current = await getSkippedToday();
+    if (!current.includes(localId)) return;
+    
+    const today = new Date().toISOString().split('T')[0];
+    const data: SkippedTodayData = {
+      date: today,
+      localIds: current.filter(id => id !== localId),
+    };
+    
+    await AsyncStorage.setItem(SKIPPED_TODAY_KEY, JSON.stringify(data));
+    logger.debug('geofence', `Local ${localId} removido do skippedToday`);
+  } catch (error) {
+    logger.error('geofence', 'Erro ao remover do skippedToday', { error: String(error) });
+  }
+}
+
+/**
+ * Limpa toda a lista de ignorados
+ */
+export async function clearSkippedToday(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(SKIPPED_TODAY_KEY);
+    logger.debug('geofence', 'skippedToday limpo');
+  } catch (error) {
+    logger.error('geofence', 'Erro ao limpar skippedToday', { error: String(error) });
+  }
+}
+
+/**
+ * Verifica se local está na lista de ignorados hoje
+ */
+async function isLocalSkippedToday(localId: string): Promise<boolean> {
+  const skipped = await getSkippedToday();
+  return skipped.includes(localId);
 }
 
 // ============================================
@@ -143,15 +302,40 @@ function calcularDistancia(
 }
 
 /**
- * Verifica em qual fence o ponto está dentro
- * @param usarHisterese Se true, usa raio expandido (para verificar saída)
+ * Busca fences do banco (para quando cache está vazio)
  */
-function verificarDentroFence(
+async function getFencesFromDb(userId: string): Promise<ActiveFence[]> {
+  try {
+    const locais = await getLocais(userId);
+    return locais.map(l => ({
+      id: l.id,
+      nome: l.nome,
+      latitude: l.latitude,
+      longitude: l.longitude,
+      radius: l.raio,
+    }));
+  } catch (error) {
+    logger.error('geofence', 'Erro ao buscar fences do banco', { error: String(error) });
+    return [];
+  }
+}
+
+/**
+ * Verifica em qual fence o ponto está dentro
+ */
+async function verificarDentroFence(
   latitude: number, 
   longitude: number,
+  userId: string,
   usarHisterese: boolean = false
-): { isInside: boolean; fenceId: string | null; fenceName: string | null } {
-  for (const fence of activeFences) {
+): Promise<{ isInside: boolean; fence: ActiveFence | null }> {
+  // Usa cache se disponível, senão busca do banco
+  let fences = activeFencesCache;
+  if (fences.length === 0) {
+    fences = await getFencesFromDb(userId);
+  }
+
+  for (const fence of fences) {
     const distancia = calcularDistancia(
       latitude, 
       longitude, 
@@ -159,50 +343,139 @@ function verificarDentroFence(
       fence.longitude
     );
     
-    const raioEfetivo = usarHisterese ? fence.radius * HISTERESE_SAIDA : fence.radius;
+    const fatorHisterese = usarHisterese ? HISTERESE_SAIDA : HISTERESE_ENTRADA;
+    const raioEfetivo = fence.radius * fatorHisterese;
     
     if (distancia <= raioEfetivo) {
-      return { isInside: true, fenceId: fence.id, fenceName: fence.nome };
+      return { isInside: true, fence };
     }
   }
-  return { isInside: false, fenceId: null, fenceName: null };
+  return { isInside: false, fence: null };
+}
+
+/**
+ * Encontra fence por ID
+ */
+async function getFenceById(fenceId: string, userId: string): Promise<ActiveFence | null> {
+  let fences = activeFencesCache;
+  if (fences.length === 0) {
+    fences = await getFencesFromDb(userId);
+  }
+  return fences.find(f => f.id === fenceId) || null;
 }
 
 // ============================================
-// TASK: GEOFENCING (Nativo)
+// TASK: GEOFENCING (Nativo) - PROCESSA DIRETO
 // ============================================
 
 TaskManager.defineTask(GEOFENCE_TASK_NAME, async ({ data, error }) => {
+  const startTime = Date.now();
+  logger.info('geofence', '🎯 Task de geofence executando...');
+
   if (error) {
     logger.error('geofence', 'Erro na task de geofence', { error: error.message });
     return;
   }
 
-  if (data) {
-    const { eventType, region } = data as {
-      eventType: Location.GeofencingEventType;
-      region: Location.LocationRegion;
-    };
+  if (!data) {
+    logger.warn('geofence', 'Task executou sem dados');
+    return;
+  }
 
-    const event: GeofenceEvent = {
-      type: eventType === Location.GeofencingEventType.Enter ? 'enter' : 'exit',
-      regionIdentifier: region.identifier || 'unknown',
-      timestamp: Date.now(),
-    };
+  const { eventType, region } = data as {
+    eventType: Location.GeofencingEventType;
+    region: Location.LocationRegion;
+  };
 
-    logger.info('geofence', `📍 Evento: ${event.type.toUpperCase()} - ${event.regionIdentifier}`, {
-      type: event.type,
-      region: event.regionIdentifier,
-    });
+  const isEnter = eventType === Location.GeofencingEventType.Enter;
+  const fenceId = region.identifier || 'unknown';
 
-    if (onGeofenceEvent) {
-      try {
-        onGeofenceEvent(event);
-      } catch (e) {
-        logger.error('geofence', 'Erro no callback de geofence', { error: String(e) });
+  logger.info('geofence', `📍 Evento: ${isEnter ? 'ENTRADA' : 'SAÍDA'} - ${fenceId}`);
+
+  // ============================================
+  // PROCESSAMENTO DIRETO (sem depender de callback)
+  // ============================================
+
+  try {
+    const userId = await getBackgroundUserId();
+    
+    if (!userId) {
+      logger.warn('geofence', '⚠️ UserId não encontrado - usuário não logado?');
+      return;
+    }
+
+    const fence = await getFenceById(fenceId, userId);
+    
+    if (!fence) {
+      logger.warn('geofence', `⚠️ Fence não encontrada: ${fenceId}`);
+      return;
+    }
+
+    if (isEnter) {
+      // ========== ENTRADA ==========
+      // Verifica se local foi ignorado hoje
+      if (await isLocalSkippedToday(fenceId)) {
+        logger.info('geofence', `😴 Local "${fence.nome}" ignorado hoje, pulando entrada`);
+        return;
+      }
+      
+      // Verifica se já tem sessão ativa para esta fence
+      const sessaoAtiva = await getSessaoAtivaGlobal(userId);
+      
+      if (sessaoAtiva && sessaoAtiva.local_id === fenceId) {
+        logger.info('geofence', '📍 Já existe sessão ativa para esta fence, ignorando');
+      } else if (sessaoAtiva) {
+        logger.warn('geofence', `⚠️ Já existe sessão ativa em outro local: ${sessaoAtiva.local_nome}`);
+        // Poderia fechar a anterior e abrir nova, mas por segurança só loga
+      } else {
+        // Registra entrada
+        logger.info('geofence', `✅ Registrando ENTRADA em "${fence.nome}"`);
+        await criarRegistroEntrada({
+          userId,
+          localId: fence.id,
+          localNome: fence.nome,
+          tipo: 'automatico',
+        });
       }
     } else {
-      logger.warn('geofence', 'Evento recebido mas nenhum callback registrado');
+      // ========== SAÍDA ==========
+      // Remove do skippedToday ao sair (permite nova entrada na próxima vez)
+      await removeFromSkippedToday(fenceId);
+      
+      const sessaoAtiva = await getSessaoAtivaGlobal(userId);
+      
+      if (sessaoAtiva && sessaoAtiva.local_id === fenceId) {
+        logger.info('geofence', `✅ Registrando SAÍDA de "${fence.nome}"`);
+        await registrarSaida(userId, fenceId);
+      } else if (sessaoAtiva) {
+        logger.warn('geofence', `⚠️ Saída de fence diferente da sessão ativa`);
+      } else {
+        logger.info('geofence', '📍 Saída detectada mas sem sessão ativa, ignorando');
+      }
+    }
+
+    const duration = Date.now() - startTime;
+    logger.info('geofence', `✅ Processamento concluído em ${duration}ms`);
+
+  } catch (procError) {
+    logger.error('geofence', 'Erro ao processar evento', { error: String(procError) });
+  }
+
+  // ============================================
+  // CALLBACK OPCIONAL (para atualizar UI)
+  // ============================================
+
+  const event: GeofenceEvent = {
+    type: isEnter ? 'enter' : 'exit',
+    regionIdentifier: fenceId,
+    timestamp: Date.now(),
+  };
+
+  if (onGeofenceEvent) {
+    try {
+      onGeofenceEvent(event);
+    } catch (e) {
+      logger.error('geofence', 'Erro no callback de geofence', { error: String(e) });
     }
   }
 });
@@ -229,6 +502,35 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
         accuracy: location.coords.accuracy?.toFixed(0) ?? 'N/A',
       });
 
+      // Registra geoponto no banco
+      try {
+        const userId = await getBackgroundUserId();
+        if (userId) {
+          const sessao = await getSessaoAtivaGlobal(userId);
+          const { isInside, fence } = await verificarDentroFence(
+            location.coords.latitude,
+            location.coords.longitude,
+            userId,
+            true
+          );
+
+          await registrarGeoponto(
+            userId,
+            location.coords.latitude,
+            location.coords.longitude,
+            location.coords.accuracy ?? null,
+            'background',
+            isInside,
+            fence?.id ?? null,
+            fence?.nome ?? null,
+            sessao?.id ?? null
+          );
+        }
+      } catch (geoError) {
+        logger.error('gps', 'Erro ao registrar geoponto', { error: String(geoError) });
+      }
+
+      // Callback opcional para UI
       if (onLocationUpdate) {
         try {
           onLocationUpdate(location);
@@ -241,7 +543,7 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
 });
 
 // ============================================
-// TASK: HEARTBEAT (Safety Net - 15 min)
+// TASK: HEARTBEAT (Safety Net) - PROCESSA DIRETO
 // ============================================
 
 TaskManager.defineTask(HEARTBEAT_TASK_NAME, async () => {
@@ -249,7 +551,15 @@ TaskManager.defineTask(HEARTBEAT_TASK_NAME, async () => {
   logger.info('heartbeat', '💓 Heartbeat executando...');
 
   try {
-    // 1. Pega localização atual
+    // 1. Recupera userId
+    const userId = await getBackgroundUserId();
+    
+    if (!userId) {
+      logger.warn('heartbeat', '⚠️ UserId não encontrado - pulando heartbeat');
+      return BackgroundFetch.BackgroundFetchResult.NoData;
+    }
+
+    // 2. Pega localização atual
     const location = await Location.getCurrentPositionAsync({
       accuracy: Location.Accuracy.Balanced,
       timeInterval: 5000,
@@ -260,36 +570,112 @@ TaskManager.defineTask(HEARTBEAT_TASK_NAME, async () => {
 
     logger.info('heartbeat', `📍 Posição: ${latitude.toFixed(6)}, ${longitude.toFixed(6)} (±${accuracy?.toFixed(0)}m)`);
 
-    // 2. Verifica se está dentro de alguma fence (usa histerese para saída)
-    const { isInside, fenceId, fenceName } = verificarDentroFence(latitude, longitude, true);
+    // 3. Verifica se está dentro de alguma fence
+    const { isInside, fence } = await verificarDentroFence(latitude, longitude, userId, true);
 
-    // 3. Tenta pegar nível de bateria (pode não estar disponível)
-    let batteryLevel: number | null = null;
-    try {
-      // expo-battery não está instalado por padrão, então ignoramos
-      batteryLevel = null;
-    } catch {
-      // Ignora
+    // 4. Busca sessão ativa
+    const sessaoAtiva = await getSessaoAtivaGlobal(userId);
+
+    // 5. Registra heartbeat no banco
+    await registrarHeartbeat(
+      userId,
+      latitude,
+      longitude,
+      accuracy ?? null,
+      isInside,
+      fence?.id ?? null,
+      fence?.nome ?? null,
+      sessaoAtiva?.id ?? null,
+      null // batteryLevel
+    );
+
+    // ============================================
+    // PROCESSAMENTO DE INCONSISTÊNCIAS
+    // ============================================
+
+    // Caso 1: Está DENTRO de fence mas SEM sessão ativa
+    // → Entrada foi perdida! Registra agora (se não estiver ignorado)
+    if (isInside && fence && !sessaoAtiva) {
+      // Verifica se local foi ignorado hoje
+      if (await isLocalSkippedToday(fence.id)) {
+        logger.info('heartbeat', `😴 Local "${fence.nome}" ignorado hoje, não registrando entrada`);
+      } else {
+        logger.warn('heartbeat', `⚠️ ENTRADA PERDIDA detectada! Registrando entrada em "${fence.nome}"`);
+        
+        await criarRegistroEntrada({
+          userId,
+          localId: fence.id,
+          localNome: fence.nome,
+          tipo: 'automatico',
+        });
+        
+        // Registra geoponto marcando a detecção
+        await registrarGeoponto(
+          userId,
+          latitude,
+          longitude,
+          accuracy ?? null,
+          'heartbeat',
+          true,
+          fence.id,
+          fence.nome,
+          null // sessaoId será da nova sessão
+        );
+      }
     }
+
+    // Caso 2: Está FORA de todas as fences mas COM sessão ativa
+    // → Saída foi perdida! Registra agora.
+    if (!isInside && sessaoAtiva) {
+      logger.warn('heartbeat', `⚠️ SAÍDA PERDIDA detectada! Registrando saída de "${sessaoAtiva.local_nome}"`);
+      
+      await registrarSaida(userId, sessaoAtiva.local_id);
+      
+      // Registra geoponto marcando a detecção
+      await registrarGeoponto(
+        userId,
+        latitude,
+        longitude,
+        accuracy ?? null,
+        'heartbeat',
+        false,
+        null,
+        null,
+        sessaoAtiva.id
+      );
+    }
+
+    // Caso 3: Tudo consistente
+    if ((isInside && sessaoAtiva) || (!isInside && !sessaoAtiva)) {
+      logger.info('heartbeat', `✅ Estado consistente: ${isInside ? `dentro de "${fence?.nome}"` : 'fora de todas as fences'}`);
+    }
+
+    const duration = Date.now() - startTime;
+    logger.info('heartbeat', `✅ Heartbeat concluído em ${duration}ms`);
+
+    // ============================================
+    // CALLBACK OPCIONAL (para atualizar UI)
+    // ============================================
 
     const result: HeartbeatResult = {
       isInsideFence: isInside,
-      fenceId,
-      fenceName,
-      location: { latitude, longitude, accuracy },
+      fenceId: fence?.id ?? null,
+      fenceName: fence?.nome ?? null,
+      location: { latitude, longitude, accuracy: accuracy ?? null },
       timestamp: Date.now(),
-      batteryLevel,
+      batteryLevel: null,
     };
 
-    const duration = Date.now() - startTime;
-    logger.info('heartbeat', `Status: ${isInside ? `Dentro de "${fenceName}"` : 'Fora de todas as fences'} (${duration}ms)`);
-
-    // 4. Dispara callback para o store processar
     if (onHeartbeat) {
-      await onHeartbeat(result);
+      try {
+        await onHeartbeat(result);
+      } catch (e) {
+        logger.error('heartbeat', 'Erro no callback de heartbeat', { error: String(e) });
+      }
     }
 
     return BackgroundFetch.BackgroundFetchResult.NewData;
+
   } catch (error) {
     logger.error('heartbeat', 'Erro no heartbeat', { error: String(error) });
     return BackgroundFetch.BackgroundFetchResult.Failed;
@@ -362,23 +748,50 @@ export async function executeHeartbeatNow(): Promise<HeartbeatResult | null> {
   try {
     logger.info('heartbeat', '🔄 Executando heartbeat manual...');
     
+    const userId = await getBackgroundUserId();
+    if (!userId) {
+      logger.warn('heartbeat', 'UserId não encontrado para heartbeat manual');
+      return null;
+    }
+
     const location = await Location.getCurrentPositionAsync({
       accuracy: Location.Accuracy.Balanced,
     });
 
     const { latitude, longitude, accuracy } = location.coords;
-    
-    // Usa histerese para verificação manual também
-    const { isInside, fenceId, fenceName } = verificarDentroFence(latitude, longitude, true);
+    const { isInside, fence } = await verificarDentroFence(latitude, longitude, userId, true);
 
     const result: HeartbeatResult = {
       isInsideFence: isInside,
-      fenceId,
-      fenceName,
-      location: { latitude, longitude, accuracy },
+      fenceId: fence?.id ?? null,
+      fenceName: fence?.nome ?? null,
+      location: { latitude, longitude, accuracy: accuracy ?? null },
       timestamp: Date.now(),
       batteryLevel: null,
     };
+
+    // Processa inconsistências também no manual
+    const sessaoAtiva = await getSessaoAtivaGlobal(userId);
+
+    if (isInside && fence && !sessaoAtiva) {
+      // Verifica se local foi ignorado hoje
+      if (await isLocalSkippedToday(fence.id)) {
+        logger.info('heartbeat', `😴 Local "${fence.nome}" ignorado hoje`);
+      } else {
+        logger.warn('heartbeat', `⚠️ Entrada perdida detectada: ${fence.nome}`);
+        await criarRegistroEntrada({
+          userId,
+          localId: fence.id,
+          localNome: fence.nome,
+          tipo: 'automatico',
+        });
+      }
+    }
+
+    if (!isInside && sessaoAtiva) {
+      logger.warn('heartbeat', `⚠️ Saída perdida detectada: ${sessaoAtiva.local_nome}`);
+      await registrarSaida(userId, sessaoAtiva.local_id);
+    }
 
     if (onHeartbeat) {
       await onHeartbeat(result);
@@ -436,12 +849,14 @@ export async function getTasksStatus(): Promise<{
   heartbeat: boolean;
   activeFences: number;
   backgroundFetchStatus: string;
+  hasUserId: boolean;
 }> {
-  const [geofencing, location, heartbeat, bgStatus] = await Promise.all([
+  const [geofencing, location, heartbeat, bgStatus, userId] = await Promise.all([
     isGeofencingTaskRunning(),
     isLocationTaskRunning(),
     isHeartbeatRunning(),
     BackgroundFetch.getStatusAsync(),
+    getBackgroundUserId(),
   ]);
 
   const statusNames = {
@@ -454,8 +869,9 @@ export async function getTasksStatus(): Promise<{
     geofencing,
     location,
     heartbeat,
-    activeFences: activeFences.length,
+    activeFences: activeFencesCache.length,
     backgroundFetchStatus: bgStatus !== null ? statusNames[bgStatus] : 'Unknown',
+    hasUserId: !!userId,
   };
 }
 
@@ -468,5 +884,5 @@ logger.info('boot', '📋 Background tasks definidas', {
   location: LOCATION_TASK_NAME,
   heartbeat: HEARTBEAT_TASK_NAME,
   heartbeatInterval: `${HEARTBEAT_INTERVAL / 60} min`,
-  histerese: `${HISTERESE_SAIDA}x`,
+  histereseSaida: `${HISTERESE_SAIDA}x`,
 });
