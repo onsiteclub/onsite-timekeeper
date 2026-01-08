@@ -1,30 +1,31 @@
 /**
  * Geocoding Service - OnSite Timekeeper
  * 
- * Usa Nominatim (OpenStreetMap) para:
- * - Buscar endereços → coordenadas (forward geocoding)
- * - Coordenadas → endereço (reverse geocoding)
+ * Uses Nominatim (OpenStreetMap) for:
+ * - Search addresses → coordinates (forward geocoding)
+ * - Coordinates → address (reverse geocoding)
  * 
- * MODIFICADO:
- * - Adiciona bias de localização (prioriza resultados perto do GPS)
- * - Busca com viewbox para limitar área geográfica
+ * MODIFIED:
+ * - Adds location bias (prioritizes results near GPS)
+ * - Search with viewbox to limit geographic area
+ * - Fixed: NodeJS.Timeout → ReturnType<typeof setTimeout>
  * 
- * 100% gratuito, sem API key necessária
+ * 100% free, no API key needed
  */
 
 import { logger } from './logger';
 
-// URL base do Nominatim
+// Base URL for Nominatim
 const NOMINATIM_URL = 'https://nominatim.openstreetmap.org';
 
-// User-Agent obrigatório (política do Nominatim)
+// Required User-Agent (Nominatim policy)
 const USER_AGENT = 'OnSiteTimekeeper/1.0';
 
-// Raio padrão para bias de localização (em graus, ~100km)
+// Default radius for location bias (in degrees, ~100km)
 const DEFAULT_BIAS_RADIUS = 1.0;
 
 // ============================================
-// TIPOS
+// TYPES
 // ============================================
 
 export interface ResultadoGeocodificacao {
@@ -38,28 +39,28 @@ export interface ResultadoGeocodificacao {
 
 export interface BuscaOptions {
   limite?: number;
-  // Bias de localização - prioriza resultados perto destas coordenadas
+  // Location bias - prioritizes results near these coordinates
   biasLatitude?: number;
   biasLongitude?: number;
-  // Raio do bias em graus (default ~100km)
+  // Bias radius in degrees (default ~100km)
   biasRadius?: number;
 }
 
 // ============================================
-// FORWARD GEOCODING (Endereço → Coordenadas)
+// FORWARD GEOCODING (Address → Coordinates)
 // ============================================
 
 /**
- * Busca endereços e retorna coordenadas
- * @param query - Texto de busca (endereço, local, etc.)
- * @param options - Opções de busca (limite, bias de localização)
+ * Search addresses and return coordinates
+ * @param query - Search text (address, place, etc.)
+ * @param options - Search options (limit, location bias)
  */
 export async function buscarEndereco(
   query: string,
   options: BuscaOptions | number = 5
 ): Promise<ResultadoGeocodificacao[]> {
   try {
-    // Compatibilidade: se passar número, é o limite
+    // Compatibility: if number is passed, it's the limit
     const opts: BuscaOptions = typeof options === 'number' 
       ? { limite: options } 
       : options;
@@ -70,11 +71,11 @@ export async function buscarEndereco(
       return [];
     }
 
-    logger.debug('gps', `🔍 Buscando endereço: "${query}"`, {
+    logger.debug('gps', `🔍 Searching address: "${query}"`, {
       bias: opts.biasLatitude ? `${opts.biasLatitude.toFixed(4)},${opts.biasLongitude?.toFixed(4)}` : 'none'
     });
 
-    // Parâmetros base
+    // Base parameters
     const params: Record<string, string> = {
       q: query,
       format: 'json',
@@ -82,7 +83,7 @@ export async function buscarEndereco(
       addressdetails: '1',
     };
 
-    // Se tiver bias de localização, adiciona viewbox para priorizar área
+    // If location bias exists, add viewbox to prioritize area
     if (opts.biasLatitude !== undefined && opts.biasLongitude !== undefined) {
       const radius = opts.biasRadius ?? DEFAULT_BIAS_RADIUS;
       
@@ -93,7 +94,7 @@ export async function buscarEndereco(
       const maxLat = opts.biasLatitude + radius;
       
       params.viewbox = `${minLon},${maxLat},${maxLon},${minLat}`;
-      params.bounded = '0'; // Não limita estritamente, apenas prioriza
+      params.bounded = '0'; // Don't strictly limit, just prioritize
     }
 
     const response = await fetch(
@@ -120,7 +121,7 @@ export async function buscarEndereco(
       pais: item.address?.country,
     }));
 
-    // Se tiver bias, ordena por distância do ponto de referência
+    // If bias exists, sort by distance from reference point
     if (opts.biasLatitude !== undefined && opts.biasLongitude !== undefined) {
       resultados = resultados.sort((a, b) => {
         const distA = calcularDistanciaSimples(
@@ -135,17 +136,17 @@ export async function buscarEndereco(
       });
     }
 
-    logger.info('gps', `✅ ${resultados.length} resultado(s) encontrado(s)`);
+    logger.info('gps', `✅ ${resultados.length} result(s) found`);
     return resultados;
   } catch (error) {
-    logger.error('gps', 'Erro ao buscar endereço', { error: String(error) });
+    logger.error('gps', 'Error searching address', { error: String(error) });
     return [];
   }
 }
 
 /**
- * Busca endereços com autocomplete (para usar com debounce)
- * Retorna resultados mais rapidamente, priorizando área local
+ * Search addresses with autocomplete (for use with debounce)
+ * Returns results faster, prioritizing local area
  */
 export async function buscarEnderecoAutocomplete(
   query: string,
@@ -156,18 +157,18 @@ export async function buscarEnderecoAutocomplete(
     limite: 5,
     biasLatitude,
     biasLongitude,
-    biasRadius: 0.5, // ~50km para autocomplete (mais restrito)
+    biasRadius: 0.5, // ~50km for autocomplete (more restricted)
   });
 }
 
 // ============================================
-// REVERSE GEOCODING (Coordenadas → Endereço)
+// REVERSE GEOCODING (Coordinates → Address)
 // ============================================
 
 /**
- * Obtém endereço a partir de coordenadas
- * @param latitude - Latitude do ponto
- * @param longitude - Longitude do ponto
+ * Get address from coordinates
+ * @param latitude - Point latitude
+ * @param longitude - Point longitude
  */
 export async function obterEndereco(
   latitude: number,
@@ -198,18 +199,18 @@ export async function obterEndereco(
     const endereco = data.display_name || null;
 
     if (endereco) {
-      logger.debug('gps', `✅ Endereço encontrado: ${endereco.substring(0, 50)}...`);
+      logger.debug('gps', `✅ Address found: ${endereco.substring(0, 50)}...`);
     }
 
     return endereco;
   } catch (error) {
-    logger.error('gps', 'Erro no reverse geocoding', { error: String(error) });
+    logger.error('gps', 'Reverse geocoding error', { error: String(error) });
     return null;
   }
 }
 
 /**
- * Obtém detalhes do endereço a partir de coordenadas
+ * Get address details from coordinates
  */
 export async function obterDetalhesEndereco(
   latitude: number,
@@ -250,7 +251,7 @@ export async function obterDetalhesEndereco(
       pais: data.address?.country,
     };
   } catch (error) {
-    logger.error('gps', 'Erro ao obter detalhes do endereço', { error: String(error) });
+    logger.error('gps', 'Error getting address details', { error: String(error) });
     return null;
   }
 }
@@ -260,8 +261,8 @@ export async function obterDetalhesEndereco(
 // ============================================
 
 /**
- * Calcula distância simples entre dois pontos (aproximação rápida)
- * Usa fórmula euclidiana para ordenação - não precisa ser exata
+ * Calculate simple distance between two points (fast approximation)
+ * Uses Euclidean formula for sorting - doesn't need to be exact
  */
 function calcularDistanciaSimples(
   lat1: number, lon1: number,
@@ -273,13 +274,13 @@ function calcularDistanciaSimples(
 }
 
 /**
- * Formata endereço para exibição curta
- * Ex: "Rua das Flores, 123 - Centro, São Paulo"
+ * Format address for short display
+ * Ex: "123 Main St - Downtown, Toronto"
  */
 export function formatarEnderecoResumido(endereco: string): string {
   if (!endereco) return '';
 
-  // Pega apenas os primeiros 2-3 componentes
+  // Get only the first 2-3 components
   const partes = endereco.split(', ');
   if (partes.length <= 3) return endereco;
 
@@ -287,13 +288,15 @@ export function formatarEnderecoResumido(endereco: string): string {
 }
 
 /**
- * Cria função de debounce para autocomplete
+ * Create debounce function for autocomplete
+ * 
+ * FIX: Uses portable ReturnType<typeof setTimeout> instead of NodeJS.Timeout
  */
 export function criarDebounce<T extends (...args: any[]) => any>(
   fn: T,
   delay: number
 ): (...args: Parameters<T>) => void {
-  let timeoutId: NodeJS.Timeout | null = null;
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
   
   return (...args: Parameters<T>) => {
     if (timeoutId) {

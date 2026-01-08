@@ -587,7 +587,7 @@ export function useHomeScreen() {
   // DELETE DAY
   // ============================================
 
-  const handleDeleteDay = (dayKey: string, sessoesDia: SessaoComputada[]) => {
+  const handleDeleteDay = (_dayKey: string, sessoesDia: SessaoComputada[]) => {
     const sessoesFinalizadas = sessoesDia.filter(s => s.saida);
     if (sessoesFinalizadas.length === 0) return;
 

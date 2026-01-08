@@ -1,11 +1,11 @@
 /**
  * GeofenceAlert - OnSite Timekeeper
  * 
- * Popup fullscreen estilo "soneca do despertador"
- * - EnterAlert: Quando entra na fence
- * - ExitAlert: Quando sai da fence (Pausar/Encerrar/Ajustar)
- * - PauseScreen: Tela de pausa com countdown 30min
- * - ReturnAlert: Quando volta à fence após pausa
+ * Fullscreen popup "alarm snooze" style
+ * - EnterAlert: When entering the fence
+ * - ExitAlert: When exiting the fence (Pause/End/Adjust)
+ * - PauseScreen: Pause screen with 30min countdown
+ * - ReturnAlert: When returning to fence after pause
  */
 
 import React, { useEffect, useState, useCallback } from 'react';
@@ -22,7 +22,7 @@ import { useWorkSessionStore, type PendingAction, type PauseState } from '../sto
 import { colors, withOpacity } from '../constants/colors';
 
 // ============================================
-// COUNTDOWN HOOK (segundos)
+// COUNTDOWN HOOK (seconds)
 // ============================================
 
 function useCountdown(startTime: number, timeout: number) {
@@ -45,7 +45,7 @@ function useCountdown(startTime: number, timeout: number) {
 }
 
 // ============================================
-// COUNTDOWN HOOK (minutos:segundos) para pausa
+// COUNTDOWN HOOK (minutes:seconds) for pause
 // ============================================
 
 function usePauseCountdown(startTime: number, timeout: number) {
@@ -67,18 +67,18 @@ function usePauseCountdown(startTime: number, timeout: number) {
   const minutes = Math.floor(remaining / 60000);
   const seconds = Math.floor((remaining % 60000) / 1000);
 
-  return { minutes, seconds, totalMs: remaining };
+  return { minutes, seconds };
 }
 
 // ============================================
-// COMPONENTE PRINCIPAL
+// MAIN COMPONENT
 // ============================================
 
 export function GeofenceAlert() {
   const pendingAction = useWorkSessionStore(state => state.pendingAction);
   const pauseState = useWorkSessionStore(state => state.pauseState);
   
-  // Prioridade: PauseScreen > Popups
+  // Priority: PauseScreen > Popups
   if (pauseState && !pendingAction) {
     return (
       <Modal
@@ -109,25 +109,25 @@ export function GeofenceAlert() {
 }
 
 // ============================================
-// ALERT DE ENTRADA
+// ENTRY ALERT
 // ============================================
 
 function EnterAlert({ action }: { action: PendingAction }) {
   const remaining = useCountdown(action.startTime, 30000);
-  const acaoIniciar = useWorkSessionStore(state => state.acaoIniciar);
-  const acaoIgnorarHoje = useWorkSessionStore(state => state.acaoIgnorarHoje);
-  const acaoDelay10Min = useWorkSessionStore(state => state.acaoDelay10Min);
+  const actionStart = useWorkSessionStore(state => state.actionStart);
+  const actionSkipToday = useWorkSessionStore(state => state.actionSkipToday);
+  const actionDelay10Min = useWorkSessionStore(state => state.actionDelay10Min);
 
   const [pulseAnim] = useState(new Animated.Value(1));
 
-  // Vibra a cada 10 segundos
+  // Vibrate every 10 seconds
   useEffect(() => {
     if (remaining === 20 || remaining === 10) {
       Vibration.vibrate(200);
     }
   }, [remaining]);
 
-  // Animação de pulse no contador
+  // Pulse animation on counter
   useEffect(() => {
     const animation = Animated.loop(
       Animated.sequence([
@@ -147,82 +147,85 @@ function EnterAlert({ action }: { action: PendingAction }) {
     return () => animation.stop();
   }, [pulseAnim]);
 
+  // Get location name (supports both old and new format)
+  const locationName = action.locationName || action.localNome;
+
   return (
     <View style={[styles.container, { backgroundColor: colors.primary }]}>
-      {/* Cabeçalho */}
+      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.emoji}>📍</Text>
-        <Text style={styles.title}>Você chegou!</Text>
-        <Text style={styles.localName}>{action.localNome}</Text>
+        <Text style={styles.title}>You arrived!</Text>
+        <Text style={styles.localName}>{locationName}</Text>
       </View>
 
       {/* Countdown */}
       <Animated.View style={[styles.countdownContainer, { transform: [{ scale: pulseAnim }] }]}>
         <Text style={styles.countdownNumber}>{remaining}</Text>
-        <Text style={styles.countdownLabel}>segundos para iniciar</Text>
+        <Text style={styles.countdownLabel}>seconds to start</Text>
       </Animated.View>
 
-      {/* Botões */}
+      {/* Buttons */}
       <View style={styles.buttonsContainer}>
         <TouchableOpacity
           style={[styles.button, styles.buttonPrimary]}
-          onPress={acaoIniciar}
+          onPress={actionStart}
           activeOpacity={0.8}
         >
           <Text style={styles.buttonIcon}>▶️</Text>
-          <Text style={styles.buttonText}>Trabalhar</Text>
+          <Text style={styles.buttonText}>Start Work</Text>
         </TouchableOpacity>
 
         <View style={styles.secondaryButtons}>
           <TouchableOpacity
             style={[styles.button, styles.buttonSecondary]}
-            onPress={acaoIgnorarHoje}
+            onPress={actionSkipToday}
             activeOpacity={0.8}
           >
             <Text style={styles.buttonIcon}>😴</Text>
-            <Text style={styles.buttonTextSecondary}>Ignorar hoje</Text>
+            <Text style={styles.buttonTextSecondary}>Skip today</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             style={[styles.button, styles.buttonSecondary]}
-            onPress={acaoDelay10Min}
+            onPress={actionDelay10Min}
             activeOpacity={0.8}
           >
             <Text style={styles.buttonIcon}>⏰</Text>
-            <Text style={styles.buttonTextSecondary}>Em 10 min</Text>
+            <Text style={styles.buttonTextSecondary}>In 10 min</Text>
           </TouchableOpacity>
         </View>
       </View>
 
       {/* Footer */}
       <Text style={styles.footer}>
-        Inicia automaticamente em {remaining}s
+        Auto-starts in {remaining}s
       </Text>
     </View>
   );
 }
 
 // ============================================
-// ALERT DE SAÍDA (sem "Continuar"!)
+// EXIT ALERT (no "Continue"!)
 // ============================================
 
 function ExitAlert({ action }: { action: PendingAction }) {
   const remaining = useCountdown(action.startTime, 30000);
-  const acaoPausar = useWorkSessionStore(state => state.acaoPausar);
-  const acaoEncerrar = useWorkSessionStore(state => state.acaoEncerrar);
-  const acaoEncerrarComAjuste = useWorkSessionStore(state => state.acaoEncerrarComAjuste);
+  const actionPause = useWorkSessionStore(state => state.actionPause);
+  const actionEnd = useWorkSessionStore(state => state.actionEnd);
+  const actionEndWithAdjustment = useWorkSessionStore(state => state.actionEndWithAdjustment);
 
-  const [showAjuste, setShowAjuste] = useState(false);
+  const [showAdjust, setShowAdjust] = useState(false);
   const [pulseAnim] = useState(new Animated.Value(1));
 
-  // Vibra a cada 10 segundos
+  // Vibrate every 10 seconds
   useEffect(() => {
     if (remaining === 20 || remaining === 10) {
       Vibration.vibrate(200);
     }
   }, [remaining]);
 
-  // Animação de pulse
+  // Pulse animation
   useEffect(() => {
     const animation = Animated.loop(
       Animated.sequence([
@@ -242,40 +245,43 @@ function ExitAlert({ action }: { action: PendingAction }) {
     return () => animation.stop();
   }, [pulseAnim]);
 
-  const handleEncerrarComAjuste = useCallback((minutos: number) => {
-    acaoEncerrarComAjuste(minutos);
-  }, [acaoEncerrarComAjuste]);
+  const handleEndWithAdjustment = useCallback((minutes: number) => {
+    actionEndWithAdjustment(minutes);
+  }, [actionEndWithAdjustment]);
 
-  // Tela de ajuste
-  if (showAjuste) {
+  // Get location name (supports both old and new format)
+  const locationName = action.locationName || action.localNome;
+
+  // Adjustment screen
+  if (showAdjust) {
     return (
       <View style={[styles.container, { backgroundColor: colors.warning }]}>
         <View style={styles.header}>
           <Text style={styles.emoji}>⏱️</Text>
-          <Text style={styles.title}>Quando você saiu?</Text>
-          <Text style={styles.localName}>{action.localNome}</Text>
+          <Text style={styles.title}>When did you leave?</Text>
+          <Text style={styles.localName}>{locationName}</Text>
         </View>
 
         <View style={styles.ajusteContainer}>
-          {[5, 10, 15, 30, 60].map((minutos) => (
+          {[5, 10, 15, 30, 60].map((minutes) => (
             <TouchableOpacity
-              key={minutos}
+              key={minutes}
               style={[styles.button, styles.buttonAjuste]}
-              onPress={() => handleEncerrarComAjuste(minutos)}
+              onPress={() => handleEndWithAdjustment(minutes)}
               activeOpacity={0.8}
             >
               <Text style={styles.buttonText}>
-                Há {minutos} {minutos === 1 ? 'minuto' : 'minutos'}
+                {minutes} {minutes === 1 ? 'minute' : 'minutes'} ago
               </Text>
             </TouchableOpacity>
           ))}
 
           <TouchableOpacity
             style={[styles.button, styles.buttonSecondary, { marginTop: 20 }]}
-            onPress={() => setShowAjuste(false)}
+            onPress={() => setShowAdjust(false)}
             activeOpacity={0.8}
           >
-            <Text style={styles.buttonTextSecondary}>← Voltar</Text>
+            <Text style={styles.buttonTextSecondary}>← Back</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -284,73 +290,73 @@ function ExitAlert({ action }: { action: PendingAction }) {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.warning }]}>
-      {/* Cabeçalho */}
+      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.emoji}>🚪</Text>
-        <Text style={styles.title}>Você saiu!</Text>
-        <Text style={styles.localName}>{action.localNome}</Text>
+        <Text style={styles.title}>You left!</Text>
+        <Text style={styles.localName}>{locationName}</Text>
       </View>
 
       {/* Countdown */}
       <Animated.View style={[styles.countdownContainer, { transform: [{ scale: pulseAnim }] }]}>
         <Text style={styles.countdownNumber}>{remaining}</Text>
-        <Text style={styles.countdownLabel}>segundos para encerrar</Text>
+        <Text style={styles.countdownLabel}>seconds to end</Text>
       </Animated.View>
 
-      {/* Botões - SEM "Continuar"! */}
+      {/* Buttons - NO "Continue"! */}
       <View style={styles.buttonsContainer}>
-        {/* Botão principal: Pausar */}
+        {/* Main button: Pause */}
         <TouchableOpacity
           style={[styles.button, styles.buttonPause]}
-          onPress={acaoPausar}
+          onPress={actionPause}
           activeOpacity={0.8}
         >
           <Text style={styles.buttonIcon}>⏸️</Text>
-          <Text style={styles.buttonText}>Pausar</Text>
-          <Text style={styles.buttonSubtext}>volto em breve</Text>
+          <Text style={styles.buttonText}>Pause</Text>
+          <Text style={styles.buttonSubtext}>back soon</Text>
         </TouchableOpacity>
 
         <View style={styles.secondaryButtons}>
           <TouchableOpacity
             style={[styles.button, styles.buttonDanger]}
-            onPress={acaoEncerrar}
+            onPress={actionEnd}
             activeOpacity={0.8}
           >
             <Text style={styles.buttonIcon}>⏹️</Text>
-            <Text style={styles.buttonTextWhite}>Encerrar</Text>
+            <Text style={styles.buttonTextWhite}>End</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             style={[styles.button, styles.buttonSecondary]}
-            onPress={() => setShowAjuste(true)}
+            onPress={() => setShowAdjust(true)}
             activeOpacity={0.8}
           >
             <Text style={styles.buttonIcon}>✏️</Text>
-            <Text style={styles.buttonTextSecondary}>Ajustar</Text>
+            <Text style={styles.buttonTextSecondary}>Adjust</Text>
           </TouchableOpacity>
         </View>
       </View>
 
       {/* Footer */}
       <Text style={styles.footer}>
-        Encerra automaticamente em {remaining}s
+        Auto-ends in {remaining}s
       </Text>
     </View>
   );
 }
 
 // ============================================
-// TELA DE PAUSA (30 minutos)
+// PAUSE SCREEN (30 minutes)
 // ============================================
 
 function PauseScreen({ pause }: { pause: PauseState }) {
-  const { minutes, seconds, totalMs } = usePauseCountdown(pause.startTime, 30 * 60 * 1000);
-  const acaoRetomar = useWorkSessionStore(state => state.acaoRetomar);
-  const acaoEncerrar = useWorkSessionStore(state => state.acaoEncerrar);
+  const { minutes, seconds } = usePauseCountdown(pause.startTime, 30 * 60 * 1000);
+  const actionResume = useWorkSessionStore(state => state.actionResume);
+  const actionEnd = useWorkSessionStore(state => state.actionEnd);
 
   const [pulseAnim] = useState(new Animated.Value(1));
 
-  // Vibra quando falta pouco tempo
+  // Vibrate when time is running out
   useEffect(() => {
     if (minutes === 5 && seconds === 0) {
       Vibration.vibrate([0, 200, 100, 200]);
@@ -360,7 +366,7 @@ function PauseScreen({ pause }: { pause: PauseState }) {
     }
   }, [minutes, seconds]);
 
-  // Animação suave de pulse
+  // Smooth pulse animation
   useEffect(() => {
     const animation = Animated.loop(
       Animated.sequence([
@@ -380,53 +386,56 @@ function PauseScreen({ pause }: { pause: PauseState }) {
     return () => animation.stop();
   }, [pulseAnim]);
 
-  // Formata tempo
-  const tempoFormatado = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  // Format time
+  const timeFormatted = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 
-  // Cor muda quando falta pouco tempo
+  // Color changes when time is running out
   const isUrgent = minutes < 5;
   const backgroundColor = isUrgent ? colors.error : colors.backgroundSecondary;
 
+  // Get location name (supports both old and new format)
+  const locationName = pause.locationName || pause.localNome;
+
   return (
     <View style={[styles.container, { backgroundColor }]}>
-      {/* Cabeçalho */}
+      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.emoji}>⏸️</Text>
-        <Text style={[styles.title, isUrgent && { color: colors.white }]}>Pausado</Text>
+        <Text style={[styles.title, isUrgent && { color: colors.white }]}>Paused</Text>
         <Text style={[styles.localName, isUrgent && { color: withOpacity(colors.white, 0.9) }]}>
-          {pause.localNome}
+          {locationName}
         </Text>
       </View>
 
-      {/* Countdown grande */}
+      {/* Large countdown */}
       <Animated.View style={[styles.pauseCountdownContainer, { transform: [{ scale: pulseAnim }] }]}>
         <Text style={[styles.pauseCountdownNumber, isUrgent && { color: colors.white }]}>
-          {tempoFormatado}
+          {timeFormatted}
         </Text>
         <Text style={[styles.pauseCountdownLabel, isUrgent && { color: withOpacity(colors.white, 0.8) }]}>
-          Retomando automaticamente
+          Auto-resuming
         </Text>
       </Animated.View>
 
-      {/* Botões */}
+      {/* Buttons */}
       <View style={styles.buttonsContainer}>
         <TouchableOpacity
           style={[styles.button, styles.buttonPrimary]}
-          onPress={acaoRetomar}
+          onPress={actionResume}
           activeOpacity={0.8}
         >
           <Text style={styles.buttonIcon}>▶️</Text>
-          <Text style={styles.buttonText}>Voltar agora</Text>
+          <Text style={styles.buttonText}>Resume now</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={[styles.button, isUrgent ? styles.buttonSecondaryLight : styles.buttonSecondary]}
-          onPress={acaoEncerrar}
+          onPress={actionEnd}
           activeOpacity={0.8}
         >
           <Text style={styles.buttonIcon}>⏹️</Text>
           <Text style={isUrgent ? styles.buttonTextSecondaryLight : styles.buttonTextSecondary}>
-            Encerrar sessão
+            End session
           </Text>
         </TouchableOpacity>
       </View>
@@ -434,8 +443,8 @@ function PauseScreen({ pause }: { pause: PauseState }) {
       {/* Footer */}
       <Text style={[styles.footer, isUrgent && { color: withOpacity(colors.white, 0.7) }]}>
         {isUrgent 
-          ? 'Sessão será encerrada em breve!'
-          : 'Volte à área de trabalho para retomar'
+          ? 'Session will end soon!'
+          : 'Return to work area to resume'
         }
       </Text>
     </View>
@@ -443,24 +452,24 @@ function PauseScreen({ pause }: { pause: PauseState }) {
 }
 
 // ============================================
-// ALERT DE RETORNO (após pausa)
+// RETURN ALERT (after pause)
 // ============================================
 
 function ReturnAlert({ action }: { action: PendingAction }) {
   const remaining = useCountdown(action.startTime, 30000);
-  const acaoRetomar = useWorkSessionStore(state => state.acaoRetomar);
-  const acaoEncerrar = useWorkSessionStore(state => state.acaoEncerrar);
+  const actionResume = useWorkSessionStore(state => state.actionResume);
+  const actionEnd = useWorkSessionStore(state => state.actionEnd);
 
   const [pulseAnim] = useState(new Animated.Value(1));
 
-  // Vibra a cada 10 segundos
+  // Vibrate every 10 seconds
   useEffect(() => {
     if (remaining === 20 || remaining === 10) {
       Vibration.vibrate(200);
     }
   }, [remaining]);
 
-  // Animação de pulse
+  // Pulse animation
   useEffect(() => {
     const animation = Animated.loop(
       Animated.sequence([
@@ -480,45 +489,48 @@ function ReturnAlert({ action }: { action: PendingAction }) {
     return () => animation.stop();
   }, [pulseAnim]);
 
+  // Get location name (supports both old and new format)
+  const locationName = action.locationName || action.localNome;
+
   return (
     <View style={[styles.container, { backgroundColor: colors.success }]}>
-      {/* Cabeçalho */}
+      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.emoji}>🔄</Text>
-        <Text style={styles.title}>Você voltou!</Text>
-        <Text style={styles.localName}>{action.localNome}</Text>
+        <Text style={styles.title}>You're back!</Text>
+        <Text style={styles.localName}>{locationName}</Text>
       </View>
 
       {/* Countdown */}
       <Animated.View style={[styles.countdownContainer, { transform: [{ scale: pulseAnim }] }]}>
         <Text style={styles.countdownNumber}>{remaining}</Text>
-        <Text style={styles.countdownLabel}>segundos para retomar</Text>
+        <Text style={styles.countdownLabel}>seconds to resume</Text>
       </Animated.View>
 
-      {/* Botões */}
+      {/* Buttons */}
       <View style={styles.buttonsContainer}>
         <TouchableOpacity
           style={[styles.button, styles.buttonPrimary]}
-          onPress={acaoRetomar}
+          onPress={actionResume}
           activeOpacity={0.8}
         >
           <Text style={styles.buttonIcon}>▶️</Text>
-          <Text style={styles.buttonText}>Retomar</Text>
+          <Text style={styles.buttonText}>Resume</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={[styles.button, styles.buttonSecondary]}
-          onPress={acaoEncerrar}
+          onPress={actionEnd}
           activeOpacity={0.8}
         >
           <Text style={styles.buttonIcon}>⏹️</Text>
-          <Text style={styles.buttonTextSecondary}>Encerrar sessão</Text>
+          <Text style={styles.buttonTextSecondary}>End session</Text>
         </TouchableOpacity>
       </View>
 
       {/* Footer */}
       <Text style={styles.footer}>
-        Retoma automaticamente em {remaining}s
+        Auto-resumes in {remaining}s
       </Text>
     </View>
   );
@@ -573,7 +585,7 @@ const styles = StyleSheet.create({
     color: withOpacity(colors.white, 0.8),
   },
 
-  // Countdown de pausa (maior)
+  // Pause countdown (larger)
   pauseCountdownContainer: {
     alignItems: 'center',
     backgroundColor: withOpacity(colors.black, 0.1),

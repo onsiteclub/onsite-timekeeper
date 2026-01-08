@@ -30,7 +30,6 @@ import {
   getLocais,
   registrarGeoponto,
   registrarHeartbeat,
-  type LocalDB,
 } from './database';
 
 // ============================================

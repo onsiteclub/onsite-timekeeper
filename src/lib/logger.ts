@@ -1,9 +1,9 @@
 /**
- * Sistema de Logging do OnSite Timekeeper
+ * Logging System - OnSite Timekeeper
  * 
- * - Logs coloridos no console (dev)
- * - Listeners para DevMonitor
- * - Fila de envio para Supabase (opcional)
+ * - Colored logs in console (dev)
+ * - Listeners for DevMonitor
+ * - Queue for Supabase upload (optional)
  */
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
@@ -18,8 +18,9 @@ type LogCategory =
   | 'ui'
   | 'boot'
   | 'heartbeat'   
-  | 'registro'
-  | 'telemetry';  // NOVO
+  | 'record'      // English version
+  | 'registro'    // Legacy (Portuguese)
+  | 'telemetry';
 
 export interface LogEntry {
   id: string;
@@ -30,14 +31,14 @@ export interface LogEntry {
   timestamp: Date;
 }
 
-// Configuração
+// Configuration
 const CONFIG = {
   enableConsole: __DEV__,
   maxStoredLogs: 500,
   enableColors: true,
 };
 
-// Emojis por nível
+// Emojis per level
 const levelEmoji: Record<LogLevel, string> = {
   debug: '🔵',
   info: '🟢',
@@ -45,38 +46,39 @@ const levelEmoji: Record<LogLevel, string> = {
   error: '🔴',
 };
 
-// Cores por categoria (para console)
+// Colors per category (for console)
 const categoryColor: Record<LogCategory, string> = {
-  auth: '\x1b[35m',      // magenta
-  gps: '\x1b[36m',       // cyan
-  geofence: '\x1b[33m',  // yellow
-  sync: '\x1b[34m',      // blue
-  database: '\x1b[32m',  // green
+  auth: '\x1b[35m',       // magenta
+  gps: '\x1b[36m',        // cyan
+  geofence: '\x1b[33m',   // yellow
+  sync: '\x1b[34m',       // blue
+  database: '\x1b[32m',   // green
   notification: '\x1b[31m', // red
-  session: '\x1b[95m',   // light magenta
-  ui: '\x1b[94m',        // light blue
-  boot: '\x1b[96m',      // light cyan
-  heartbeat: '\x1b[93m', // light yellow
-  registro: '\x1b[92m',  // light green
-  telemetry: '\x1b[90m', // NOVO: gray
+  session: '\x1b[95m',    // light magenta
+  ui: '\x1b[94m',         // light blue
+  boot: '\x1b[96m',       // light cyan
+  heartbeat: '\x1b[93m',  // light yellow
+  record: '\x1b[92m',     // light green (English)
+  registro: '\x1b[92m',   // light green (Legacy)
+  telemetry: '\x1b[90m',  // gray
 };
 
-// Storage de logs em memória
+// In-memory log storage
 const logStorage: LogEntry[] = [];
 
-// Listeners para DevMonitor
+// Listeners for DevMonitor
 type LogListener = (entry: LogEntry) => void;
 const listeners: Set<LogListener> = new Set();
 
 /**
- * Gera UUID simples para logs
+ * Generate simple UUID for logs
  */
 function generateLogId(): string {
   return `log_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }
 
 /**
- * Adiciona listener para receber logs em tempo real
+ * Add listener to receive logs in real-time
  */
 export function addLogListener(listener: LogListener): () => void {
   listeners.add(listener);
@@ -84,21 +86,21 @@ export function addLogListener(listener: LogListener): () => void {
 }
 
 /**
- * Notifica todos os listeners sobre novo log
+ * Notify all listeners about new log
  */
 function notifyListeners(entry: LogEntry): void {
   listeners.forEach(listener => {
     try {
       listener(entry);
     } catch (e) {
-      // Evita que erro em listener quebre o logging
+      // Prevent listener error from breaking logging
       console.error('Log listener error:', e);
     }
   });
 }
 
 /**
- * Função principal de logging
+ * Main logging function
  */
 function log(
   level: LogLevel,
@@ -115,18 +117,18 @@ function log(
     timestamp: new Date(),
   };
 
-  // Armazena em memória (com limite)
+  // Store in memory (with limit)
   logStorage.push(entry);
   if (logStorage.length > CONFIG.maxStoredLogs) {
     logStorage.shift();
   }
 
-  // Console em desenvolvimento
+  // Console in development
   if (CONFIG.enableConsole) {
     const emoji = levelEmoji[level];
     const color = CONFIG.enableColors ? categoryColor[category] : '';
     const reset = CONFIG.enableColors ? '\x1b[0m' : '';
-    const time = entry.timestamp.toLocaleTimeString('pt-BR');
+    const time = entry.timestamp.toLocaleTimeString('en-US');
     
     const metaStr = metadata ? ` ${JSON.stringify(metadata)}` : '';
     console.log(
@@ -134,12 +136,12 @@ function log(
     );
   }
 
-  // Notifica listeners (DevMonitor)
+  // Notify listeners (DevMonitor)
   notifyListeners(entry);
 }
 
 /**
- * API pública do logger
+ * Public logger API
  */
 export const logger = {
   debug: (category: LogCategory, message: string, metadata?: Record<string, unknown>) =>
@@ -156,36 +158,36 @@ export const logger = {
 };
 
 /**
- * Retorna todos os logs armazenados
+ * Return all stored logs
  */
 export function getStoredLogs(): LogEntry[] {
   return [...logStorage];
 }
 
 /**
- * Retorna logs filtrados por nível
+ * Return logs filtered by level
  */
 export function getLogsByLevel(level: LogLevel): LogEntry[] {
   return logStorage.filter(l => l.level === level);
 }
 
 /**
- * Retorna logs filtrados por categoria
+ * Return logs filtered by category
  */
 export function getLogsByCategory(category: LogCategory): LogEntry[] {
   return logStorage.filter(l => l.category === category);
 }
 
 /**
- * Limpa todos os logs armazenados
+ * Clear all stored logs
  */
 export function clearLogs(): void {
   logStorage.length = 0;
-  logger.info('database', 'Logs limpos');
+  logger.info('database', 'Logs cleared');
 }
 
 /**
- * Exporta logs como texto para debug
+ * Export logs as text for debug
  */
 export function exportLogsAsText(): string {
   return logStorage

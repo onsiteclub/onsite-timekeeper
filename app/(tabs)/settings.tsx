@@ -3,7 +3,7 @@
  */
 
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, Switch, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Switch, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { colors } from '../../src/constants/colors';
 import { Card, Button } from '../../src/components/ui/Button';

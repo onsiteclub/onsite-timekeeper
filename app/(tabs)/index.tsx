@@ -31,7 +31,7 @@ import type { SessaoComputada } from '../../src/lib/database';
 import type { LocalDeTrabalho } from '../../src/stores/locationStore';
 
 import { useHomeScreen } from '../../src/screens/home/hooks';
-import { styles, MONTH_DAY_SIZE } from '../../src/screens/home/styles';
+import { styles } from '../../src/screens/home/styles';
 import { DIAS_SEMANA_SHORT, type DiaCalendario } from '../../src/screens/home/helpers';
 
 // ============================================

@@ -15,8 +15,6 @@ import { logger } from './logger';
 export const LOCATION_TASK_NAME = 'onsite-background-location';
 export const GEOFENCE_TASK_NAME = 'onsite-geofence';
 
-// Cor OnSite Amber para notificações
-const ONSITE_AMBER = '#F7B324';
 
 // ============================================
 // TIPOS

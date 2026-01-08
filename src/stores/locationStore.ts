@@ -1,14 +1,14 @@
 /**
  * Location Store - OnSite Timekeeper
  * 
- * Gerencia:
- * - Locais de trabalho (CRUD)
- * - Localização atual do usuário
- * - Geofencing (monitoramento de entrada/saída)
- * - Heartbeat (verificação periódica)
- * - Polling de backup
+ * Manages:
+ * - Work locations (CRUD)
+ * - Current user location
+ * - Geofencing (entry/exit monitoring)
+ * - Heartbeat (periodic verification)
+ * - Backup polling
  * 
- * MODIFICADO: Usa telemetria agregada em vez de heartbeat_log individual
+ * MODIFIED: Uses aggregated telemetry instead of individual heartbeat_log
  */
 
 import { create } from 'zustand';
@@ -24,9 +24,7 @@ import {
   pararBackgroundLocation,
   verificarPermissoes,
   calcularDistancia,
-  estaDentroGeofence,
   type Coordenadas,
-  type LocalizacaoResult,
   type GeofenceRegion,
   type PermissoesStatus,
 } from '../lib/location';
@@ -36,12 +34,8 @@ import {
   removerLocal,
   atualizarLocal,
   initDatabase,
-  // LEGADO: ainda usamos por enquanto para manter histórico
+  // LEGACY: still using for now to maintain history
   registrarHeartbeat,
-  // NOVO: telemetria agregada
-  incrementarTelemetria,
-  incrementarTelemetriaHeartbeat,
-  type LocalDB,
 } from '../lib/database';
 import {
   setGeofenceCallback,
@@ -57,17 +51,28 @@ import { useWorkSessionStore } from './workSessionStore';
 import { useAuthStore } from './authStore';
 
 // ============================================
-// CONSTANTES
+// CONSTANTS
 // ============================================
 
-const POLLING_INTERVAL = 30000; // 30 segundos
+const POLLING_INTERVAL = 30000; // 30 seconds
 const STORAGE_KEY_MONITORING = '@onsite_monitoring_active';
-const HISTERESE_SAIDA = 1.5; // Saída usa raio × 1.5 (evita ping-pong)
+const EXIT_HYSTERESIS = 1.5; // Exit uses radius × 1.5 (prevents ping-pong)
 
 // ============================================
-// TIPOS
+// TYPES
 // ============================================
 
+export interface WorkLocation {
+  id: string;
+  name: string;
+  latitude: number;
+  longitude: number;
+  radius: number;
+  color: string;
+  status: string;
+}
+
+// Legacy interface for compatibility
 export interface LocalDeTrabalho {
   id: string;
   nome: string;
@@ -79,56 +84,88 @@ export interface LocalDeTrabalho {
 }
 
 interface LocationState {
-  // Permissões
-  permissoes: PermissoesStatus;
+  // Permissions
+  permissions: PermissoesStatus;
   
-  // Localização atual
-  localizacaoAtual: Coordenadas | null;
-  precisao: number | null;
-  ultimaAtualizacao: number | null;
+  // Current location
+  currentLocation: Coordenadas | null;
+  accuracy: number | null;
+  lastUpdate: number | null;
   
-  // Locais de trabalho
+  // Work locations
+  locations: WorkLocation[];
+  
+  // Legacy accessor (for compatibility)
   locais: LocalDeTrabalho[];
   
-  // Estado do monitoramento
-  geofenceAtivo: string | null; // ID do local onde está
-  isGeofencingAtivo: boolean;
-  isBackgroundAtivo: boolean;
-  isPollingAtivo: boolean;
+  // Monitoring state
+  activeGeofenceId: string | null;
+  isGeofencingActive: boolean;
+  isBackgroundActive: boolean;
+  isPollingActive: boolean;
   isWatching: boolean;
   
   // Heartbeat
   lastHeartbeat: HeartbeatResult | null;
-  isHeartbeatAtivo: boolean;
+  isHeartbeatActive: boolean;
   
-  // Controle de processamento
+  // Event processing control
+  isProcessingEvent: boolean;
+  lastEvent: GeofenceEvent | null;
+  
+  // Initialization
+  isInitialized: boolean;
+
+  // Legacy accessors (for compatibility)
+  localizacaoAtual: Coordenadas | null;
+  precisao: number | null;
+  ultimaAtualizacao: number | null;
+  geofenceAtivo: string | null;
+  isGeofencingAtivo: boolean;
+  isBackgroundAtivo: boolean;
+  isPollingAtivo: boolean;
+  isHeartbeatAtivo: boolean;
   isProcessandoEvento: boolean;
   ultimoEvento: GeofenceEvent | null;
-  
-  // Inicialização
   isInicializado: boolean;
+  permissoes: PermissoesStatus;
 
   // Actions
   initialize: () => Promise<void>;
+  updateLocation: () => Promise<void>;
+  startTracking: () => Promise<void>;
+  stopTracking: () => Promise<void>;
+  
+  // CRUD Locations
+  addLocation: (location: Omit<WorkLocation, 'id' | 'status'>) => Promise<string>;
+  removeLocation: (id: string) => Promise<void>;
+  editLocation: (id: string, updates: Partial<WorkLocation>) => Promise<void>;
+  reloadLocations: () => Promise<void>;
+  
+  // Geofencing
+  startMonitoring: () => Promise<void>;
+  stopMonitoring: () => Promise<void>;
+  checkCurrentGeofence: () => void;
+  
+  // Heartbeat
+  updateHeartbeatFences: () => void;
+  
+  // Polling
+  startPolling: () => void;
+  stopPolling: () => void;
+
+  // Legacy methods (for compatibility)
   atualizarLocalizacao: () => Promise<void>;
   iniciarTracking: () => Promise<void>;
   pararTracking: () => Promise<void>;
-  
-  // CRUD Locais
   adicionarLocal: (local: Omit<LocalDeTrabalho, 'id' | 'status'>) => Promise<string>;
   removerLocal: (id: string) => Promise<void>;
   editarLocal: (id: string, updates: Partial<LocalDeTrabalho>) => Promise<void>;
   recarregarLocais: () => Promise<void>;
-  
-  // Geofencing
   iniciarMonitoramento: () => Promise<void>;
   pararMonitoramento: () => Promise<void>;
   verificarGeofenceAtual: () => void;
-  
-  // Heartbeat
   atualizarFencesHeartbeat: () => void;
-  
-  // Polling
   iniciarPolling: () => void;
   pararPolling: () => void;
 }
@@ -137,76 +174,102 @@ interface LocationState {
 // POLLING TIMER
 // ============================================
 
-let pollingTimer: NodeJS.Timeout | null = null;
+let pollingTimer: ReturnType<typeof setInterval> | null = null;
 
 // ============================================
 // STORE
 // ============================================
 
 export const useLocationStore = create<LocationState>((set, get) => ({
-  permissoes: { foreground: false, background: false },
-  localizacaoAtual: null,
-  precisao: null,
-  ultimaAtualizacao: null,
-  locais: [],
-  geofenceAtivo: null,
-  isGeofencingAtivo: false,
-  isBackgroundAtivo: false,
-  isPollingAtivo: false,
+  // New properties
+  permissions: { foreground: false, background: false },
+  currentLocation: null,
+  accuracy: null,
+  lastUpdate: null,
+  locations: [],
+  activeGeofenceId: null,
+  isGeofencingActive: false,
+  isBackgroundActive: false,
+  isPollingActive: false,
   isWatching: false,
   lastHeartbeat: null,
-  isHeartbeatAtivo: false,
-  isProcessandoEvento: false,
-  ultimoEvento: null,
-  isInicializado: false,
+  isHeartbeatActive: false,
+  isProcessingEvent: false,
+  lastEvent: null,
+  isInitialized: false,
+
+  // Legacy property aliases (getters computed from new properties)
+  get permissoes() { return get().permissions; },
+  get localizacaoAtual() { return get().currentLocation; },
+  get precisao() { return get().accuracy; },
+  get ultimaAtualizacao() { return get().lastUpdate; },
+  get locais() { 
+    return get().locations.map(l => ({
+      id: l.id,
+      nome: l.name,
+      latitude: l.latitude,
+      longitude: l.longitude,
+      raio: l.radius,
+      cor: l.color,
+      status: l.status,
+    }));
+  },
+  get geofenceAtivo() { return get().activeGeofenceId; },
+  get isGeofencingAtivo() { return get().isGeofencingActive; },
+  get isBackgroundAtivo() { return get().isBackgroundActive; },
+  get isPollingAtivo() { return get().isPollingActive; },
+  get isHeartbeatAtivo() { return get().isHeartbeatActive; },
+  get isProcessandoEvento() { return get().isProcessingEvent; },
+  get ultimoEvento() { return get().lastEvent; },
+  get isInicializado() { return get().isInitialized; },
 
   initialize: async () => {
-    if (get().isInicializado) return;
+    if (get().isInitialized) return;
 
-    logger.info('boot', '📍 Inicializando location store...');
+    logger.info('boot', '📍 Initializing location store...');
 
     try {
-      // IMPORTANTE: Inicializa o banco primeiro
+      // IMPORTANT: Initialize database first
       await initDatabase();
 
-      // Importa background tasks (registra as tasks)
+      // Import background tasks (registers the tasks)
       await import('../lib/backgroundTasks');
 
-    // Verifica permissões - e pede se não tiver
-      let permissoes = await verificarPermissoes();
-      if (!permissoes.foreground || !permissoes.background) {
+      // Check permissions - and request if not granted
+      let permissions = await verificarPermissoes();
+      if (!permissions.foreground || !permissions.background) {
         const { solicitarTodasPermissoes } = await import('../lib/location');
-        permissoes = await solicitarTodasPermissoes();
+        permissions = await solicitarTodasPermissoes();
       }
-      set({ permissoes });
+      set({ permissions });
       
       // ============================================
-      // CALLBACK DE GEOFENCE NATIVO
+      // NATIVE GEOFENCE CALLBACK
       // ============================================
-      setGeofenceCallback((evento) => {
-        const { isProcessandoEvento } = get();
+      setGeofenceCallback((event) => {
+        const { isProcessingEvent } = get();
 
-        if (isProcessandoEvento) {
-          logger.warn('geofence', 'Evento ignorado - já processando outro');
+        if (isProcessingEvent) {
+          logger.warn('geofence', 'Event ignored - already processing another');
           return;
         }
 
-        logger.info('geofence', `📍 Evento: ${evento.type} - ${evento.regionIdentifier}`);
-        set({ ultimoEvento: evento, isProcessandoEvento: true });
+        logger.info('geofence', `📍 Event: ${event.type} - ${event.regionIdentifier}`);
+        set({ lastEvent: event, isProcessingEvent: true });
 
-        // Processa o evento
-        processarEventoGeofence(evento, get, set);
+        // Process the event
+        processGeofenceEvent(event, get, set);
 
-        // Libera processamento após 1s
-        setTimeout(() => set({ isProcessandoEvento: false }), 1000);
+        // Release processing after 1s
+        setTimeout(() => set({ isProcessingEvent: false }), 1000);
       });
 
       // ============================================
-      // CALLBACK DE HEARTBEAT (SAFETY NET)
-      // MODIFICADO: Usa telemetria agregada
+      // HEARTBEAT CALLBACK (SAFETY NET)
+      // MODIFIED: Uses aggregated telemetry
       // ============================================
       setHeartbeatCallback(async (result: HeartbeatResult) => {
-        logger.info('heartbeat', '💓 Processando heartbeat', {
+        logger.info('heartbeat', '💓 Processing heartbeat', {
           inside: result.isInsideFence,
           fence: result.fenceName,
         });
@@ -215,19 +278,19 @@ export const useLocationStore = create<LocationState>((set, get) => ({
 
         const userId = useAuthStore.getState().getUserId();
         
-        // Importa registroStore dinamicamente para evitar circular dependency
+        // Dynamically import registroStore to avoid circular dependency
         const { useRegistroStore } = await import('./registroStore');
         const registroStore = useRegistroStore.getState();
-        const sessaoAtual = registroStore.sessaoAtual;
+        const currentSession = registroStore.sessaoAtual;
 
         // ============================================
-        // MODIFICADO: Registra na telemetria agregada
-        // (registrarHeartbeat também chama incrementarTelemetriaHeartbeat internamente)
+        // MODIFIED: Register in aggregated telemetry
+        // (registrarHeartbeat also calls incrementarTelemetriaHeartbeat internally)
         // ============================================
         if (userId && result.location) {
           try {
-            // Ainda chama registrarHeartbeat por enquanto para manter compatibilidade
-            // Mas a função já incrementa telemetria automaticamente
+            // Still calling registrarHeartbeat for now to maintain compatibility
+            // But the function already increments telemetry automatically
             await registrarHeartbeat(
               userId,
               result.location.latitude,
@@ -236,455 +299,463 @@ export const useLocationStore = create<LocationState>((set, get) => ({
               result.isInsideFence,
               result.fenceId,
               result.fenceName,
-              sessaoAtual?.id || null,
+              currentSession?.id || null,
               result.batteryLevel
             );
           } catch (error) {
-            logger.error('heartbeat', 'Erro ao registrar heartbeat', { error: String(error) });
+            logger.error('heartbeat', 'Error registering heartbeat', { error: String(error) });
           }
         }
 
         // ============================================
-        // LÓGICA DE NEGÓCIO: Detectar inconsistências
-        // (Isso é o que realmente importa do heartbeat)
+        // BUSINESS LOGIC: Detect inconsistencies
+        // (This is what really matters from heartbeat)
         // ============================================
 
-        // Caso A: Tem sessão ativa mas está FORA da fence → saída perdida!
-        if (sessaoAtual && sessaoAtual.status === 'ativa' && !result.isInsideFence) {
-          logger.warn('heartbeat', '⚠️ SAÍDA DETECTADA POR HEARTBEAT!', {
-            sessaoId: sessaoAtual.id,
-            localNome: sessaoAtual.local_nome,
+        // Case A: Has active session but is OUTSIDE the fence → missed exit!
+        if (currentSession && currentSession.status === 'ativa' && !result.isInsideFence) {
+          logger.warn('heartbeat', '⚠️ EXIT DETECTED BY HEARTBEAT!', {
+            sessionId: currentSession.id,
+            locationName: currentSession.local_nome,
           });
 
-          // Encerrar sessão automaticamente
+          // End session automatically
           try {
-            await registroStore.registrarSaida(sessaoAtual.local_id);
-            logger.info('heartbeat', '✅ Sessão encerrada por heartbeat');
+            await registroStore.registrarSaida(currentSession.local_id);
+            logger.info('heartbeat', '✅ Session ended by heartbeat');
             
-            // Atualiza geofenceAtivo
-            set({ geofenceAtivo: null });
+            // Update activeGeofenceId
+            set({ activeGeofenceId: null });
           } catch (error) {
-            logger.error('heartbeat', 'Erro ao encerrar sessão por heartbeat', { error: String(error) });
+            logger.error('heartbeat', 'Error ending session by heartbeat', { error: String(error) });
           }
         }
 
-        // Caso B: Sem sessão ativa mas DENTRO de fence → entrada perdida?
-        // Por segurança, NÃO registramos automaticamente - só logamos
-        if (!sessaoAtual && result.isInsideFence && result.fenceId) {
-          logger.warn('heartbeat', '⚠️ POSSÍVEL ENTRADA PERDIDA', {
+        // Case B: No active session but INSIDE a fence → missed entry?
+        // For safety, we DON'T register automatically - just log
+        if (!currentSession && result.isInsideFence && result.fenceId) {
+          logger.warn('heartbeat', '⚠️ POSSIBLE MISSED ENTRY', {
             fenceId: result.fenceId,
             fenceName: result.fenceName,
           });
           
-          // Atualiza geofenceAtivo para UI mostrar corretamente
-          set({ geofenceAtivo: result.fenceId });
+          // Update activeGeofenceId so UI shows correctly
+          set({ activeGeofenceId: result.fenceId });
           
-          // TODO: Implementar notificação push para o usuário
-          // "Você está em [local]. Deseja iniciar uma sessão?"
+          // TODO: Implement push notification to user
+          // "You're at [location]. Do you want to start a session?"
         }
       });
 
-      // Carrega locais do banco
-      await get().recarregarLocais();
+      // Load locations from database
+      await get().reloadLocations();
 
-      // Obtém localização atual
-      const localizacao = await obterLocalizacaoAtual();
-      if (localizacao) {
+      // Get current location
+      const location = await obterLocalizacaoAtual();
+      if (location) {
         set({
-          localizacaoAtual: localizacao.coords,
-          precisao: localizacao.accuracy,
-          ultimaAtualizacao: localizacao.timestamp,
+          currentLocation: location.coords,
+          accuracy: location.accuracy,
+          lastUpdate: location.timestamp,
         });
       }
 
-      set({ isInicializado: true });
+      set({ isInitialized: true });
 
-      // Auto-inicia monitoramento se necessário
-      await autoIniciarMonitoramento(get, set);
+      // Auto-start monitoring if needed
+      await autoStartMonitoring(get, set);
 
-      // Verifica geofence atual
-      get().verificarGeofenceAtual();
+      // Check current geofence
+      get().checkCurrentGeofence();
 
-      logger.info('boot', '✅ Location store inicializado');
+      logger.info('boot', '✅ Location store initialized');
     } catch (error) {
-      logger.error('gps', 'Erro na inicialização do location store', { error: String(error) });
-      set({ isInicializado: true }); // Marca como inicializado mesmo com erro
+      logger.error('gps', 'Error initializing location store', { error: String(error) });
+      set({ isInitialized: true }); // Mark as initialized even with error
     }
   },
 
-  atualizarLocalizacao: async () => {
+  updateLocation: async () => {
     try {
-      const localizacao = await obterLocalizacaoAtual();
-      if (localizacao) {
+      const location = await obterLocalizacaoAtual();
+      if (location) {
         set({
-          localizacaoAtual: localizacao.coords,
-          precisao: localizacao.accuracy,
-          ultimaAtualizacao: localizacao.timestamp,
+          currentLocation: location.coords,
+          accuracy: location.accuracy,
+          lastUpdate: location.timestamp,
         });
-        get().verificarGeofenceAtual();
+        get().checkCurrentGeofence();
       }
     } catch (error) {
-      logger.error('gps', 'Erro ao atualizar localização', { error: String(error) });
+      logger.error('gps', 'Error updating location', { error: String(error) });
     }
   },
 
-  iniciarTracking: async () => {
-    const success = await iniciarWatchPosicao((localizacao) => {
+  startTracking: async () => {
+    const success = await iniciarWatchPosicao((location) => {
       set({
-        localizacaoAtual: localizacao.coords,
-        precisao: localizacao.accuracy,
-        ultimaAtualizacao: localizacao.timestamp,
+        currentLocation: location.coords,
+        accuracy: location.accuracy,
+        lastUpdate: location.timestamp,
       });
-      get().verificarGeofenceAtual();
+      get().checkCurrentGeofence();
     });
 
     if (success) {
       set({ isWatching: true });
-      logger.info('gps', '👁️ Tracking em tempo real iniciado');
+      logger.info('gps', '👁️ Real-time tracking started');
     }
   },
 
-  pararTracking: async () => {
+  stopTracking: async () => {
     await pararWatchPosicao();
     set({ isWatching: false });
-    logger.info('gps', '⏹️ Tracking em tempo real parado');
+    logger.info('gps', '⏹️ Real-time tracking stopped');
   },
 
-  adicionarLocal: async (local) => {
+  addLocation: async (location) => {
     const userId = useAuthStore.getState().getUserId();
     if (!userId) {
-      throw new Error('Usuário não autenticado');
+      throw new Error('User not authenticated');
     }
 
-    const { locais } = get();
+    const { locations } = get();
 
     // ============================================
-    // VALIDAÇÃO 1: Nome duplicado
+    // VALIDATION 1: Duplicate name
     // ============================================
-    const nomeDuplicado = locais.some(
-      l => l.nome.toLowerCase().trim() === local.nome.toLowerCase().trim()
+    const duplicateName = locations.some(
+      l => l.name.toLowerCase().trim() === location.name.toLowerCase().trim()
     );
-    if (nomeDuplicado) {
-      throw new Error(`Já existe um local com o nome "${local.nome}"`);
+    if (duplicateName) {
+      throw new Error(`A location named "${location.name}" already exists`);
     }
 
     // ============================================
-    // VALIDAÇÃO 2: Raio mínimo/máximo
+    // VALIDATION 2: Min/max radius
     // ============================================
-    const RAIO_MINIMO = 200;
-    const RAIO_MAXIMO = 1500;
+    const MIN_RADIUS = 200;
+    const MAX_RADIUS = 1500;
     
-    if (local.raio < RAIO_MINIMO) {
-      throw new Error(`Raio mínimo é ${RAIO_MINIMO} metros`);
+    if (location.radius < MIN_RADIUS) {
+      throw new Error(`Minimum radius is ${MIN_RADIUS} meters`);
     }
-    if (local.raio > RAIO_MAXIMO) {
-      throw new Error(`Raio máximo é ${RAIO_MAXIMO} metros`);
+    if (location.radius > MAX_RADIUS) {
+      throw new Error(`Maximum radius is ${MAX_RADIUS} meters`);
     }
 
     // ============================================
-    // VALIDAÇÃO 3: Sobreposição de fences
+    // VALIDATION 3: Fence overlap
     // ============================================
-    const locaisAtivos = locais.filter(l => l.status === 'active');
+    const activeLocations = locations.filter(l => l.status === 'active');
     
-    for (const existente of locaisAtivos) {
-      const distancia = calcularDistancia(
-        { latitude: local.latitude, longitude: local.longitude },
-        { latitude: existente.latitude, longitude: existente.longitude }
+    for (const existing of activeLocations) {
+      const distance = calcularDistancia(
+        { latitude: location.latitude, longitude: location.longitude },
+        { latitude: existing.latitude, longitude: existing.longitude }
       );
       
-      const somaRaios = local.raio + existente.raio;
+      const sumOfRadii = location.radius + existing.radius;
       
-      if (distancia < somaRaios) {
+      if (distance < sumOfRadii) {
         throw new Error(
-          `Este local sobrepõe "${existente.nome}". ` +
-          `Distância: ${Math.round(distancia)}m, mínimo necessário: ${somaRaios}m`
+          `This location overlaps with "${existing.name}". ` +
+          `Distance: ${Math.round(distance)}m, minimum required: ${sumOfRadii}m`
         );
       }
     }
 
     // ============================================
-    // CRIAR LOCAL (passou nas validações)
+    // CREATE LOCATION (passed validations)
     // ============================================
-    logger.info('geofence', `➕ Adicionando local: ${local.nome}`);
+    logger.info('geofence', `➕ Adding location: ${location.name}`);
 
     const id = await criarLocal({
       userId,
-      nome: local.nome,
-      latitude: local.latitude,
-      longitude: local.longitude,
-      raio: local.raio,
-      cor: local.cor,
+      nome: location.name,
+      latitude: location.latitude,
+      longitude: location.longitude,
+      raio: location.radius,
+      cor: location.color,
     });
 
-    // Recarrega locais
-    await get().recarregarLocais();
+    // Reload locations
+    await get().reloadLocations();
 
-    // Reinicia geofencing para incluir novo local
-    const { isGeofencingAtivo } = get();
-    if (isGeofencingAtivo) {
-      await get().pararMonitoramento();
-      await get().iniciarMonitoramento();
+    // Restart geofencing to include new location
+    const { isGeofencingActive } = get();
+    if (isGeofencingActive) {
+      await get().stopMonitoring();
+      await get().startMonitoring();
     } else {
-      // Auto-inicia monitoramento quando primeiro local é adicionado
-      await get().iniciarMonitoramento();
+      // Auto-start monitoring when first location is added
+      await get().startMonitoring();
     }
 
-    // Atualiza fences no heartbeat
-    get().atualizarFencesHeartbeat();
+    // Update fences in heartbeat
+    get().updateHeartbeatFences();
 
-    logger.info('geofence', `✅ Local adicionado: ${local.nome}`, { id });
+    logger.info('geofence', `✅ Location added: ${location.name}`, { id });
     return id;
   },
 
-  removerLocal: async (id) => {
+  removeLocation: async (id) => {
     const userId = useAuthStore.getState().getUserId();
     if (!userId) {
-      throw new Error('Usuário não autenticado');
+      throw new Error('User not authenticated');
     }
 
-    // VERIFICAR SE TEM SESSÃO ATIVA NESTE LOCAL
+    // CHECK IF THERE'S AN ACTIVE SESSION AT THIS LOCATION
     const { useRegistroStore } = await import('./registroStore');
-    const sessaoAtual = useRegistroStore.getState().sessaoAtual;
+    const currentSession = useRegistroStore.getState().sessaoAtual;
     
-    if (sessaoAtual && sessaoAtual.local_id === id) {
-      throw new Error('Não é possível excluir um local com sessão ativa. Encerre o cronômetro primeiro.');
+    if (currentSession && currentSession.local_id === id) {
+      throw new Error('Cannot delete a location with an active session. End the timer first.');
     }
 
-    logger.info('geofence', `🗑️ Removendo local`, { id });
+    logger.info('geofence', `🗑️ Removing location`, { id });
 
     await removerLocal(userId, id);
     
-    // Remove do estado
+    // Remove from state
     set(state => ({
-      locais: state.locais.filter(l => l.id !== id),
-      geofenceAtivo: state.geofenceAtivo === id ? null : state.geofenceAtivo,
+      locations: state.locations.filter(l => l.id !== id),
+      activeGeofenceId: state.activeGeofenceId === id ? null : state.activeGeofenceId,
     }));
 
-    // Reinicia geofencing
-    const { locais, isGeofencingAtivo } = get();
-    if (isGeofencingAtivo) {
-      if (locais.length === 0) {
-        await get().pararMonitoramento();
+    // Restart geofencing
+    const { locations, isGeofencingActive } = get();
+    if (isGeofencingActive) {
+      if (locations.length === 0) {
+        await get().stopMonitoring();
       } else {
-        await get().pararMonitoramento();
-        await get().iniciarMonitoramento();
+        await get().stopMonitoring();
+        await get().startMonitoring();
       }
     }
 
-    // Atualiza fences no heartbeat
-    get().atualizarFencesHeartbeat();
+    // Update fences in heartbeat
+    get().updateHeartbeatFences();
 
-    logger.info('geofence', '✅ Local removido');
+    logger.info('geofence', '✅ Location removed');
   },
 
-  editarLocal: async (id, updates) => {
+  editLocation: async (id, updates) => {
     const userId = useAuthStore.getState().getUserId();
     if (!userId) {
-      throw new Error('Usuário não autenticado');
+      throw new Error('User not authenticated');
     }
 
-    await atualizarLocal(id, updates);
-    await get().recarregarLocais();
+    // Convert to legacy format for database
+    const legacyUpdates: any = {};
+    if (updates.name) legacyUpdates.nome = updates.name;
+    if (updates.radius) legacyUpdates.raio = updates.radius;
+    if (updates.color) legacyUpdates.cor = updates.color;
+    if (updates.latitude) legacyUpdates.latitude = updates.latitude;
+    if (updates.longitude) legacyUpdates.longitude = updates.longitude;
 
-    // Reinicia geofencing se estiver ativo
-    const { isGeofencingAtivo } = get();
-    if (isGeofencingAtivo) {
-      await get().pararMonitoramento();
-      await get().iniciarMonitoramento();
+    await atualizarLocal(id, legacyUpdates);
+    await get().reloadLocations();
+
+    // Restart geofencing if active
+    const { isGeofencingActive } = get();
+    if (isGeofencingActive) {
+      await get().stopMonitoring();
+      await get().startMonitoring();
     }
 
-    // Atualiza fences no heartbeat
-    get().atualizarFencesHeartbeat();
+    // Update fences in heartbeat
+    get().updateHeartbeatFences();
 
-    logger.info('geofence', '✅ Local editado', { id });
+    logger.info('geofence', '✅ Location edited', { id });
   },
 
-  recarregarLocais: async () => {
+  reloadLocations: async () => {
     try {
       const userId = useAuthStore.getState().getUserId();
       if (!userId) {
-        set({ locais: [] });
+        set({ locations: [] });
         return;
       }
 
-      const locaisDB = await getLocais(userId);
-      const locais: LocalDeTrabalho[] = locaisDB.map(l => ({
+      const locationsDB = await getLocais(userId);
+      const locations: WorkLocation[] = locationsDB.map(l => ({
         id: l.id,
-        nome: l.nome,
+        name: l.nome,
         latitude: l.latitude,
         longitude: l.longitude,
-        raio: l.raio,
-        cor: l.cor,
+        radius: l.raio,
+        color: l.cor,
         status: l.status,
       }));
 
-      set({ locais });
+      set({ locations });
       
-      // Atualiza fences no heartbeat
-      get().atualizarFencesHeartbeat();
+      // Update fences in heartbeat
+      get().updateHeartbeatFences();
       
-      logger.debug('gps', `${locais.length} locais carregados`);
+      logger.debug('gps', `${locations.length} locations loaded`);
     } catch (error) {
-      logger.error('gps', 'Erro ao carregar locais', { error: String(error) });
+      logger.error('gps', 'Error loading locations', { error: String(error) });
     }
   },
 
-  iniciarMonitoramento: async () => {
-    const { locais } = get();
-    const locaisAtivos = locais.filter(l => l.status === 'active');
+  startMonitoring: async () => {
+    const { locations } = get();
+    const activeLocations = locations.filter(l => l.status === 'active');
 
-    if (locaisAtivos.length === 0) {
-      logger.warn('geofence', 'Nenhum local ativo para monitorar');
+    if (activeLocations.length === 0) {
+      logger.warn('geofence', 'No active locations to monitor');
       return;
     }
 
-    // Prepara regiões de geofence
-    const regioes: GeofenceRegion[] = locaisAtivos.map(l => ({
+    // Prepare geofence regions
+    const regions: GeofenceRegion[] = activeLocations.map(l => ({
       identifier: l.id,
       latitude: l.latitude,
       longitude: l.longitude,
-      radius: l.raio,
+      radius: l.radius,
       notifyOnEnter: true,
       notifyOnExit: true,
     }));
 
-    // Inicia geofencing nativo
-    const success = await iniciarGeofencing(regioes);
+    // Start native geofencing
+    const success = await iniciarGeofencing(regions);
     if (success) {
-      set({ isGeofencingAtivo: true });
+      set({ isGeofencingActive: true });
 
-      // Inicia background location como backup
+      // Start background location as backup
       await iniciarBackgroundLocation();
-      set({ isBackgroundAtivo: true });
+      set({ isBackgroundActive: true });
 
-      // Inicia polling ativo
-      get().iniciarPolling();
+      // Start active polling
+      get().startPolling();
 
       // ============================================
-      // INICIA HEARTBEAT (a cada 15 min)
+      // START HEARTBEAT (every 15 min)
       // ============================================
       const heartbeatStarted = await startHeartbeat();
-      set({ isHeartbeatAtivo: heartbeatStarted });
+      set({ isHeartbeatActive: heartbeatStarted });
       
       if (heartbeatStarted) {
-        logger.info('heartbeat', '💓 Heartbeat iniciado');
+        logger.info('heartbeat', '💓 Heartbeat started');
       } else {
-        logger.warn('heartbeat', '⚠️ Heartbeat não pôde ser iniciado');
+        logger.warn('heartbeat', '⚠️ Heartbeat could not be started');
       }
 
-      // Atualiza lista de fences para heartbeat
-      get().atualizarFencesHeartbeat();
+      // Update fence list for heartbeat
+      get().updateHeartbeatFences();
 
-      // Salva estado
+      // Save state
       await AsyncStorage.setItem(STORAGE_KEY_MONITORING, 'true');
 
-      logger.info('geofence', '✅ Monitoramento completo iniciado (geofence + heartbeat + polling)');
+      logger.info('geofence', '✅ Complete monitoring started (geofence + heartbeat + polling)');
 
-      // Verifica geofence atual
-      get().verificarGeofenceAtual();
+      // Check current geofence
+      get().checkCurrentGeofence();
     }
   },
 
-  pararMonitoramento: async () => {
-    get().pararPolling();
+  stopMonitoring: async () => {
+    get().stopPolling();
     await pararGeofencing();
     await pararBackgroundLocation();
     
     // ============================================
-    // PARA HEARTBEAT
+    // STOP HEARTBEAT
     // ============================================
     await stopHeartbeat();
 
     set({
-      isGeofencingAtivo: false,
-      isBackgroundAtivo: false,
-      isPollingAtivo: false,
-      isHeartbeatAtivo: false,
+      isGeofencingActive: false,
+      isBackgroundActive: false,
+      isPollingActive: false,
+      isHeartbeatActive: false,
     });
 
     await AsyncStorage.setItem(STORAGE_KEY_MONITORING, 'false');
-    logger.info('geofence', '⏹️ Monitoramento parado (geofence + heartbeat + polling)');
+    logger.info('geofence', '⏹️ Monitoring stopped (geofence + heartbeat + polling)');
   },
 
   // ============================================
-  // VERIFICAR GEOFENCE COM HISTERESE
+  // CHECK GEOFENCE WITH HYSTERESIS
   // ============================================
-  verificarGeofenceAtual: () => {
-    const { localizacaoAtual, locais, geofenceAtivo, isProcessandoEvento, precisao } = get();
+  checkCurrentGeofence: () => {
+    const { currentLocation, locations, activeGeofenceId, isProcessingEvent, accuracy } = get();
     
-    if (!localizacaoAtual) return;
-    if (isProcessandoEvento) return;
+    if (!currentLocation) return;
+    if (isProcessingEvent) return;
 
-    const locaisAtivos = locais.filter(l => l.status === 'active');
+    const activeLocations = locations.filter(l => l.status === 'active');
 
     // ============================================
-    // VERIFICA ENTRADA (raio normal)
+    // CHECK ENTRY (normal radius)
     // ============================================
-    for (const local of locaisAtivos) {
-      const distancia = calcularDistancia(localizacaoAtual, {
-        latitude: local.latitude,
-        longitude: local.longitude,
+    for (const location of activeLocations) {
+      const distance = calcularDistancia(currentLocation, {
+        latitude: location.latitude,
+        longitude: location.longitude,
       });
 
-      const dentroRaioNormal = distancia <= local.raio;
+      const insideNormalRadius = distance <= location.radius;
 
-      if (dentroRaioNormal) {
-        if (geofenceAtivo !== local.id) {
-          // Entrou no geofence
-          logger.info('geofence', `✅ ENTRADA: ${local.nome}`, {
-            distancia: distancia.toFixed(0) + 'm',
-            raio: local.raio + 'm',
+      if (insideNormalRadius) {
+        if (activeGeofenceId !== location.id) {
+          // Entered geofence
+          logger.info('geofence', `✅ ENTRY: ${location.name}`, {
+            distance: distance.toFixed(0) + 'm',
+            radius: location.radius + 'm',
           });
 
-          set({ geofenceAtivo: local.id, isProcessandoEvento: true });
+          set({ activeGeofenceId: location.id, isProcessingEvent: true });
 
-          // Notifica workSessionStore
+          // Notify workSessionStore
           const workSession = useWorkSessionStore.getState();
-          workSession.handleGeofenceEnter(local.id, local.nome, {
-            ...localizacaoAtual,
-            accuracy: precisao ?? undefined,
+          workSession.handleGeofenceEnter(location.id, location.name, {
+            ...currentLocation,
+            accuracy: accuracy ?? undefined,
           });
 
-          setTimeout(() => set({ isProcessandoEvento: false }), 1000);
+          setTimeout(() => set({ isProcessingEvent: false }), 1000);
         }
-        return; // Está dentro de um geofence, não precisa verificar outros
+        return; // Inside a geofence, no need to check others
       }
     }
 
     // ============================================
-    // VERIFICA SAÍDA (raio × HISTERESE)
+    // CHECK EXIT (radius × HYSTERESIS)
     // ============================================
-    if (geofenceAtivo !== null) {
-      const localAnterior = locais.find(l => l.id === geofenceAtivo);
+    if (activeGeofenceId !== null) {
+      const previousLocation = locations.find(l => l.id === activeGeofenceId);
       
-      if (localAnterior) {
-        const distancia = calcularDistancia(localizacaoAtual, {
-          latitude: localAnterior.latitude,
-          longitude: localAnterior.longitude,
+      if (previousLocation) {
+        const distance = calcularDistancia(currentLocation, {
+          latitude: previousLocation.latitude,
+          longitude: previousLocation.longitude,
         });
 
-        const raioExpandido = localAnterior.raio * HISTERESE_SAIDA;
-        const foraRaioExpandido = distancia > raioExpandido;
+        const expandedRadius = previousLocation.radius * EXIT_HYSTERESIS;
+        const outsideExpandedRadius = distance > expandedRadius;
 
-        if (foraRaioExpandido) {
-          // Realmente saiu (passou do raio expandido)
-          logger.info('geofence', `🚪 SAÍDA: ${localAnterior.nome}`, {
-            distancia: distancia.toFixed(0) + 'm',
-            raioExpandido: raioExpandido.toFixed(0) + 'm',
+        if (outsideExpandedRadius) {
+          // Really exited (passed expanded radius)
+          logger.info('geofence', `🚪 EXIT: ${previousLocation.name}`, {
+            distance: distance.toFixed(0) + 'm',
+            expandedRadius: expandedRadius.toFixed(0) + 'm',
           });
 
           const workSession = useWorkSessionStore.getState();
-          workSession.handleGeofenceExit(localAnterior.id, localAnterior.nome, {
-            ...localizacaoAtual,
-            accuracy: precisao ?? undefined,
+          workSession.handleGeofenceExit(previousLocation.id, previousLocation.name, {
+            ...currentLocation,
+            accuracy: accuracy ?? undefined,
           });
 
-          set({ geofenceAtivo: null });
+          set({ activeGeofenceId: null });
         } else {
-          // Ainda dentro da zona de histerese - não faz nada
-          logger.debug('geofence', `⏸️ Histerese: ${localAnterior.nome}`, {
-            distancia: distancia.toFixed(0) + 'm',
-            raioExpandido: raioExpandido.toFixed(0) + 'm',
+          // Still inside hysteresis zone - do nothing
+          logger.debug('geofence', `⏸️ Hysteresis: ${previousLocation.name}`, {
+            distance: distance.toFixed(0) + 'm',
+            expandedRadius: expandedRadius.toFixed(0) + 'm',
           });
         }
       }
@@ -692,134 +763,167 @@ export const useLocationStore = create<LocationState>((set, get) => ({
   },
 
   // ============================================
-  // ATUALIZA FENCES NO HEARTBEAT
+  // UPDATE FENCES IN HEARTBEAT
   // ============================================
-  atualizarFencesHeartbeat: () => {
-    const { locais } = get();
-    const locaisAtivos = locais.filter(l => l.status === 'active');
+  updateHeartbeatFences: () => {
+    const { locations } = get();
+    const activeLocations = locations.filter(l => l.status === 'active');
     
-    const fences: ActiveFence[] = locaisAtivos.map(l => ({
+    const fences: ActiveFence[] = activeLocations.map(l => ({
       id: l.id,
-      nome: l.nome,
+      nome: l.name,
       latitude: l.latitude,
       longitude: l.longitude,
-      radius: l.raio,
+      radius: l.radius,
     }));
 
     updateActiveFences(fences);
-    logger.debug('heartbeat', `Fences atualizadas: ${fences.length}`);
+    logger.debug('heartbeat', `Fences updated: ${fences.length}`);
   },
 
-  iniciarPolling: () => {
-    get().pararPolling();
+  startPolling: () => {
+    get().stopPolling();
     
-    logger.info('gps', '🔄 Iniciando polling (30s)');
+    logger.info('gps', '🔄 Starting polling (30s)');
     
-    // Atualiza imediatamente
-    get().atualizarLocalizacao();
+    // Update immediately
+    get().updateLocation();
 
-    // Configura intervalo
+    // Configure interval
     pollingTimer = setInterval(() => {
       logger.debug('gps', 'Polling...');
-      get().atualizarLocalizacao();
+      get().updateLocation();
     }, POLLING_INTERVAL);
 
-    set({ isPollingAtivo: true });
+    set({ isPollingActive: true });
   },
 
-  pararPolling: () => {
+  stopPolling: () => {
     if (pollingTimer) {
       clearInterval(pollingTimer);
       pollingTimer = null;
-      logger.info('gps', '⏹️ Polling parado');
+      logger.info('gps', '⏹️ Polling stopped');
     }
-    set({ isPollingAtivo: false });
+    set({ isPollingActive: false });
   },
+
+  // ============================================
+  // LEGACY METHOD ALIASES (for compatibility)
+  // ============================================
+  atualizarLocalizacao: async () => get().updateLocation(),
+  iniciarTracking: async () => get().startTracking(),
+  pararTracking: async () => get().stopTracking(),
+  
+  adicionarLocal: async (local) => get().addLocation({
+    name: local.nome,
+    latitude: local.latitude,
+    longitude: local.longitude,
+    radius: local.raio,
+    color: local.cor,
+  }),
+  
+  removerLocal: async (id) => get().removeLocation(id),
+  
+  editarLocal: async (id, updates) => get().editLocation(id, {
+    name: updates.nome,
+    radius: updates.raio,
+    color: updates.cor,
+    latitude: updates.latitude,
+    longitude: updates.longitude,
+  }),
+  
+  recarregarLocais: async () => get().reloadLocations(),
+  iniciarMonitoramento: async () => get().startMonitoring(),
+  pararMonitoramento: async () => get().stopMonitoring(),
+  verificarGeofenceAtual: () => get().checkCurrentGeofence(),
+  atualizarFencesHeartbeat: () => get().updateHeartbeatFences(),
+  iniciarPolling: () => get().startPolling(),
+  pararPolling: () => get().stopPolling(),
 }));
 
 // ============================================
-// HELPERS PRIVADOS
+// PRIVATE HELPERS
 // ============================================
 
 /**
- * Processa evento de geofence vindo do callback nativo
- * COM HISTERESE: Saída só é confirmada se estiver fora do raio expandido
+ * Process geofence event from native callback
+ * WITH HYSTERESIS: Exit is only confirmed if outside expanded radius
  */
-function processarEventoGeofence(
-  evento: GeofenceEvent,
+function processGeofenceEvent(
+  event: GeofenceEvent,
   get: () => LocationState,
   set: (partial: Partial<LocationState>) => void
 ) {
-  const { locais, localizacaoAtual, precisao } = get();
-  const local = locais.find(l => l.id === evento.regionIdentifier);
+  const { locations, currentLocation, accuracy } = get();
+  const location = locations.find(l => l.id === event.regionIdentifier);
 
-  if (!local) {
-    logger.warn('geofence', 'Local não encontrado para evento', { id: evento.regionIdentifier });
+  if (!location) {
+    logger.warn('geofence', 'Location not found for event', { id: event.regionIdentifier });
     return;
   }
 
   const workSession = useWorkSessionStore.getState();
-  const coords = localizacaoAtual ? {
-    ...localizacaoAtual,
-    accuracy: precisao ?? undefined,
+  const coords = currentLocation ? {
+    ...currentLocation,
+    accuracy: accuracy ?? undefined,
   } : undefined;
 
-  if (evento.type === 'enter') {
-    set({ geofenceAtivo: local.id });
-    workSession.handleGeofenceEnter(local.id, local.nome, coords);
+  if (event.type === 'enter') {
+    set({ activeGeofenceId: location.id });
+    workSession.handleGeofenceEnter(location.id, location.name, coords);
   } else {
     // ============================================
-    // SAÍDA: Verificar histerese antes de confirmar
+    // EXIT: Check hysteresis before confirming
     // ============================================
-    if (localizacaoAtual) {
-      const distancia = calcularDistancia(localizacaoAtual, {
-        latitude: local.latitude,
-        longitude: local.longitude,
+    if (currentLocation) {
+      const distance = calcularDistancia(currentLocation, {
+        latitude: location.latitude,
+        longitude: location.longitude,
       });
 
-      const raioExpandido = local.raio * HISTERESE_SAIDA;
+      const expandedRadius = location.radius * EXIT_HYSTERESIS;
 
-      if (distancia <= raioExpandido) {
-        // Ainda dentro da zona de histerese - ignora evento de saída
-        logger.info('geofence', `⏸️ Saída ignorada (histerese): ${local.nome}`, {
-          distancia: distancia.toFixed(0) + 'm',
-          raioExpandido: raioExpandido.toFixed(0) + 'm',
+      if (distance <= expandedRadius) {
+        // Still inside hysteresis zone - ignore exit event
+        logger.info('geofence', `⏸️ Exit ignored (hysteresis): ${location.name}`, {
+          distance: distance.toFixed(0) + 'm',
+          expandedRadius: expandedRadius.toFixed(0) + 'm',
         });
         return;
       }
     }
 
-    // Confirmada saída
-    set({ geofenceAtivo: null });
-    workSession.handleGeofenceExit(local.id, local.nome, coords);
+    // Confirmed exit
+    set({ activeGeofenceId: null });
+    workSession.handleGeofenceExit(location.id, location.name, coords);
   }
 }
 
 /**
- * Auto-inicia monitoramento se estava ativo antes
+ * Auto-start monitoring if it was active before
  */
-async function autoIniciarMonitoramento(
+async function autoStartMonitoring(
   get: () => LocationState,
-  set: (partial: Partial<LocationState>) => void
+  _set: (partial: Partial<LocationState>) => void
 ) {
-  const { locais, isGeofencingAtivo } = get();
+  const { locations, isGeofencingActive } = get();
 
-  if (isGeofencingAtivo) return;
-  if (locais.length === 0) {
-    logger.info('gps', 'Sem locais para monitorar');
+  if (isGeofencingActive) return;
+  if (locations.length === 0) {
+    logger.info('gps', 'No locations to monitor');
     return;
   }
 
   try {
-    const eraAtivo = await AsyncStorage.getItem(STORAGE_KEY_MONITORING);
+    const wasActive = await AsyncStorage.getItem(STORAGE_KEY_MONITORING);
     
-    if (eraAtivo === 'true' || eraAtivo === null) {
-      logger.info('gps', '🔄 Auto-iniciando monitoramento...');
-      await get().iniciarMonitoramento();
+    if (wasActive === 'true' || wasActive === null) {
+      logger.info('gps', '🔄 Auto-starting monitoring...');
+      await get().startMonitoring();
     }
   } catch (error) {
-    logger.error('gps', 'Erro ao verificar estado de monitoramento', { error: String(error) });
-    // Inicia mesmo assim se há locais
-    await get().iniciarMonitoramento();
+    logger.error('gps', 'Error checking monitoring state', { error: String(error) });
+    // Start anyway if there are locations
+    await get().startMonitoring();
   }
 }

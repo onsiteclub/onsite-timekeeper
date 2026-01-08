@@ -1,17 +1,19 @@
 /**
  * Work Session Store - OnSite Timekeeper
  * 
- * Gerencia o fluxo de sessões de trabalho:
- * - Popup fullscreen de entrada/saída (estilo soneca)
- * - Auto-ação após 30 segundos
- * - Sistema de PAUSA com countdown de 30 minutos
- * - Retorno à fence (mesma sessão)
- * - Integração com notificações
+ * Manages work session flow:
+ * - Fullscreen popup for enter/exit (alarm snooze style)
+ * - Auto-action after 30 seconds
+ * - PAUSE system with 30 minute countdown
+ * - Return to fence (same session)
+ * - Notification integration
  * 
- * MODIFICADO: 
- * - Eventos de geofence TÊM PRIORIDADE sobre modais pendentes
- * - skippedToday é limpo ao SAIR da fence
- * - Enter cancela Exit pendente (usuário voltou rápido)
+ * MODIFIED: 
+ * - Geofence events HAVE PRIORITY over pending modals
+ * - skippedToday is cleared when EXITING the fence
+ * - Enter cancels pending Exit (user returned quickly)
+ * - BUG FIX: Added lastProcessedEnterLocalId to prevent duplicate popups
+ *   when geofencing restarts (e.g., after adding a new location)
  */
 
 import { create } from 'zustand';
@@ -20,13 +22,11 @@ import { logger } from '../lib/logger';
 import {
   solicitarPermissaoNotificacao,
   configurarCategoriasNotificacao,
-  mostrarNotificacaoEntrada,
   mostrarNotificacaoSaida,
   mostrarNotificacaoAutoAcao,
   agendarLembreteInicio,
   cancelarNotificacao,
   adicionarListenerResposta,
-  type NotificationAction,
   type GeofenceNotificationData,
 } from '../lib/notifications';
 import {
@@ -35,73 +35,103 @@ import {
   clearSkippedToday,
 } from '../lib/backgroundTasks';
 import { useRegistroStore } from './registroStore';
-import { useAuthStore } from './authStore';
 import type { Coordenadas } from '../lib/location';
 
 // ============================================
-// CONSTANTES
+// CONSTANTS
 // ============================================
 
-const AUTO_ACTION_TIMEOUT = 30000; // 30 segundos para popup
-const PAUSE_TIMEOUT = 30 * 60 * 1000; // 30 minutos para pausa
+const AUTO_ACTION_TIMEOUT = 30000; // 30 seconds for popup
+const PAUSE_TIMEOUT = 30 * 60 * 1000; // 30 minutes for pause
 
 // ============================================
-// TIPOS
+// TYPES
 // ============================================
 
 export type PendingActionType = 'enter' | 'exit' | 'return';
 
 export interface PendingAction {
   type: PendingActionType;
+  locationId: string;
+  locationName: string;
+  notificationId: string;
+  timeoutId: ReturnType<typeof setTimeout>;
+  coords?: Coordenadas & { accuracy?: number };
+  startTime: number; // For countdown
+  
+  // Legacy aliases
   localId: string;
   localNome: string;
-  notificationId: string;
-  timeoutId: NodeJS.Timeout;
-  coords?: Coordenadas & { accuracy?: number };
-  startTime: number; // Para countdown
 }
 
 export interface PauseState {
   isPaused: boolean;
+  locationId: string;
+  locationName: string;
+  startTime: number; // When paused
+  timeoutId: ReturnType<typeof setTimeout> | null;
+  
+  // Legacy aliases
   localId: string;
   localNome: string;
-  startTime: number; // Quando pausou
-  timeoutId: NodeJS.Timeout | null;
 }
 
 interface WorkSessionState {
-  // Estado
-  isInicializado: boolean;
+  // State
+  isInitialized: boolean;
   
-  // Ação pendente (exibe popup fullscreen)
+  // Pending action (displays fullscreen popup)
   pendingAction: PendingAction | null;
   
-  // Estado de PAUSA (novo!)
+  // PAUSE state
   pauseState: PauseState | null;
   
-  // Locais ignorados hoje (limpa ao sair da fence)
+  // Locations ignored today (cleared when exiting fence)
   skippedToday: string[];
   
-  // Lembretes agendados (localId -> notificationId)
+  // Scheduled reminders (locationId -> notificationId)
   delayedStarts: Map<string, string>;
+  
+  // BUG FIX: Track last processed enter to prevent duplicate popups
+  lastProcessedEnterLocalId: string | null;
+
+  // Legacy accessor
+  isInicializado: boolean;
 
   // Actions
   initialize: () => Promise<void>;
   
-  // Handlers de geofence (chamados pelo locationStore)
+  // Geofence handlers (called by locationStore)
   handleGeofenceEnter: (
-    localId: string,
-    localNome: string,
+    locationId: string,
+    locationName: string,
     coords?: Coordenadas & { accuracy?: number }
   ) => Promise<void>;
   
   handleGeofenceExit: (
-    localId: string,
-    localNome: string,
+    locationId: string,
+    locationName: string,
     coords?: Coordenadas & { accuracy?: number }
   ) => Promise<void>;
   
-  // Ações do usuário no popup
+  // User actions on popup (English)
+  actionStart: () => Promise<void>;
+  actionSkipToday: () => void;
+  actionDelay10Min: () => Promise<void>;
+  actionPause: () => Promise<void>;
+  actionResume: () => Promise<void>;
+  actionEnd: () => Promise<void>;
+  actionEndWithAdjustment: (minutesAgo: number) => Promise<void>;
+  
+  // Helpers (English)
+  clearPending: () => void;
+  clearPause: () => void;
+  resetSkippedToday: () => void;
+  removeFromSkippedToday: (locationId: string) => void;
+  getRemainingTime: () => number;
+  getPauseRemainingTime: () => number;
+
+  // Legacy methods (Portuguese - for compatibility)
   acaoIniciar: () => Promise<void>;
   acaoIgnorarHoje: () => void;
   acaoDelay10Min: () => Promise<void>;
@@ -109,21 +139,18 @@ interface WorkSessionState {
   acaoRetomar: () => Promise<void>;
   acaoEncerrar: () => Promise<void>;
   acaoEncerrarComAjuste: (minutosAtras: number) => Promise<void>;
-  
-  // Helpers
   limparPending: () => void;
   limparPausa: () => void;
-  resetSkippedToday: () => void;
   removerDoSkippedToday: (localId: string) => void;
   getTempoRestante: () => number;
   getTempoRestantePausa: () => number;
 }
 
 // ============================================
-// HELPER: Limpar pending action de forma segura
+// HELPER: Clear pending action safely
 // ============================================
 
-async function limparPendingAction(pendingAction: PendingAction | null): Promise<void> {
+async function clearPendingAction(pendingAction: PendingAction | null): Promise<void> {
   if (!pendingAction) return;
   
   clearTimeout(pendingAction.timeoutId);
@@ -133,350 +160,367 @@ async function limparPendingAction(pendingAction: PendingAction | null): Promise
 }
 
 // ============================================
+// HELPER: Create pending action with legacy aliases
+// ============================================
+
+function createPendingAction(
+  type: PendingActionType,
+  locationId: string,
+  locationName: string,
+  notificationId: string,
+  timeoutId: ReturnType<typeof setTimeout>,
+  startTime: number,
+  coords?: Coordenadas & { accuracy?: number }
+): PendingAction {
+  return {
+    type,
+    locationId,
+    locationName,
+    notificationId,
+    timeoutId,
+    coords,
+    startTime,
+    // Legacy aliases
+    localId: locationId,
+    localNome: locationName,
+  };
+}
+
+// ============================================
+// HELPER: Create pause state with legacy aliases
+// ============================================
+
+function createPauseState(
+  locationId: string,
+  locationName: string,
+  startTime: number,
+  timeoutId: ReturnType<typeof setTimeout> | null
+): PauseState {
+  return {
+    isPaused: true,
+    locationId,
+    locationName,
+    startTime,
+    timeoutId,
+    // Legacy aliases
+    localId: locationId,
+    localNome: locationName,
+  };
+}
+
+// ============================================
 // STORE
 // ============================================
 
 export const useWorkSessionStore = create<WorkSessionState>((set, get) => ({
-  isInicializado: false,
+  isInitialized: false,
   pendingAction: null,
   pauseState: null,
   skippedToday: [],
   delayedStarts: new Map(),
+  lastProcessedEnterLocalId: null,
+
+  // Legacy accessor
+  get isInicializado() { return get().isInitialized; },
 
   initialize: async () => {
-    if (get().isInicializado) return;
+    if (get().isInitialized) return;
 
     try {
-      logger.info('boot', '⏱️ Inicializando work session store...');
+      logger.info('boot', '⏱️ Initializing work session store...');
 
-      // Solicita permissões de notificação
+      // Request notification permission
       await solicitarPermissaoNotificacao();
 
-      // Configura categorias de ações
+      // Configure notification categories
       await configurarCategoriasNotificacao();
 
-      // Listener para respostas às notificações
+      // Add notification response listener
       adicionarListenerResposta((response) => {
-        const actionId = response.actionIdentifier;
-        const data = response.notification.request.content.data as GeofenceNotificationData;
+        const actionIdentifier = response.actionIdentifier;
+        const data = response.notification.request.content.data as GeofenceNotificationData | undefined;
+        
+        logger.info('notification', `📲 Response: ${actionIdentifier}`, { data });
 
-        logger.info('notification', `📲 Ação recebida: ${actionId}`, { data });
-
-        // Mapeia ação
-        switch (actionId) {
+        switch (actionIdentifier) {
           case 'start':
-            get().acaoIniciar();
+            get().actionStart();
             break;
           case 'skip_today':
-            get().acaoIgnorarHoje();
+            get().actionSkipToday();
             break;
           case 'delay_10min':
-            get().acaoDelay10Min();
+            get().actionDelay10Min();
             break;
           case 'pause':
-            get().acaoPausar();
+            get().actionPause();
             break;
-          case 'resume':
-            get().acaoRetomar();
+          case 'continue':
+            get().actionResume();
             break;
           case 'stop':
-            get().acaoEncerrar();
+            get().actionEnd();
             break;
           case Notifications.DEFAULT_ACTION_IDENTIFIER:
-            // Usuário tocou na notificação (sem botão específico)
-            // Abre o app - ação será decidida pelo popup
+            // User tapped notification (no specific button)
+            // Opens app - action will be decided by popup
             break;
         }
       });
 
-      set({ isInicializado: true });
-      logger.info('boot', '✅ Work session store inicializado');
+      set({ isInitialized: true });
+      logger.info('boot', '✅ Work session store initialized');
     } catch (error) {
-      logger.error('session', 'Erro na inicialização', { error: String(error) });
-      set({ isInicializado: true });
+      logger.error('session', 'Error during initialization', { error: String(error) });
+      set({ isInitialized: true });
     }
   },
 
   // ============================================
-  // ENTRADA NA FENCE
+  // FENCE ENTRY
   // ============================================
-  handleGeofenceEnter: async (localId, localNome, coords) => {
-    const { skippedToday, pendingAction, pauseState } = get();
+  handleGeofenceEnter: async (locationId, locationName, coords) => {
+    const { skippedToday, pendingAction, pauseState, lastProcessedEnterLocalId } = get();
     const registroStore = useRegistroStore.getState();
 
-    logger.info('session', `📍 GEOFENCE ENTER: ${localNome}`, { localId });
+    logger.info('session', `📍 GEOFENCE ENTER: ${locationName}`, { locationId });
 
     // ============================================
-    // PRIORIDADE: Fecha modal de relatório se estiver aberto
-    // (Eventos de geofence têm prioridade sobre modais informativos)
+    // PRIORITY: Close report modal if open
     // ============================================
     if (registroStore.ultimaSessaoFinalizada) {
-      logger.debug('session', 'Fechando modal de relatório para processar evento');
+      logger.debug('session', 'Closing report modal to process event');
       registroStore.limparUltimaSessao();
     }
 
     // ============================================
-    // CASO 1: Estava PAUSADO neste local → RETORNO!
+    // CASE 1: Was PAUSED at this location → RETURN!
     // ============================================
-    if (pauseState && pauseState.localId === localId) {
-      logger.info('session', `🔄 RETORNO (pausado): ${localNome}`);
+    if (pauseState && pauseState.locationId === locationId) {
+      logger.info('session', `🔄 RETURN (paused): ${locationName}`);
 
-      // Cancela timer de pausa
+      // Cancel pause timer
       if (pauseState.timeoutId) {
         clearTimeout(pauseState.timeoutId);
       }
 
-      // Cancela pending anterior se houver
-      await limparPendingAction(pendingAction);
+      // Cancel previous pending if any
+      await clearPendingAction(pendingAction);
 
-      // Configura auto-RETOMAR em 30 segundos
+      // Configure auto-RESUME in 30 seconds
       const timeoutId = setTimeout(async () => {
-        logger.info('session', '⏱️ Auto-RETOMAR (30s timeout)');
-        await get().acaoRetomar();
-        await mostrarNotificacaoAutoAcao(localNome, 'start');
+        logger.info('session', '⏱️ Auto-RESUME (30s timeout)');
+        await get().actionResume();
+        await mostrarNotificacaoAutoAcao(locationName, 'start');
       }, AUTO_ACTION_TIMEOUT);
 
       set({
-        pendingAction: {
-          type: 'return',
-          localId,
-          localNome,
-          notificationId: '',
+        pendingAction: createPendingAction(
+          'return',
+          locationId,
+          locationName,
+          '',
           timeoutId,
-          coords,
-          startTime: Date.now(),
-        },
+          Date.now(),
+          coords
+        ),
+        lastProcessedEnterLocalId: locationId,
       });
 
       return;
     }
 
     // ============================================
-    // CASO 2: Tinha EXIT pendente → usuário voltou rápido!
-    // Cancela o exit e NÃO mostra popup (continua trabalhando)
+    // CASE 2: Had pending EXIT → user returned quickly!
     // ============================================
-    if (pendingAction?.type === 'exit' && pendingAction.localId === localId) {
-      logger.info('session', `↩️ RETORNO RÁPIDO: ${localNome} (cancelando exit pendente)`);
+    if (pendingAction?.type === 'exit' && pendingAction.locationId === locationId) {
+      logger.info('session', `↩️ QUICK RETURN - canceling exit: ${locationName}`);
       
-      await limparPendingAction(pendingAction);
-      set({ pendingAction: null });
-      
-      // Não precisa fazer nada - sessão continua ativa
-      return;
-    }
-
-    // ============================================
-    // CASO 3: Pausado em OUTRO local, entrando em novo
-    // → Encerra pausa anterior e trata como nova entrada
-    // ============================================
-    if (pauseState && pauseState.localId !== localId) {
-      logger.warn('session', `⚠️ Pausado em ${pauseState.localNome}, entrando em ${localNome}`);
-      
-      // Encerra sessão pausada
-      if (pauseState.timeoutId) {
-        clearTimeout(pauseState.timeoutId);
-      }
-      
-      // Registra saída da sessão pausada
-      await registroStore.registrarSaida(pauseState.localId);
-      
-      set({ pauseState: null });
-      
-      // Continua para processar nova entrada...
-    }
-
-    // ============================================
-    // CASO 4: Verifica se local foi ignorado hoje
-    // ============================================
-    if (skippedToday.includes(localId)) {
-      logger.info('session', `😴 Local ignorado hoje: ${localNome}`);
-      return;
-    }
-
-    // ============================================
-    // CASO 5: Já tem sessão ativa neste local
-    // ============================================
-    const sessaoAtual = registroStore.sessaoAtual;
-    if (sessaoAtual?.local_id === localId && sessaoAtual.status === 'ativa') {
-      logger.debug('session', 'Já trabalhando neste local');
-      return;
-    }
-
-    // ============================================
-    // CASO 6: Sessão ativa em OUTRO local
-    // → Por segurança, ignora (não pode ter 2 sessões)
-    // ============================================
-    if (sessaoAtual && sessaoAtual.status === 'ativa' && sessaoAtual.local_id !== localId) {
-      logger.warn('session', 'Sessão ativa em outro local - ignorando entrada', {
-        localAtivo: sessaoAtual.local_id,
-        novoLocal: localId,
+      await clearPendingAction(pendingAction);
+      set({ 
+        pendingAction: null,
+        lastProcessedEnterLocalId: locationId,
       });
+      
       return;
     }
 
     // ============================================
-    // CASO 7: Tinha outro pending (enter de outro local, etc)
-    // → Cancela e processa o novo enter
+    // CASE 3: Location is in skippedToday list
     // ============================================
-    if (pendingAction) {
-      logger.info('session', `Cancelando pending anterior (${pendingAction.type}) para processar nova entrada`);
-      await limparPendingAction(pendingAction);
+    if (skippedToday.includes(locationId)) {
+      logger.info('session', `😴 Skipped today: ${locationName}`);
+      set({ lastProcessedEnterLocalId: locationId });
+      return;
     }
 
     // ============================================
-    // CRIAR POPUP DE ENTRADA
+    // CASE 4: Already has active session at this location
     // ============================================
-    logger.info('session', `📍 ENTRADA: ${localNome}`);
+    const currentSession = registroStore.sessaoAtual;
+    if (currentSession && currentSession.local_id === locationId) {
+      logger.info('session', `✅ Already has active session: ${locationName}`);
+      set({ lastProcessedEnterLocalId: locationId });
+      return;
+    }
 
-    // Mostra notificação (pode estar desativado)
-    const notificationId = '';
+    // ============================================
+    // CASE 5: Has active session at ANOTHER location
+    // ============================================
+    if (currentSession && currentSession.local_id !== locationId) {
+      logger.warn('session', `⚠️ Already working at ${currentSession.local_nome}, ignoring ${locationName}`);
+      set({ lastProcessedEnterLocalId: locationId });
+      return;
+    }
 
-    // Configura auto-start em 30 segundos
+    // ============================================
+    // BUG FIX: Prevent duplicate popup on geofencing restart
+    // ============================================
+    if (lastProcessedEnterLocalId === locationId) {
+      logger.debug('session', `🔄 Entry already processed for ${locationName}, ignoring`);
+      return;
+    }
+
+    // ============================================
+    // CASE 6: New entry - show popup
+    // ============================================
+    logger.info('session', `🆕 NEW ENTRY: ${locationName}`);
+
+    // Cancel any previous pending
+    await clearPendingAction(pendingAction);
+
+    // Configure auto-START in 30 seconds
     const timeoutId = setTimeout(async () => {
       logger.info('session', '⏱️ Auto-START (30s timeout)');
-      await get().acaoIniciar();
-      await mostrarNotificacaoAutoAcao(localNome, 'start');
+      await get().actionStart();
+      await mostrarNotificacaoAutoAcao(locationName, 'start');
     }, AUTO_ACTION_TIMEOUT);
 
     set({
-      pendingAction: {
-        type: 'enter',
-        localId,
-        localNome,
-        notificationId,
+      pendingAction: createPendingAction(
+        'enter',
+        locationId,
+        locationName,
+        '',
         timeoutId,
-        coords,
-        startTime: Date.now(),
-      },
+        Date.now(),
+        coords
+      ),
+      lastProcessedEnterLocalId: locationId,
     });
   },
 
   // ============================================
-  // SAÍDA DA FENCE
+  // FENCE EXIT
   // ============================================
-  handleGeofenceExit: async (localId, localNome, coords) => {
+  handleGeofenceExit: async (locationId, locationName, coords) => {
     const { pendingAction, pauseState, skippedToday } = get();
     const registroStore = useRegistroStore.getState();
+    const currentSession = registroStore.sessaoAtual;
 
-    logger.info('session', `🚪 GEOFENCE EXIT: ${localNome}`, { localId });
+    logger.info('session', `📍 GEOFENCE EXIT: ${locationName}`, { locationId });
 
     // ============================================
-    // PRIORIDADE: Fecha modal de relatório se estiver aberto
+    // Clear lastProcessedEnterLocalId on exit
+    // ============================================
+    set({ lastProcessedEnterLocalId: null });
+
+    // ============================================
+    // PRIORITY: Close report modal if open
     // ============================================
     if (registroStore.ultimaSessaoFinalizada) {
-      logger.debug('session', 'Fechando modal de relatório para processar evento');
+      logger.debug('session', 'Closing report modal to process exit');
       registroStore.limparUltimaSessao();
     }
 
     // ============================================
-    // SEMPRE: Remove do skippedToday ao sair
-    // (permite que na próxima entrada, popup apareça)
+    // CASE 1: Had pending ENTER for this location → user left
     // ============================================
-    if (skippedToday.includes(localId)) {
-      logger.info('session', `🔄 Removendo ${localNome} do skippedToday (saiu da fence)`);
+    if (pendingAction?.type === 'enter' && pendingAction.locationId === locationId) {
+      logger.info('session', `🚶 Left before deciding: ${locationName}`);
       
-      // Remove do AsyncStorage (para background tasks)
-      removeFromSkippedToday(localId);
+      await clearPendingAction(pendingAction);
+      set({ pendingAction: null });
       
-      // Remove do state local
-      set({ 
-        skippedToday: skippedToday.filter(id => id !== localId) 
+      return;
+    }
+
+    // ============================================
+    // CASE 2: Location was in skippedToday → remove
+    // ============================================
+    if (skippedToday.includes(locationId)) {
+      logger.info('session', `🔄 Exited skipped location, removing from list: ${locationName}`);
+      removeFromSkippedToday(locationId);
+      set({ skippedToday: skippedToday.filter(id => id !== locationId) });
+      return;
+    }
+
+    // ============================================
+    // CASE 3: Is PAUSED at this location → start auto-end countdown
+    // ============================================
+    if (pauseState && pauseState.locationId === locationId) {
+      logger.info('session', `⏸️ Exited while paused: ${locationName}`);
+      // Pause timer continues - nothing to do
+      return;
+    }
+
+    // ============================================
+    // CASE 4: Has active session at this location → show exit popup
+    // ============================================
+    if (currentSession && currentSession.local_id === locationId) {
+      logger.info('session', `🚪 EXIT with active session: ${locationName}`);
+
+      // Cancel any previous pending
+      await clearPendingAction(pendingAction);
+
+      // Show exit notification
+      const notificationId = await mostrarNotificacaoSaida(locationId, locationName);
+
+      // Configure auto-END in 30 seconds
+      const timeoutId = setTimeout(async () => {
+        logger.info('session', '⏱️ Auto-END (30s timeout)');
+        await get().actionEnd();
+        await mostrarNotificacaoAutoAcao(locationName, 'stop');
+      }, AUTO_ACTION_TIMEOUT);
+
+      set({
+        pendingAction: createPendingAction(
+          'exit',
+          locationId,
+          locationName,
+          notificationId,
+          timeoutId,
+          Date.now(),
+          coords
+        ),
       });
-    }
 
-    // ============================================
-    // CASO 1: Já está pausado neste local → não faz nada
-    // ============================================
-    if (pauseState && pauseState.localId === localId) {
-      logger.debug('session', 'Já está pausado neste local');
       return;
     }
 
     // ============================================
-    // CASO 2: Tinha entrada pendente neste local → cancela
-    // (saiu antes de decidir se queria trabalhar)
+    // CASE 5: No active session → nothing to do
     // ============================================
-    if (pendingAction?.type === 'enter' && pendingAction.localId === localId) {
-      await limparPendingAction(pendingAction);
-      set({ pendingAction: null });
-      logger.info('session', '❌ Entrada cancelada - saiu antes de decidir');
-      return;
-    }
-
-    // ============================================
-    // CASO 3: Tinha return pendente (voltou da pausa mas saiu de novo)
-    // → Cancela return, continua pausado
-    // ============================================
-    if (pendingAction?.type === 'return' && pendingAction.localId === localId) {
-      await limparPendingAction(pendingAction);
-      set({ pendingAction: null });
-      logger.info('session', '⏸️ Retorno cancelado - saiu novamente (continua pausado)');
-      // Nota: pauseState ainda existe, então sessão continua pausada
-      return;
-    }
-
-    // ============================================
-    // CASO 4: Verifica se está trabalhando neste local
-    // ============================================
-    const sessaoAtual = registroStore.sessaoAtual;
-    if (!sessaoAtual || sessaoAtual.local_id !== localId || sessaoAtual.status !== 'ativa') {
-      logger.debug('session', 'Não estava trabalhando neste local');
-      return;
-    }
-
-    // ============================================
-    // CASO 5: Tinha outro pending → cancela
-    // ============================================
-    if (pendingAction) {
-      logger.info('session', `Cancelando pending anterior (${pendingAction.type}) para processar saída`);
-      await limparPendingAction(pendingAction);
-    }
-
-    // ============================================
-    // CRIAR POPUP DE SAÍDA
-    // ============================================
-    logger.info('session', `🚪 SAÍDA: ${localNome}`);
-
-    // Mostra notificação
-    const notificationId = await mostrarNotificacaoSaida(localId, localNome);
-
-    // Configura auto-ENCERRAR em 30 segundos
-    const timeoutId = setTimeout(async () => {
-      logger.info('session', '⏱️ Auto-ENCERRAR (30s timeout)');
-      await get().acaoEncerrar();
-      await mostrarNotificacaoAutoAcao(localNome, 'stop');
-    }, AUTO_ACTION_TIMEOUT);
-
-    set({
-      pendingAction: {
-        type: 'exit',
-        localId,
-        localNome,
-        notificationId,
-        timeoutId,
-        coords,
-        startTime: Date.now(),
-      },
-    });
+    logger.debug('session', `Exit without active session: ${locationName}`);
   },
 
   // ============================================
-  // AÇÃO: INICIAR
+  // ACTION: START
   // ============================================
-  acaoIniciar: async () => {
+  actionStart: async () => {
     const { pendingAction } = get();
     if (!pendingAction || pendingAction.type !== 'enter') return;
 
-    logger.info('session', `▶️ INICIAR: ${pendingAction.localNome}`);
+    logger.info('session', `▶️ START: ${pendingAction.locationName}`);
 
-    // Limpa pending
-    await limparPendingAction(pendingAction);
+    // Clear pending
+    await clearPendingAction(pendingAction);
 
-    // Registra entrada
+    // Register entry
     const registroStore = useRegistroStore.getState();
     await registroStore.registrarEntrada(
-      pendingAction.localId,
-      pendingAction.localNome,
+      pendingAction.locationId,
+      pendingAction.locationName,
       pendingAction.coords
     );
 
@@ -484,53 +528,51 @@ export const useWorkSessionStore = create<WorkSessionState>((set, get) => ({
   },
 
   // ============================================
-  // AÇÃO: IGNORAR HOJE
-  // (Só ignora enquanto estiver DENTRO da fence)
+  // ACTION: SKIP TODAY
   // ============================================
-  acaoIgnorarHoje: () => {
+  actionSkipToday: () => {
     const { pendingAction, skippedToday } = get();
     if (!pendingAction) return;
 
-    logger.info('session', `😴 IGNORAR HOJE: ${pendingAction.localNome}`);
+    logger.info('session', `😴 SKIP TODAY: ${pendingAction.locationName}`);
 
-    // Limpa pending
+    // Clear pending
     clearTimeout(pendingAction.timeoutId);
     if (pendingAction.notificationId) {
       cancelarNotificacao(pendingAction.notificationId);
     }
 
-    // Persiste no AsyncStorage (para background tasks respeitarem)
-    addToSkippedToday(pendingAction.localId);
+    // Persist in AsyncStorage (for background tasks to respect)
+    addToSkippedToday(pendingAction.locationId);
 
-    // Adiciona à lista de ignorados local
-    // NOTA: Será removido quando SAIR da fence
+    // Add to local ignored list
     set({
       pendingAction: null,
-      skippedToday: [...skippedToday, pendingAction.localId],
+      skippedToday: [...skippedToday, pendingAction.locationId],
     });
   },
 
   // ============================================
-  // AÇÃO: DELAY 10 MIN
+  // ACTION: DELAY 10 MIN
   // ============================================
-  acaoDelay10Min: async () => {
+  actionDelay10Min: async () => {
     const { pendingAction, delayedStarts } = get();
     if (!pendingAction || pendingAction.type !== 'enter') return;
 
-    logger.info('session', `⏰ DELAY 10 MIN: ${pendingAction.localNome}`);
+    logger.info('session', `⏰ DELAY 10 MIN: ${pendingAction.locationName}`);
 
-    // Limpa pending atual
-    await limparPendingAction(pendingAction);
+    // Clear current pending
+    await clearPendingAction(pendingAction);
 
-    // Agenda lembrete
+    // Schedule reminder
     const notificationId = await agendarLembreteInicio(
-      pendingAction.localId,
-      pendingAction.localNome,
+      pendingAction.locationId,
+      pendingAction.locationName,
       10
     );
 
     const newDelayed = new Map(delayedStarts);
-    newDelayed.set(pendingAction.localId, notificationId);
+    newDelayed.set(pendingAction.locationId, notificationId);
 
     set({
       pendingAction: null,
@@ -539,69 +581,68 @@ export const useWorkSessionStore = create<WorkSessionState>((set, get) => ({
   },
 
   // ============================================
-  // AÇÃO: PAUSAR (30 minutos)
+  // ACTION: PAUSE (30 minutes)
   // ============================================
-  acaoPausar: async () => {
+  actionPause: async () => {
     const { pendingAction } = get();
     if (!pendingAction || pendingAction.type !== 'exit') return;
 
-    logger.info('session', `⏸️ PAUSAR: ${pendingAction.localNome}`);
+    logger.info('session', `⏸️ PAUSE: ${pendingAction.locationName}`);
 
-    // Limpa pending
-    await limparPendingAction(pendingAction);
+    // Clear pending
+    await clearPendingAction(pendingAction);
 
-    // Configura timer de 30 minutos
+    // Configure 30 minute timer
     const pauseTimeoutId = setTimeout(async () => {
-      logger.info('session', '⏱️ PAUSA EXPIROU (30min) - Auto-encerrando');
+      logger.info('session', '⏱️ PAUSE EXPIRED (30min) - Auto-ending');
       
-      // Encerra sessão
+      // End session
       const registroStore = useRegistroStore.getState();
       const { pauseState } = get();
       
       if (pauseState) {
-        await registroStore.registrarSaida(pauseState.localId);
-        await mostrarNotificacaoAutoAcao(pauseState.localNome, 'stop');
+        await registroStore.registrarSaida(pauseState.locationId);
+        await mostrarNotificacaoAutoAcao(pauseState.locationName, 'stop');
       }
       
       set({ pauseState: null, pendingAction: null });
     }, PAUSE_TIMEOUT);
 
-    // Salva estado de pausa
+    // Save pause state
     set({
       pendingAction: null,
-      pauseState: {
-        isPaused: true,
-        localId: pendingAction.localId,
-        localNome: pendingAction.localNome,
-        startTime: Date.now(),
-        timeoutId: pauseTimeoutId,
-      },
+      pauseState: createPauseState(
+        pendingAction.locationId,
+        pendingAction.locationName,
+        Date.now(),
+        pauseTimeoutId
+      ),
     });
   },
 
   // ============================================
-  // AÇÃO: RETOMAR (após pausa)
+  // ACTION: RESUME (after pause)
   // ============================================
-  acaoRetomar: async () => {
+  actionResume: async () => {
     const { pendingAction, pauseState } = get();
     
-    // Pode vir do popup de return ou da tela de pausa
+    // Can come from return popup or pause screen
     if (pendingAction?.type === 'return') {
-      logger.info('session', `▶️ RETOMAR: ${pendingAction.localNome}`);
-      await limparPendingAction(pendingAction);
+      logger.info('session', `▶️ RESUME: ${pendingAction.locationName}`);
+      await clearPendingAction(pendingAction);
     }
 
-    // Limpa estado de pausa (mas NÃO encerra sessão!)
+    // Clear pause state (but DON'T end session!)
     if (pauseState?.timeoutId) {
       clearTimeout(pauseState.timeoutId);
     }
 
-    // Calcula minutos pausados (para registro futuro)
-    const pausaMinutos = pauseState 
+    // Calculate paused minutes (for future logging)
+    const pausedMinutes = pauseState 
       ? Math.floor((Date.now() - pauseState.startTime) / 60000)
       : 0;
 
-    logger.info('session', `✅ Sessão retomada (pausou ${pausaMinutos}min)`);
+    logger.info('session', `✅ Session resumed (paused ${pausedMinutes}min)`);
 
     set({ 
       pendingAction: null, 
@@ -610,76 +651,76 @@ export const useWorkSessionStore = create<WorkSessionState>((set, get) => ({
   },
 
   // ============================================
-  // AÇÃO: ENCERRAR
+  // ACTION: END
   // ============================================
-  acaoEncerrar: async () => {
+  actionEnd: async () => {
     const { pendingAction, pauseState } = get();
     
-    let localId: string | null = null;
+    let locationId: string | null = null;
     let coords: (Coordenadas & { accuracy?: number }) | undefined;
 
-    // Pode vir do popup de exit, return, ou da tela de pausa
+    // Can come from exit popup, return popup, or pause screen
     if (pendingAction) {
-      localId = pendingAction.localId;
+      locationId = pendingAction.locationId;
       coords = pendingAction.coords;
       
-      await limparPendingAction(pendingAction);
+      await clearPendingAction(pendingAction);
       
-      logger.info('session', `⏹️ ENCERRAR: ${pendingAction.localNome}`);
+      logger.info('session', `⏹️ END: ${pendingAction.locationName}`);
     } else if (pauseState) {
-      localId = pauseState.localId;
+      locationId = pauseState.locationId;
       
       if (pauseState.timeoutId) {
         clearTimeout(pauseState.timeoutId);
       }
       
-      logger.info('session', `⏹️ ENCERRAR (da pausa): ${pauseState.localNome}`);
+      logger.info('session', `⏹️ END (from pause): ${pauseState.locationName}`);
     }
 
-    if (!localId) {
-      logger.warn('session', 'Nenhuma sessão para encerrar');
+    if (!locationId) {
+      logger.warn('session', 'No session to end');
       return;
     }
 
-    // Registra saída
+    // Register exit
     const registroStore = useRegistroStore.getState();
-    await registroStore.registrarSaida(localId, coords);
+    await registroStore.registrarSaida(locationId, coords);
 
     set({ pendingAction: null, pauseState: null });
   },
 
   // ============================================
-  // AÇÃO: ENCERRAR COM AJUSTE
+  // ACTION: END WITH ADJUSTMENT
   // ============================================
-  acaoEncerrarComAjuste: async (minutosAtras) => {
+  actionEndWithAdjustment: async (minutesAgo) => {
     const { pendingAction, pauseState } = get();
     
-    let localId: string | null = null;
+    let locationId: string | null = null;
     let coords: (Coordenadas & { accuracy?: number }) | undefined;
 
     if (pendingAction?.type === 'exit' || pendingAction?.type === 'return') {
-      localId = pendingAction.localId;
+      locationId = pendingAction.locationId;
       coords = pendingAction.coords;
       
-      await limparPendingAction(pendingAction);
+      await clearPendingAction(pendingAction);
       
-      logger.info('session', `⏹️ ENCERRAR (há ${minutosAtras} min): ${pendingAction.localNome}`);
+      logger.info('session', `⏹️ END (${minutesAgo} min ago): ${pendingAction.locationName}`);
     } else if (pauseState) {
-      localId = pauseState.localId;
+      locationId = pauseState.locationId;
       
       if (pauseState.timeoutId) {
         clearTimeout(pauseState.timeoutId);
       }
     }
 
-    if (!localId) return;
+    if (!locationId) return;
 
-    // Registra saída com ajuste negativo
+    // Register exit with negative adjustment
     const registroStore = useRegistroStore.getState();
     await registroStore.registrarSaidaComAjuste(
-      localId,
+      locationId,
       coords,
-      -minutosAtras // Negativo = desconta tempo
+      -minutesAgo // Negative = deduct time
     );
 
     set({ pendingAction: null, pauseState: null });
@@ -688,7 +729,7 @@ export const useWorkSessionStore = create<WorkSessionState>((set, get) => ({
   // ============================================
   // HELPERS
   // ============================================
-  limparPending: () => {
+  clearPending: () => {
     const { pendingAction } = get();
     if (pendingAction) {
       clearTimeout(pendingAction.timeoutId);
@@ -699,7 +740,7 @@ export const useWorkSessionStore = create<WorkSessionState>((set, get) => ({
     set({ pendingAction: null });
   },
 
-  limparPausa: () => {
+  clearPause: () => {
     const { pauseState } = get();
     if (pauseState?.timeoutId) {
       clearTimeout(pauseState.timeoutId);
@@ -708,27 +749,31 @@ export const useWorkSessionStore = create<WorkSessionState>((set, get) => ({
   },
 
   resetSkippedToday: () => {
-    // Limpa AsyncStorage
+    // Clear AsyncStorage
     clearSkippedToday();
     
-    // Limpa state local
-    set({ skippedToday: [], delayedStarts: new Map() });
-    logger.info('session', 'Lista de ignorados resetada');
+    // Clear local state
+    set({ 
+      skippedToday: [], 
+      delayedStarts: new Map(),
+      lastProcessedEnterLocalId: null,
+    });
+    logger.info('session', 'Skipped list reset');
   },
 
-  removerDoSkippedToday: (localId: string) => {
+  removeFromSkippedToday: (locationId: string) => {
     const { skippedToday } = get();
-    if (skippedToday.includes(localId)) {
-      // Remove do AsyncStorage
-      removeFromSkippedToday(localId);
+    if (skippedToday.includes(locationId)) {
+      // Remove from AsyncStorage
+      removeFromSkippedToday(locationId);
       
-      // Remove do state local
-      set({ skippedToday: skippedToday.filter(id => id !== localId) });
-      logger.debug('session', `Removido ${localId} do skippedToday`);
+      // Remove from local state
+      set({ skippedToday: skippedToday.filter(id => id !== locationId) });
+      logger.debug('session', `Removed ${locationId} from skippedToday`);
     }
   },
 
-  getTempoRestante: () => {
+  getRemainingTime: () => {
     const { pendingAction } = get();
     if (!pendingAction) return 0;
     
@@ -737,7 +782,7 @@ export const useWorkSessionStore = create<WorkSessionState>((set, get) => ({
     return Math.ceil(remaining / 1000);
   },
 
-  getTempoRestantePausa: () => {
+  getPauseRemainingTime: () => {
     const { pauseState } = get();
     if (!pauseState) return 0;
     
@@ -745,4 +790,20 @@ export const useWorkSessionStore = create<WorkSessionState>((set, get) => ({
     const remaining = Math.max(0, PAUSE_TIMEOUT - elapsed);
     return Math.ceil(remaining / 1000);
   },
+
+  // ============================================
+  // LEGACY METHOD ALIASES (for compatibility)
+  // ============================================
+  acaoIniciar: async () => get().actionStart(),
+  acaoIgnorarHoje: () => get().actionSkipToday(),
+  acaoDelay10Min: async () => get().actionDelay10Min(),
+  acaoPausar: async () => get().actionPause(),
+  acaoRetomar: async () => get().actionResume(),
+  acaoEncerrar: async () => get().actionEnd(),
+  acaoEncerrarComAjuste: async (minutosAtras) => get().actionEndWithAdjustment(minutosAtras),
+  limparPending: () => get().clearPending(),
+  limparPausa: () => get().clearPause(),
+  removerDoSkippedToday: (localId) => get().removeFromSkippedToday(localId),
+  getTempoRestante: () => get().getRemainingTime(),
+  getTempoRestantePausa: () => get().getPauseRemainingTime(),
 }));

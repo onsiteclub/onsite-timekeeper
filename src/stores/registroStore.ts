@@ -1,11 +1,11 @@
 /**
- * Registro Store - OnSite Timekeeper
+ * Record Store - OnSite Timekeeper
  * 
- * Gerencia persistência de sessões de trabalho:
- * - Entrada/Saída no SQLite
- * - Estatísticas do dia
- * - Histórico de sessões
- * - Deletar e editar registros
+ * Manages work session persistence:
+ * - Entry/Exit in SQLite
+ * - Daily statistics
+ * - Session history
+ * - Delete and edit records
  */
 
 import { create } from 'zustand';
@@ -32,57 +32,102 @@ import type { Coordenadas } from '../lib/location';
 const db = SQLite.openDatabaseSync('onsite-timekeeper.db');
 
 // ============================================
-// TIPOS
+// TYPES
 // ============================================
 
-interface RegistroState {
+interface RecordState {
+  isInitialized: boolean;
+  
+  // Current session (if one is open)
+  currentSession: SessaoComputada | null;
+  
+  // Today's sessions
+  todaySessions: SessaoComputada[];
+  
+  // Statistics
+  todayStats: EstatisticasDia;
+  
+  // Last finished session (to show report)
+  lastFinishedSession: SessaoComputada | null;
+
+  // Legacy accessors (for compatibility)
   isInicializado: boolean;
-  
-  // Sessão atual (se houver uma aberta)
   sessaoAtual: SessaoComputada | null;
-  
-  // Sessões de hoje
   sessoesHoje: SessaoComputada[];
-  
-  // Estatísticas
   estatisticasHoje: EstatisticasDia;
-  
-  // Última sessão finalizada (para mostrar relatório)
   ultimaSessaoFinalizada: SessaoComputada | null;
 
   // Actions
   initialize: () => Promise<void>;
   
-  // Registros
+  // Records
+  registerEntry: (
+    locationId: string,
+    locationName: string,
+    coords?: Coordenadas & { accuracy?: number }
+  ) => Promise<string>;
+  
+  registerExit: (
+    locationId: string,
+    coords?: Coordenadas & { accuracy?: number }
+  ) => Promise<void>;
+  
+  registerExitWithAdjustment: (
+    locationId: string,
+    coords?: Coordenadas & { accuracy?: number },
+    adjustmentMinutes?: number
+  ) => Promise<void>;
+  
+  // Refresh
+  reloadData: () => Promise<void>;
+  
+  // Reports
+  shareLastSession: () => Promise<void>;
+  shareReport: (startDate: string, endDate: string) => Promise<void>;
+  clearLastSession: () => void;
+  
+  // Helpers
+  getSessionsByPeriod: (startDate: string, endDate: string) => Promise<SessaoComputada[]>;
+  
+  // CRUD
+  deleteRecord: (id: string) => Promise<void>;
+  editRecord: (id: string, updates: {
+    entrada?: string;
+    saida?: string;
+    editado_manualmente?: number;
+    motivo_edicao?: string;
+    pausa_minutos?: number;
+  }) => Promise<void>;
+  
+  // Manual entry
+  createManualRecord: (params: {
+    locationId: string;
+    locationName: string;
+    entry: string;
+    exit: string;
+    pauseMinutes?: number;
+  }) => Promise<string>;
+
+  // Legacy methods (for compatibility)
   registrarEntrada: (
     localId: string,
     localNome: string,
     coords?: Coordenadas & { accuracy?: number }
   ) => Promise<string>;
-  
   registrarSaida: (
     localId: string,
     coords?: Coordenadas & { accuracy?: number }
   ) => Promise<void>;
-  
   registrarSaidaComAjuste: (
     localId: string,
     coords?: Coordenadas & { accuracy?: number },
     ajusteMinutos?: number
   ) => Promise<void>;
-  
-  // Refresh
   recarregarDados: () => Promise<void>;
-  
-  // Relatórios
   compartilharUltimaSessao: () => Promise<void>;
   compartilharRelatorio: (dataInicio: string, dataFim: string) => Promise<void>;
   limparUltimaSessao: () => void;
-  
-  // Helpers
   getSessoesPeriodo: (dataInicio: string, dataFim: string) => Promise<SessaoComputada[]>;
-  
-  // CRUD
   deletarRegistro: (id: string) => Promise<void>;
   editarRegistro: (id: string, updates: {
     entrada?: string;
@@ -91,8 +136,6 @@ interface RegistroState {
     motivo_edicao?: string;
     pausa_minutos?: number;
   }) => Promise<void>;
-  
-  // Entrada manual
   criarRegistroManual: (params: {
     localId: string;
     localNome: string;
@@ -103,35 +146,35 @@ interface RegistroState {
 }
 
 // ============================================
-// CONTROLE DE INICIALIZAÇÃO DO DB
+// DB INITIALIZATION CONTROL
 // ============================================
 
-let dbInicializado = false;
-let dbInicializando = false;
+let dbInitialized = false;
+let dbInitializing = false;
 
-async function garantirDbInicializado(): Promise<boolean> {
-  if (dbInicializado) return true;
+async function ensureDbInitialized(): Promise<boolean> {
+  if (dbInitialized) return true;
 
-  if (dbInicializando) {
-    // Aguarda inicialização em andamento
-    let tentativas = 0;
-    while (dbInicializando && tentativas < 50) {
+  if (dbInitializing) {
+    // Wait for ongoing initialization
+    let attempts = 0;
+    while (dbInitializing && attempts < 50) {
       await new Promise(resolve => setTimeout(resolve, 100));
-      tentativas++;
+      attempts++;
     }
-    return dbInicializado;
+    return dbInitialized;
   }
 
-  dbInicializando = true;
+  dbInitializing = true;
   try {
     await initDatabase();
-    dbInicializado = true;
+    dbInitialized = true;
     return true;
   } catch (error) {
-    logger.error('database', 'Falha ao inicializar banco', { error: String(error) });
+    logger.error('database', 'Failed to initialize database', { error: String(error) });
     return false;
   } finally {
-    dbInicializando = false;
+    dbInitializing = false;
   }
 }
 
@@ -139,248 +182,255 @@ async function garantirDbInicializado(): Promise<boolean> {
 // STORE
 // ============================================
 
-export const useRegistroStore = create<RegistroState>((set, get) => ({
-  isInicializado: false,
-  sessaoAtual: null,
-  sessoesHoje: [],
-  estatisticasHoje: { total_minutos: 0, total_sessoes: 0 },
-  ultimaSessaoFinalizada: null,
+export const useRegistroStore = create<RecordState>((set, get) => ({
+  isInitialized: false,
+  currentSession: null,
+  todaySessions: [],
+  todayStats: { total_minutos: 0, total_sessoes: 0 },
+  lastFinishedSession: null,
+
+  // Legacy property aliases
+  get isInicializado() { return get().isInitialized; },
+  get sessaoAtual() { return get().currentSession; },
+  get sessoesHoje() { return get().todaySessions; },
+  get estatisticasHoje() { return get().todayStats; },
+  get ultimaSessaoFinalizada() { return get().lastFinishedSession; },
 
   initialize: async () => {
-    if (get().isInicializado) return;
+    if (get().isInitialized) return;
 
     try {
-      logger.info('boot', '📝 Inicializando registro store...');
+      logger.info('boot', '📝 Initializing record store...');
 
-      const dbOk = await garantirDbInicializado();
+      const dbOk = await ensureDbInitialized();
       if (!dbOk) {
-        logger.error('database', 'Não foi possível inicializar o banco');
-        set({ isInicializado: true });
+        logger.error('database', 'Could not initialize database');
+        set({ isInitialized: true });
         return;
       }
 
-      await get().recarregarDados();
+      await get().reloadData();
 
-      set({ isInicializado: true });
-      logger.info('boot', '✅ Registro store inicializado');
+      set({ isInitialized: true });
+      logger.info('boot', '✅ Record store initialized');
     } catch (error) {
-      logger.error('database', 'Erro na inicialização do registro store', { error: String(error) });
-      set({ isInicializado: true });
+      logger.error('database', 'Error initializing record store', { error: String(error) });
+      set({ isInitialized: true });
     }
   },
 
-  registrarEntrada: async (localId, localNome, coords) => {
+  registerEntry: async (locationId, locationName, _coords) => {
     const userId = useAuthStore.getState().getUserId();
     if (!userId) {
-      throw new Error('Usuário não autenticado');
+      throw new Error('User not authenticated');
     }
 
     try {
-      const dbOk = await garantirDbInicializado();
-      if (!dbOk) throw new Error('Banco não disponível');
+      const dbOk = await ensureDbInitialized();
+      if (!dbOk) throw new Error('Database not available');
 
-      logger.info('session', `📥 ENTRADA: ${localNome}`, { localId });
+      logger.info('session', `📥 ENTRY: ${locationName}`, { locationId });
 
-      const registroId = await criarRegistroEntrada({
+      const recordId = await criarRegistroEntrada({
         userId,
-        localId,
-        localNome,
+        localId: locationId,
+        localNome: locationName,
         tipo: 'automatico',
       });
 
-      await get().recarregarDados();
+      await get().reloadData();
 
-      return registroId;
+      return recordId;
     } catch (error) {
-      logger.error('database', 'Erro ao registrar entrada', { error: String(error) });
+      logger.error('database', 'Error registering entry', { error: String(error) });
       throw error;
     }
   },
 
-  registrarSaida: async (localId, coords) => {
+  registerExit: async (locationId, _coords) => {
     const userId = useAuthStore.getState().getUserId();
     if (!userId) {
-      throw new Error('Usuário não autenticado');
+      throw new Error('User not authenticated');
     }
 
     try {
-      const dbOk = await garantirDbInicializado();
-      if (!dbOk) throw new Error('Banco não disponível');
+      const dbOk = await ensureDbInitialized();
+      if (!dbOk) throw new Error('Database not available');
 
-      logger.info('session', `📤 SAÍDA`, { localId });
+      logger.info('session', `📤 EXIT`, { locationId });
 
-      await dbRegistrarSaida(userId, localId);
+      await dbRegistrarSaida(userId, locationId);
 
-      await get().recarregarDados();
+      await get().reloadData();
 
-      // Guarda última sessão finalizada para relatório
-      const { sessoesHoje } = get();
-      const sessaoFinalizada = sessoesHoje.find(
-        s => s.local_id === localId && s.status === 'finalizada'
+      // Store last finished session for report
+      const { todaySessions } = get();
+      const finishedSession = todaySessions.find(
+        s => s.local_id === locationId && s.status === 'finalizada'
       );
-      if (sessaoFinalizada) {
-        set({ ultimaSessaoFinalizada: sessaoFinalizada });
+      if (finishedSession) {
+        set({ lastFinishedSession: finishedSession });
       }
     } catch (error) {
-      logger.error('database', 'Erro ao registrar saída', { error: String(error) });
+      logger.error('database', 'Error registering exit', { error: String(error) });
       throw error;
     }
   },
 
-  registrarSaidaComAjuste: async (localId, coords, ajusteMinutos = 0) => {
+  registerExitWithAdjustment: async (locationId, _coords, adjustmentMinutes = 0) => {
     const userId = useAuthStore.getState().getUserId();
     if (!userId) {
-      throw new Error('Usuário não autenticado');
+      throw new Error('User not authenticated');
     }
 
     try {
-      const dbOk = await garantirDbInicializado();
-      if (!dbOk) throw new Error('Banco não disponível');
+      const dbOk = await ensureDbInitialized();
+      if (!dbOk) throw new Error('Database not available');
 
-      logger.info('session', `📤 SAÍDA (ajuste: ${ajusteMinutos}min)`, { localId });
+      logger.info('session', `📤 EXIT (adjustment: ${adjustmentMinutes}min)`, { locationId });
 
-      await dbRegistrarSaida(userId, localId, ajusteMinutos);
+      await dbRegistrarSaida(userId, locationId, adjustmentMinutes);
 
-      await get().recarregarDados();
+      await get().reloadData();
 
-      // Guarda última sessão finalizada
-      const { sessoesHoje } = get();
-      const sessaoFinalizada = sessoesHoje.find(
-        s => s.local_id === localId && s.status === 'finalizada'
+      // Store last finished session
+      const { todaySessions } = get();
+      const finishedSession = todaySessions.find(
+        s => s.local_id === locationId && s.status === 'finalizada'
       );
-      if (sessaoFinalizada) {
-        set({ ultimaSessaoFinalizada: sessaoFinalizada });
+      if (finishedSession) {
+        set({ lastFinishedSession: finishedSession });
       }
     } catch (error) {
-      logger.error('database', 'Erro ao registrar saída com ajuste', { error: String(error) });
+      logger.error('database', 'Error registering exit with adjustment', { error: String(error) });
       throw error;
     }
   },
 
-  recarregarDados: async () => {
+  reloadData: async () => {
     const userId = useAuthStore.getState().getUserId();
     if (!userId) {
       set({
-        sessaoAtual: null,
-        sessoesHoje: [],
-        estatisticasHoje: { total_minutos: 0, total_sessoes: 0 },
+        currentSession: null,
+        todaySessions: [],
+        todayStats: { total_minutos: 0, total_sessoes: 0 },
       });
       return;
     }
 
     try {
-      const dbOk = await garantirDbInicializado();
+      const dbOk = await ensureDbInitialized();
       if (!dbOk) return;
 
-      const [sessaoAtual, sessoesHoje, estatisticasHoje] = await Promise.all([
+      const [currentSession, todaySessions, todayStats] = await Promise.all([
         getSessaoAtivaGlobal(userId),
         getSessoesHoje(userId),
         getEstatisticasHoje(userId),
       ]);
 
-      set({ sessaoAtual, sessoesHoje, estatisticasHoje });
+      set({ currentSession, todaySessions, todayStats });
 
-      logger.debug('database', 'Dados recarregados', {
-        sessaoAtiva: sessaoAtual?.local_nome ?? 'nenhuma',
-        sessoes: sessoesHoje.length,
-        minutos: estatisticasHoje.total_minutos,
+      logger.debug('database', 'Data reloaded', {
+        activeSession: currentSession?.local_nome ?? 'none',
+        sessions: todaySessions.length,
+        minutes: todayStats.total_minutos,
       });
     } catch (error) {
-      logger.error('database', 'Erro ao recarregar dados', { error: String(error) });
+      logger.error('database', 'Error reloading data', { error: String(error) });
     }
   },
 
-  compartilharUltimaSessao: async () => {
-    const { ultimaSessaoFinalizada } = get();
-    if (!ultimaSessaoFinalizada) {
-      logger.warn('database', 'Nenhuma sessão para compartilhar');
+  shareLastSession: async () => {
+    const { lastFinishedSession } = get();
+    if (!lastFinishedSession) {
+      logger.warn('database', 'No session to share');
       return;
     }
 
     try {
-      const nomeUsuario = useAuthStore.getState().getUserName();
-      const relatorio = gerarRelatorioSessao(ultimaSessaoFinalizada, nomeUsuario ?? undefined);
+      const userName = useAuthStore.getState().getUserName();
+      const report = gerarRelatorioSessao(lastFinishedSession, userName ?? undefined);
       
       await Share.share({
-        message: relatorio,
-        title: 'Registro de Trabalho',
+        message: report,
+        title: 'Work Record',
       });
 
-      logger.info('database', 'Relatório compartilhado');
+      logger.info('database', 'Report shared');
     } catch (error) {
-      logger.error('database', 'Erro ao compartilhar', { error: String(error) });
+      logger.error('database', 'Error sharing', { error: String(error) });
     }
   },
 
-  compartilharRelatorio: async (dataInicio, dataFim) => {
+  shareReport: async (startDate, endDate) => {
     const userId = useAuthStore.getState().getUserId();
     if (!userId) return;
 
     try {
-      const sessoes = await getSessoesPorPeriodo(userId, dataInicio, dataFim);
-      const nomeUsuario = useAuthStore.getState().getUserName();
-      const relatorio = gerarRelatorioCompleto(sessoes, nomeUsuario ?? undefined);
+      const sessions = await getSessoesPorPeriodo(userId, startDate, endDate);
+      const userName = useAuthStore.getState().getUserName();
+      const report = gerarRelatorioCompleto(sessions, userName ?? undefined);
 
       await Share.share({
-        message: relatorio,
-        title: 'Relatório de Horas',
+        message: report,
+        title: 'Hours Report',
       });
 
-      logger.info('database', 'Relatório completo compartilhado');
+      logger.info('database', 'Complete report shared');
     } catch (error) {
-      logger.error('database', 'Erro ao compartilhar relatório', { error: String(error) });
+      logger.error('database', 'Error sharing report', { error: String(error) });
     }
   },
 
-  limparUltimaSessao: () => {
-    set({ ultimaSessaoFinalizada: null });
+  clearLastSession: () => {
+    set({ lastFinishedSession: null });
   },
 
-  getSessoesPeriodo: async (dataInicio, dataFim) => {
+  getSessionsByPeriod: async (startDate, endDate) => {
     const userId = useAuthStore.getState().getUserId();
     if (!userId) return [];
 
     try {
-      return await getSessoesPorPeriodo(userId, dataInicio, dataFim);
+      return await getSessoesPorPeriodo(userId, startDate, endDate);
     } catch (error) {
-      logger.error('database', 'Erro ao buscar sessões por período', { error: String(error) });
+      logger.error('database', 'Error fetching sessions by period', { error: String(error) });
       return [];
     }
   },
 
   // ============================================
-  // DELETAR REGISTRO
+  // DELETE RECORD
   // ============================================
-  deletarRegistro: async (id) => {
+  deleteRecord: async (id) => {
     const userId = useAuthStore.getState().getUserId();
     if (!userId) {
-      throw new Error('Usuário não autenticado');
+      throw new Error('User not authenticated');
     }
 
     try {
-      const dbOk = await garantirDbInicializado();
-      if (!dbOk) throw new Error('Banco não disponível');
+      const dbOk = await ensureDbInitialized();
+      if (!dbOk) throw new Error('Database not available');
 
-      // Verifica se o registro existe e pertence ao usuário
-      const registro = db.getFirstSync<{ id: string; saida: string | null }>(
+      // Check if record exists and belongs to user
+      const record = db.getFirstSync<{ id: string; saida: string | null }>(
         `SELECT id, saida FROM registros WHERE id = ? AND user_id = ?`,
         [id, userId]
       );
 
-      if (!registro) {
-        throw new Error('Registro não encontrado');
+      if (!record) {
+        throw new Error('Record not found');
       }
 
-      // Não permite deletar sessão ativa
-      if (!registro.saida) {
-        throw new Error('Não é possível deletar uma sessão em andamento');
+      // Don't allow deleting active session
+      if (!record.saida) {
+        throw new Error('Cannot delete an ongoing session');
       }
 
-      // Deleta do SQLite local
+      // Delete from local SQLite
       db.runSync(`DELETE FROM registros WHERE id = ? AND user_id = ?`, [id, userId]);
-      logger.info('registro', `🗑️ Registro deletado localmente: ${id}`);
+      logger.info('record', `🗑️ Record deleted locally: ${id}`);
 
-      // Tenta deletar do Supabase também
+      // Try to delete from Supabase too
       try {
         const { supabase } = await import('../lib/supabase');
         const { error } = await supabase
@@ -390,46 +440,46 @@ export const useRegistroStore = create<RegistroState>((set, get) => ({
           .eq('user_id', userId);
 
         if (error) {
-          logger.warn('registro', 'Erro ao deletar do Supabase', { error: error.message });
+          logger.warn('record', 'Error deleting from Supabase', { error: error.message });
         } else {
-          logger.info('registro', `🗑️ Registro deletado do Supabase: ${id}`);
+          logger.info('record', `🗑️ Record deleted from Supabase: ${id}`);
         }
       } catch (supabaseError) {
-        logger.warn('registro', 'Supabase indisponível para delete', { error: String(supabaseError) });
+        logger.warn('record', 'Supabase unavailable for delete', { error: String(supabaseError) });
       }
 
-      // Recarrega dados
-      await get().recarregarDados();
+      // Reload data
+      await get().reloadData();
     } catch (error) {
-      logger.error('registro', 'Erro ao deletar registro', { error: String(error) });
+      logger.error('record', 'Error deleting record', { error: String(error) });
       throw error;
     }
   },
 
   // ============================================
-  // EDITAR REGISTRO
+  // EDIT RECORD
   // ============================================
-  editarRegistro: async (id, updates) => {
+  editRecord: async (id, updates) => {
     const userId = useAuthStore.getState().getUserId();
     if (!userId) {
-      throw new Error('Usuário não autenticado');
+      throw new Error('User not authenticated');
     }
 
     try {
-      const dbOk = await garantirDbInicializado();
-      if (!dbOk) throw new Error('Banco não disponível');
+      const dbOk = await ensureDbInitialized();
+      if (!dbOk) throw new Error('Database not available');
 
-      // Verifica se o registro existe e pertence ao usuário
-      const registro = db.getFirstSync<{ id: string }>(
+      // Check if record exists and belongs to user
+      const record = db.getFirstSync<{ id: string }>(
         `SELECT id FROM registros WHERE id = ? AND user_id = ?`,
         [id, userId]
       );
 
-      if (!registro) {
-        throw new Error('Registro não encontrado');
+      if (!record) {
+        throw new Error('Record not found');
       }
 
-      // Monta query de update
+      // Build update query
       const setClauses: string[] = [];
       const values: any[] = [];
 
@@ -454,11 +504,11 @@ export const useRegistroStore = create<RegistroState>((set, get) => ({
         values.push(updates.pausa_minutos);
       }
 
-      // Marca como não sincronizado (será re-enviado ao Supabase)
+      // Mark as not synced (will be re-sent to Supabase)
       setClauses.push('synced_at = NULL');
 
-      if (setClauses.length === 1) { // só tem synced_at
-        throw new Error('Nenhum campo para atualizar');
+      if (setClauses.length === 1) { // only has synced_at
+        throw new Error('No fields to update');
       }
 
       values.push(id, userId);
@@ -468,33 +518,33 @@ export const useRegistroStore = create<RegistroState>((set, get) => ({
         values
       );
 
-      logger.info('registro', `✏️ Registro editado: ${id}`, { updates });
+      logger.info('record', `✏️ Record edited: ${id}`, { updates });
 
-      // Recarrega dados
-      await get().recarregarDados();
+      // Reload data
+      await get().reloadData();
     } catch (error) {
-      logger.error('registro', 'Erro ao editar registro', { error: String(error) });
+      logger.error('record', 'Error editing record', { error: String(error) });
       throw error;
     }
   },
 
   // ============================================
-  // CRIAR REGISTRO MANUAL
+  // CREATE MANUAL RECORD
   // ============================================
-  criarRegistroManual: async ({ localId, localNome, entrada, saida, pausaMinutos }) => {
+  createManualRecord: async ({ locationId, locationName, entry, exit, pauseMinutes }) => {
     const userId = useAuthStore.getState().getUserId();
     if (!userId) {
-      throw new Error('Usuário não autenticado');
+      throw new Error('User not authenticated');
     }
 
     try {
-      const dbOk = await garantirDbInicializado();
-      if (!dbOk) throw new Error('Banco não disponível');
+      const dbOk = await ensureDbInitialized();
+      if (!dbOk) throw new Error('Database not available');
 
-      // Gera ID único
+      // Generate unique ID
       const id = `manual_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-      // Insere registro completo (já com entrada e saída)
+      // Insert complete record (with entry and exit)
       db.runSync(
         `INSERT INTO registros (
           id, user_id, local_id, local_nome, entrada, saida, 
@@ -503,34 +553,79 @@ export const useRegistroStore = create<RegistroState>((set, get) => ({
         [
           id,
           userId,
-          localId,
-          localNome,
-          entrada,
-          saida,
+          locationId,
+          locationName,
+          entry,
+          exit,
           'manual',
           1,
-          'Entrada manual pelo usuário',
-          pausaMinutos || 0,
+          'Manual entry by user',
+          pauseMinutes || 0,
         ]
       );
 
-      logger.info('registro', `✏️ Registro manual criado: ${id}`, { localNome, entrada, saida, pausaMinutos });
+      logger.info('record', `✏️ Manual record created: ${id}`, { locationName, entry, exit, pauseMinutes });
 
-      // Recarrega dados
-      await get().recarregarDados();
+      // Reload data
+      await get().reloadData();
 
       return id;
     } catch (error) {
-      logger.error('registro', 'Erro ao criar registro manual', { error: String(error) });
+      logger.error('record', 'Error creating manual record', { error: String(error) });
       throw error;
     }
   },
+
+  // ============================================
+  // LEGACY METHOD ALIASES (for compatibility)
+  // ============================================
+  registrarEntrada: async (localId, localNome, coords) => 
+    get().registerEntry(localId, localNome, coords),
+  
+  registrarSaida: async (localId, coords) => 
+    get().registerExit(localId, coords),
+  
+  registrarSaidaComAjuste: async (localId, coords, ajusteMinutos) => 
+    get().registerExitWithAdjustment(localId, coords, ajusteMinutos),
+  
+  recarregarDados: async () => 
+    get().reloadData(),
+  
+  compartilharUltimaSessao: async () => 
+    get().shareLastSession(),
+  
+  compartilharRelatorio: async (dataInicio, dataFim) => 
+    get().shareReport(dataInicio, dataFim),
+  
+  limparUltimaSessao: () => 
+    get().clearLastSession(),
+  
+  getSessoesPeriodo: async (dataInicio, dataFim) => 
+    get().getSessionsByPeriod(dataInicio, dataFim),
+  
+  deletarRegistro: async (id) => 
+    get().deleteRecord(id),
+  
+  editarRegistro: async (id, updates) => 
+    get().editRecord(id, updates),
+  
+  criarRegistroManual: async (params) => 
+    get().createManualRecord({
+      locationId: params.localId,
+      locationName: params.localNome,
+      entry: params.entrada,
+      exit: params.saida,
+      pauseMinutes: params.pausaMinutos,
+    }),
 }));
 
 // ============================================
-// HOOK HELPER
+// HELPER HOOK
 // ============================================
 
-export function useFormatarDuracao(minutos: number | null | undefined): string {
-  return formatarDuracao(minutos);
+export function useFormatDuration(minutes: number | null | undefined): string {
+  return formatarDuracao(minutes);
 }
+
+// Legacy export
+export const useFormatarDuracao = useFormatDuration;

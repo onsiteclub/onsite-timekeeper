@@ -8,14 +8,13 @@ import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 
-// IMPORTANTE: Importa background tasks ANTES de qualquer coisa
+// IMPORTANT: Import background tasks BEFORE anything else
 import '../src/lib/backgroundTasks';
 
 import { colors } from '../src/constants/colors';
 import { logger } from '../src/lib/logger';
 import { initDatabase } from '../src/lib/database';
 import { GeofenceAlert } from '../src/components/GeofenceAlert';
-import { DevMonitor } from '../src/components/DevMonitor';
 import { useAuthStore } from '../src/stores/authStore';
 import { useLocationStore } from '../src/stores/locationStore';
 import { useRegistroStore } from '../src/stores/registroStore';
@@ -33,14 +32,14 @@ export default function RootLayout() {
 
   const { isAuthenticated, isLoading: authLoading, initialize: initAuth } = useAuthStore();
   
-  // Ref para evitar inicialização dupla
+  // Ref to prevent double initialization
   const initRef = useRef(false);
 
-  // Função para inicializar stores (reutilizável)
+  // Function to initialize stores (reusable)
   const initializeStores = async () => {
     if (storesInitialized) return;
     
-    logger.info('boot', '📦 Inicializando stores...');
+    logger.info('boot', '📦 Initializing stores...');
     
     try {
       await useRegistroStore.getState().initialize();
@@ -49,24 +48,24 @@ export default function RootLayout() {
       await useSyncStore.getState().initialize();
       
       setStoresInitialized(true);
-      logger.info('boot', '✅ Stores inicializados');
+      logger.info('boot', '✅ Stores initialized');
     } catch (error) {
-      logger.error('boot', 'Erro ao inicializar stores', { error: String(error) });
+      logger.error('boot', 'Error initializing stores', { error: String(error) });
     }
   };
 
-  // Bootstrap inicial
+  // Initial bootstrap
   useEffect(() => {
     async function bootstrap() {
       if (initRef.current) return;
       initRef.current = true;
       
-      logger.info('boot', '🚀 Iniciando OnSite Timekeeper...');
+      logger.info('boot', '🚀 Starting OnSite Timekeeper...');
 
       try {
         // 1. Database
         await initDatabase();
-        logger.info('boot', '✅ Database inicializado');
+        logger.info('boot', '✅ Database initialized');
 
         // 2. Settings
         await useSettingsStore.getState().loadSettings();
@@ -74,14 +73,14 @@ export default function RootLayout() {
         // 3. Auth
         await initAuth();
 
-        // 4. Se já autenticado, inicializa stores
+        // 4. If already authenticated, initialize stores
         if (useAuthStore.getState().isAuthenticated) {
           await initializeStores();
         }
 
-        logger.info('boot', '✅ Bootstrap concluído');
+        logger.info('boot', '✅ Bootstrap completed');
       } catch (error) {
-        logger.error('boot', 'Erro no bootstrap', { error: String(error) });
+        logger.error('boot', 'Bootstrap error', { error: String(error) });
       } finally {
         setIsReady(true);
         await SplashScreen.hideAsync();
@@ -91,15 +90,15 @@ export default function RootLayout() {
     bootstrap();
   }, []);
 
-  // Inicializa stores quando usuário faz LOGIN
+  // Initialize stores when user LOGS IN
   useEffect(() => {
     if (isReady && isAuthenticated && !storesInitialized) {
-      logger.info('boot', '🔑 Login detectado - inicializando stores...');
+      logger.info('boot', '🔑 Login detected - initializing stores...');
       initializeStores();
     }
   }, [isReady, isAuthenticated, storesInitialized]);
 
-  // Navegação baseada em auth - SÓ NAVEGA QUANDO READY
+  // Auth-based navigation - ONLY NAVIGATE WHEN READY
   useEffect(() => {
     if (!isReady || authLoading) return;
 
@@ -112,7 +111,7 @@ export default function RootLayout() {
     }
   }, [isReady, authLoading, isAuthenticated, segments]);
 
-  // Loading enquanto bootstrap roda
+  // Loading while bootstrap runs
   if (!isReady || authLoading) {
     return (
       <View style={styles.loadingContainer}>
@@ -131,7 +130,6 @@ export default function RootLayout() {
       </Stack>
       
       <GeofenceAlert />
-      <DevMonitor />
     </>
   );
 }

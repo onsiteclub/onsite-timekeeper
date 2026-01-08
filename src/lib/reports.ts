@@ -25,7 +25,6 @@
  */
 
 import { SessaoComputada, formatarDuracao } from './database';
-import { logger } from './logger';
 
 // ============================================
 // CONSTANTS
@@ -256,7 +255,6 @@ export interface RelatorioMetadata {
 
 export function getRelatorioMetadata(
   sessoes: SessaoComputada[],
-  nomeUsuario?: string
 ): RelatorioMetadata {
   const timestamp = new Date().toISOString();
   const refCode = generateRefCode(sessoes, timestamp);
