@@ -2,6 +2,8 @@
 
 Documentação do pipeline automatizado de build e validação.
 
+---
+
 ## Visão Geral
 
 Pipeline no GitHub Actions que valida o código e gera o APK de teste automaticamente.
@@ -31,8 +33,8 @@ Push/Manual Trigger
 
 | Etapa | Comando | O que faz |
 |-------|---------|-----------|
-| Typecheck | `npm run typecheck` | Verifica erros TypeScript, imports quebrados, tipos incorretos |
-| Doctor | `npm run doctor` | Verifica configuração do Expo |
+| Typecheck | `npx tsc --noEmit` | Verifica erros TypeScript, imports quebrados, tipos incorretos |
+| Doctor | `npx expo-doctor` | Verifica configuração do Expo |
 
 **Se falhar:** Build não roda → economia de tempo e recursos.
 
@@ -61,11 +63,31 @@ Push/Manual Trigger
 
 ```bash
 # Verifica erros TypeScript
-npm run typecheck
+npx tsc --noEmit
 
 # Verifica configuração Expo
-npm run doctor
+npx expo-doctor
 ```
+
+### Pular o Workflow (Skip CI)
+
+Para commits que não precisam de build (docs, configs, WIP):
+
+```bash
+git commit -m "docs: update readme [skip ci]"
+git commit -m "feat(reports): add export modal [skip ci]"
+```
+
+**Quando usar `[skip ci]`:**
+- Atualizações de documentação
+- Commits intermediários durante desenvolvimento
+- Mudanças em arquivos não-código (.md, .json configs)
+- Quando você sabe que o código compila (rodou `tsc` local)
+
+**Quando NÃO usar:**
+- Antes de merge para main
+- Após resolver bugs críticos
+- Quando quer garantir que o APK funciona
 
 ---
 
@@ -105,10 +127,10 @@ jobs:
         run: npm ci
 
       - name: Typecheck
-        run: npm run typecheck
+        run: npx tsc --noEmit
 
       - name: Expo Doctor
-        run: npm run doctor
+        run: npx expo-doctor
         continue-on-error: true
 
   build:
@@ -156,9 +178,19 @@ jobs:
 
 ## Checklist Antes de Push
 
-- [ ] `npm run typecheck` passa sem erros
-- [ ] Testou no Expo Go / dev build
-- [ ] Commit message descritivo
+### Validação Obrigatória
+- [ ] `npx tsc --noEmit` passa sem erros
+- [ ] App roda no Expo Go / dev build
+
+### Boas Práticas
+- [ ] Commit message descritivo (feat/fix/docs/refactor)
+- [ ] Usar `[skip ci]` se apropriado
+- [ ] Verificar imports após mover/renomear arquivos
+
+### Erros Comuns que Quebram o Build
+- [ ] Logger com categoria inválida (usar: `boot`, `database`, `session`, `geofence`, `notification`, `sync`, `record`)
+- [ ] Router.push com path inválido (verificar rotas em `app/`)
+- [ ] Imports de arquivos deletados/movidos
 
 ---
 
@@ -166,11 +198,34 @@ jobs:
 
 | Erro | Causa | Solução |
 |------|-------|---------|
-| Typecheck falha | Erros de TypeScript | Rode `npm run typecheck` local e corrija |
+| `Argument of type 'X' is not assignable` | Tipo errado | Verificar interface/type esperado |
+| `Cannot find module 'X'` | Import quebrado | Verificar caminho do import |
+| `'X' is not assignable to parameter of type 'LogCategory'` | Categoria logger inválida | Usar categoria válida do logger.ts |
+| Typecheck falha | Erros de TypeScript | Rode `npx tsc --noEmit` local e corrija |
 | Build falha no Gradle | Versão Java errada | Pipeline usa Java 17 |
 | APK não aparece | Build incompleto | Verifique logs do Actions |
-| "Module not found" | Import quebrado | Verifique caminhos dos imports |
-| "Cannot find name X" | Faltou importar | Adicione import no arquivo |
+
+### Categorias Válidas do Logger
+
+```typescript
+type LogCategory = 
+  | 'boot' 
+  | 'database' 
+  | 'session' 
+  | 'geofence' 
+  | 'notification' 
+  | 'sync' 
+  | 'record';
+```
+
+### Rotas Válidas do Router
+
+```typescript
+// Verificar em app/ a estrutura real
+router.push('/');              // Home
+router.replace('/(auth)/login'); // Login
+router.replace('/(tabs)');     // Tabs (após auth)
+```
 
 ---
 
@@ -189,6 +244,37 @@ jobs:
 | Checks | ~1-2 min |
 | Build completo | ~10-15 min |
 | Tamanho APK | ~50-80 MB |
+
+---
+
+## Fluxo de Desenvolvimento Recomendado
+
+```
+1. Desenvolver feature
+        ↓
+2. npx tsc --noEmit (local)
+        ↓
+   ┌─── Passou? ───┐
+   │               │
+   ▼ Sim           ▼ Não
+   │               │
+   │          Corrigir erros
+   │               │
+   ▼               │
+3. git add -A     ◄┘
+   git commit -m "feat: X [skip ci]"
+   git push
+        ↓
+4. Continuar desenvolvimento...
+        ↓
+5. Quando pronto para testar APK:
+   git commit -m "feat: complete feature X"
+   git push
+        ↓
+6. Actions > Run workflow > Build APK
+        ↓
+7. Download APK e testar no device
+```
 
 ---
 

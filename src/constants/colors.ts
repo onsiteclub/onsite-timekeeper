@@ -1,125 +1,144 @@
 /**
- * OnSite Club - Paleta de Cores (Dark Mode - PROFESSIONAL)
+ * OnSite Club - Color Tokens (Light Minimal Theme)
  * 
- * Paleta fria e profissional:
- * - Neutros azulados/acinzentados
- * - Amarelo OnSite apenas em CTAs
- * - Cores de estado discretas (sem carnaval)
+ * Design direction: Light minimal / neutral-first / card-based dashboard
+ * Principles: soft elevation, thin borders, subtle accent, high whitespace
+ * 
+ * Ratio: 90% neutrals / 9% slate-forest / 1% yellow
  */
 
 export const colors = {
   // ============================================
-  // CORES PRIMÁRIAS (Brand)
+  // NEUTRALS (Structure - 90%)
   // ============================================
-  primary: '#F5B700',        // OnSite Yellow - cor principal
-  primaryPressed: '#DFA600', // Yellow pressionado
-  primarySoft: 'rgba(245, 183, 0, 0.12)', // Fundo suave amarelo
-  primaryLight: '#F5B700',   // Alias
-  primaryDark: '#DFA600',    // Alias
   
-  // ============================================
-  // NEUTROS (Base - tons frios)
-  // ============================================
-  black: '#000000',
+  // Backgrounds
+  background: '#F8FAFC',           // App canvas (slate-50)
+  backgroundSecondary: '#FFFFFF',  // Cards, modals, elevated surfaces
+  backgroundTertiary: '#F1F5F9',   // Inputs, muted sections (slate-100)
+  backgroundElevated: '#FFFFFF',   // Elevated elements
+  
+  // Surfaces
+  surface: '#FFFFFF',              // Card background
+  surfaceMuted: '#F1F5F9',         // Input fields, placeholders
+  
+  // Text
+  text: '#0F172A',                 // Primary text (slate-900)
+  textSecondary: '#475569',        // Labels, descriptions (slate-600)
+  textTertiary: '#64748B',         // Subtle text (slate-500)
+  textMuted: '#94A3B8',            // Very subtle (slate-400)
+  
+  // Borders
+  border: '#E2E8F0',               // Dividers, card borders (slate-200)
+  borderLight: '#F1F5F9',          // Subtle borders
+  borderFocus: '#F6C343',          // Focus state (yellow)
+  
+  // Base colors
+  black: '#0F172A',                // For text on yellow buttons
   white: '#FFFFFF',
-  graphite: '#12161C',       // Surface 1
-  steel: '#171C23',          // Surface 2
   
   // ============================================
-  // BACKGROUNDS
+  // ACCENT COLORS (Brand - 9% + 1%)
   // ============================================
-  background: '#0B0D10',           // BG principal (preto azulado)
-  backgroundSecondary: '#12161C',  // Surface 1 - cards
-  backgroundTertiary: '#171C23',   // Surface 2 - cards elevados
-  backgroundElevated: '#1D232B',   // Elementos mais elevados
+  
+  // Yellow (use sparingly - 1%)
+  primary: '#F6C343',              // Accent yellow subtle
+  primaryStrong: '#F2B705',        // CTA, important actions (rare)
+  primaryPressed: '#E5A600',       // Pressed state
+  primarySoft: 'rgba(246, 195, 67, 0.12)',  // Subtle background
+  primaryLight: '#F6C343',         // Alias
+  primaryDark: '#E5A600',          // Alias
+  
+  // Slate/Forest (state indicator - 9%)
+  accent: '#0F3D3E',               // ACTIVE badge, state icons
+  accentLight: '#1A5456',          // Hover state
   
   // ============================================
-  // TEXTOS
+  // FEEDBACK / STATES
   // ============================================
-  text: '#E8EDF2',           // Alto contraste
-  textSecondary: '#9AA6B2',  // Muted
-  textTertiary: '#6B7785',   // Subtle
-  textMuted: '#4A5568',      // Muito sutil
+  success: '#16A34A',              // Green (green-600)
+  successLight: '#22C55E',
+  successSoft: 'rgba(22, 163, 74, 0.12)',
   
-  // ============================================
-  // BORDAS
-  // ============================================
-  border: '#242B35',         // Dividers
-  borderLight: '#1A2029',    // Bordas sutis
-  borderFocus: '#F5B700',    // Foco (yellow)
+  warning: '#F6C343',              // Uses brand yellow
+  warningDark: '#E5A600',
   
-  // ============================================
-  // ESTADOS (discretos, sem carnaval)
-  // ============================================
-  success: '#22C55E',        // Verde (usar pouco)
-  successDark: '#16A34A',
-  warning: '#F5B700',        // Usa o amarelo da marca
-  warningDark: '#DFA600',
-  error: '#EF4444',          // Danger/Stop
-  errorDark: '#DC2626',      // Danger pressed
-  errorLight: 'rgba(239, 68, 68, 0.12)',
-  info: '#3B82F6',           // Azul (raro, links)
+  error: '#DC2626',                // Danger (red-600)
+  errorLight: '#EF4444',
+  errorSoft: 'rgba(220, 38, 38, 0.12)',
+  
+  info: '#3B82F6',                 // Blue (rare, links)
   infoDark: '#2563EB',
   
   // ============================================
-  // COMPONENTES ESPECÍFICOS
+  // COMPONENT-SPECIFIC
   // ============================================
   
   // Timer
-  timerActive: '#F5B700',
-  timerIdle: '#6B7785',
-  timerBackground: '#12161C',
+  timerActive: '#0F3D3E',          // Forest for active state
+  timerIdle: '#94A3B8',            // Muted gray
+  timerBackground: '#FFFFFF',
+  timerRing: 'rgba(246, 195, 67, 0.15)',  // Yellow ring (subtle)
+  timerRingTrack: '#E2E8F0',       // Ring background
   
   // Cards
-  card: '#12161C',
-  cardBorder: '#242B35',
-  cardPressed: '#171C23',
+  card: '#FFFFFF',
+  cardBorder: '#E2E8F0',
+  cardPressed: '#F8FAFC',
+  cardAccent: '#F6C343',           // Left accent bar
   
   // Tab Bar
-  tabBar: '#0B0D10',
-  tabBarBorder: '#1A2029',
-  tabActive: '#F5B700',
-  tabInactive: '#6B7785',
+  tabBar: '#FFFFFF',
+  tabBarBorder: '#E2E8F0',
+  tabActive: '#0F3D3E',            // Forest for active
+  tabInactive: '#94A3B8',
   
   // Header
-  header: '#0B0D10',
-  headerText: '#E8EDF2',
+  header: '#F8FAFC',
+  headerText: '#0F172A',
   
   // Inputs
-  input: '#12161C',
-  inputBorder: '#242B35',
-  inputPlaceholder: '#6B7785',
+  input: '#F1F5F9',
+  inputBorder: '#E2E8F0',
+  inputPlaceholder: '#94A3B8',
+  inputFocus: '#F6C343',
   
   // Buttons
-  buttonPrimary: '#F5B700',
-  buttonPrimaryText: '#0B0D10',    // Texto escuro no botão amarelo
-  buttonSecondary: '#171C23',
-  buttonSecondaryText: '#E8EDF2',
-  buttonDisabled: '#1D232B',
-  buttonDisabledText: '#4A5568',
+  buttonPrimary: '#F6C343',
+  buttonPrimaryText: '#0F172A',    // Dark text on yellow
+  buttonSecondary: '#F1F5F9',
+  buttonSecondaryText: '#0F172A',
+  buttonDisabled: '#E2E8F0',
+  buttonDisabledText: '#94A3B8',
   
-  // Danger button (Stop)
-  buttonDanger: '#EF4444',
-  buttonDangerPressed: '#DC2626',
+  // Danger button
+  buttonDanger: '#DC2626',
+  buttonDangerPressed: '#B91C1C',
   buttonDangerText: '#FFFFFF',
   
-  // Map
-  mapCircle: 'rgba(245, 183, 0, 0.2)',
-  mapCircleBorder: '#F5B700',
+  // Map (keep similar for visibility)
+  mapCircle: 'rgba(246, 195, 67, 0.2)',
+  mapCircleBorder: '#F6C343',
   
   // Badges
-  badgeSuccess: '#22C55E',
-  badgeWarning: '#F5B700',
-  badgeError: '#EF4444',
+  badgeActive: '#0F3D3E',          // Forest green for ACTIVE
+  badgeActiveText: '#FFFFFF',
+  badgeSuccess: '#16A34A',
+  badgeWarning: '#F6C343',
+  badgeError: '#DC2626',
   badgeInfo: '#3B82F6',
   
   // Overlay
-  overlay: 'rgba(11, 13, 16, 0.8)',
-  overlayLight: 'rgba(11, 13, 16, 0.6)',
+  overlay: 'rgba(15, 23, 42, 0.6)',      // slate-900 with opacity
+  overlayLight: 'rgba(15, 23, 42, 0.4)',
+  
+  // Graph styles
+  graphite: '#F1F5F9',             // Background for graphs
+  steel: '#E2E8F0',                // Grid lines
 };
 
 /**
- * Helper para criar cor com opacidade
+ * Helper to create color with opacity
  */
 export function withOpacity(color: string, opacity: number): string {
   if (color.startsWith('rgba')) {
@@ -135,12 +154,12 @@ export function withOpacity(color: string, opacity: number): string {
 }
 
 /**
- * Cores para locais (círculos no mapa)
+ * Location colors (for map circles)
  */
 export const localColors = [
-  '#F5B700',  // Yellow (principal)
+  '#F6C343',  // Yellow (primary)
   '#3B82F6',  // Blue
-  '#22C55E',  // Green
+  '#16A34A',  // Green
   '#8B5CF6',  // Purple
   '#EC4899',  // Pink
   '#06B6D4',  // Cyan
@@ -158,7 +177,7 @@ export function getRandomGeofenceColor(): string {
 }
 
 /**
- * Espaçamentos padrão
+ * Spacing tokens
  */
 export const spacing = {
   xs: 4,
@@ -170,39 +189,77 @@ export const spacing = {
 };
 
 /**
- * Border radius padrão
+ * Border radius tokens
  */
 export const borderRadius = {
   sm: 8,
   md: 12,
   lg: 16,
-  xl: 24,
+  xl: 20,
   full: 9999,
 };
 
 /**
- * Sombras
+ * Shadow tokens (soft elevation - yellow tinted)
  */
 export const shadows = {
   sm: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.3,
-    shadowRadius: 2,
+    shadowColor: '#F6C343',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
     elevation: 2,
   },
   md: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.4,
-    shadowRadius: 4,
-    elevation: 4,
+    shadowColor: '#F6C343',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 3,
   },
   lg: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.5,
-    shadowRadius: 8,
-    elevation: 8,
+    shadowColor: '#F6C343',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.18,
+    shadowRadius: 14,
+    elevation: 4,
+  },
+};
+
+/**
+ * Typography (reference values)
+ */
+export const typography = {
+  // Screen title
+  screenTitle: {
+    fontSize: 28,
+    fontWeight: '700' as const,
+    color: colors.text,
+    lineHeight: 34,
+  },
+  // Card title
+  cardTitle: {
+    fontSize: 15,
+    fontWeight: '600' as const,
+    color: colors.text,
+  },
+  // Timer
+  timer: {
+    fontSize: 36,
+    fontWeight: '700' as const,
+    color: colors.text,
+    letterSpacing: 0.5,
+  },
+  // Labels
+  label: {
+    fontSize: 13,
+    fontWeight: '500' as const,
+    color: colors.textSecondary,
+  },
+  // Meta/Small
+  meta: {
+    fontSize: 12,
+    fontWeight: '400' as const,
+    color: colors.textSecondary,
   },
 };

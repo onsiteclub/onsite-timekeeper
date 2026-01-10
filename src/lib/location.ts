@@ -6,15 +6,17 @@
  * - Real-time position watch
  * - Native geofencing via expo-location
  * - Background location updates
+ * 
+ * FIXED: Import constants from shared file to avoid require cycle
  */
 
 import * as Location from 'expo-location';
 import { logger } from './logger';
+import { LOCATION_TASK_NAME, GEOFENCE_TASK_NAME } from './constants';
 
-// Background task names (must be unique)
-export const LOCATION_TASK_NAME = 'onsite-background-location';
-export const GEOFENCE_TASK_NAME = 'onsite-geofence';
 
+// Re-export for backward compatibility
+export { LOCATION_TASK_NAME, GEOFENCE_TASK_NAME };
 
 // ============================================
 // TYPES
@@ -114,14 +116,36 @@ export async function requestAllPermissions(): Promise<PermissionsStatus> {
   return { foreground, background };
 }
 
+
+
 // ============================================
-// CURRENT LOCATION
+// CURRENT LOCATION (Single-flight)
 // ============================================
+
+let pendingLocationPromise: Promise<LocationResult | null> | null = null;
 
 /**
  * Get current location with high accuracy
+ * Single-flight: reuses pending request to avoid duplicate GPS calls
  */
 export async function getCurrentLocation(): Promise<LocationResult | null> {
+  // Single-flight: reutiliza promise em andamento
+  if (pendingLocationPromise) {
+    logger.debug('gps', '♻️ Reusing pending location request');
+    return pendingLocationPromise;
+  }
+
+  pendingLocationPromise = getCurrentLocationInternal();
+  
+  try {
+    return await pendingLocationPromise;
+  } finally {
+    // Limpa após 2s para permitir nova chamada
+    setTimeout(() => { pendingLocationPromise = null; }, 2000);
+  }
+}
+
+async function getCurrentLocationInternal(): Promise<LocationResult | null> {
   try {
     const permissions = await checkPermissions();
     if (!permissions.foreground) {
@@ -159,7 +183,6 @@ export async function getCurrentLocation(): Promise<LocationResult | null> {
     return null;
   }
 }
-
 // ============================================
 // POSITION WATCH (REAL-TIME)
 // ============================================

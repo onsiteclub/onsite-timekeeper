@@ -19,6 +19,7 @@ import {
   ScrollView,
   Animated,
   TextInput,
+  Linking,
 } from 'react-native';
 import MapView, { Marker, Circle, PROVIDER_DEFAULT } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
@@ -112,7 +113,7 @@ export default function MapScreen() {
               onCalloutPress={() => handleCirclePress(location.id)}
             >
               <View style={[styles.marker, { backgroundColor: location.color }]}>
-                <Text style={styles.markerText}>📍</Text>
+                <Ionicons name="location" size={16} color={colors.white} />
               </View>
             </Marker>
           </React.Fragment>
@@ -131,7 +132,7 @@ export default function MapScreen() {
             />
             <Marker coordinate={{ latitude: tempPin.lat, longitude: tempPin.lng }}>
               <View style={[styles.marker, styles.tempMarker]}>
-                <Text style={styles.markerText}>📌</Text>
+                <Ionicons name="add" size={16} color={colors.white} />
               </View>
             </Marker>
           </>
@@ -155,8 +156,9 @@ export default function MapScreen() {
         style={[styles.monitorButton, isMonitoringActive && styles.monitorButtonActive]}
         onPress={handleToggleMonitoring}
       >
+        <View style={[styles.monitorDot, isMonitoringActive && styles.monitorDotActive]} />
         <Text style={[styles.monitorText, isMonitoringActive && styles.monitorTextActive]}>
-          {isMonitoringActive ? '🟢 Monitoring' : '⚪ Monitoring OFF'}
+          {isMonitoringActive ? 'Monitoring' : 'Monitoring OFF'}
         </Text>
       </TouchableOpacity>
 
@@ -184,8 +186,9 @@ export default function MapScreen() {
       {/* INITIAL HINT */}
       {locations.length === 0 && !showNameModal && (
         <View style={styles.hintContainer}>
+          <Ionicons name="finger-print-outline" size={20} color={colors.textSecondary} style={{ marginRight: 8 }} />
           <Text style={styles.hintText}>
-            🗺️ Long press on the map to add a work location
+            Long press on the map to add a work location
           </Text>
         </View>
       )}
@@ -209,7 +212,12 @@ export default function MapScreen() {
                 { transform: [{ translateX: shakeAnimation }] }
               ]}
             >
-              <Text style={styles.nameModalTitle}>📍 New Location</Text>
+              <View style={styles.nameModalHeader}>
+                <View style={styles.nameModalIconContainer}>
+                  <Ionicons name="location" size={24} color={colors.primary} />
+                </View>
+                <Text style={styles.nameModalTitle}>New Location</Text>
+              </View>
               <Text style={styles.nameModalSubtitle}>
                 Give this place a name
               </Text>
@@ -266,8 +274,9 @@ export default function MapScreen() {
                   onPress={handleConfirmAddLocation}
                   disabled={isAdding}
                 >
+                  <Ionicons name="add" size={18} color={colors.buttonPrimaryText} style={{ marginRight: 4 }} />
                   <Text style={styles.nameModalConfirmText}>
-                    {isAdding ? 'Adding...' : 'Add Location'}
+                    {isAdding ? 'Adding...' : 'Add'}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -276,7 +285,7 @@ export default function MapScreen() {
         </TouchableOpacity>
       </Modal>
 
-      {/* RADIUS ADJUSTMENT MODAL */}
+      {/* LOCATION OPTIONS MODAL */}
       <Modal
         visible={showRadiusModal}
         transparent
@@ -289,26 +298,38 @@ export default function MapScreen() {
           onPress={handleCloseRadiusModal}
         >
           <TouchableOpacity activeOpacity={1} onPress={() => {}}>
-            <View style={styles.radiusModal}>
-              <Text style={styles.radiusModalTitle}>📐 Adjust Radius</Text>
-              <Text style={styles.radiusModalSubtitle}>
-                {selectedLocation?.name || 'Location'}
-              </Text>
+            <View style={styles.optionsModal}>
+              {/* Header */}
+              <View style={styles.optionsModalHeader}>
+                <View style={[styles.optionsModalIcon, { backgroundColor: selectedLocation?.color || colors.primary }]}>
+                  <Ionicons name="location" size={20} color={colors.white} />
+                </View>
+                <View style={styles.optionsModalHeaderInfo}>
+                  <Text style={styles.optionsModalTitle}>{selectedLocation?.name || 'Location'}</Text>
+                  <Text style={styles.optionsModalSubtitle}>
+                    {selectedLocation?.latitude.toFixed(4)}, {selectedLocation?.longitude.toFixed(4)}
+                  </Text>
+                </View>
+              </View>
 
-              <View style={styles.radiusOptions}>
+              <View style={styles.optionsModalDivider} />
+
+              {/* Radius Section */}
+              <Text style={styles.optionsSectionLabel}>Detection Radius</Text>
+              <View style={styles.radiusOptionsRow}>
                 {RADIUS_OPTIONS.map((r) => (
                   <TouchableOpacity
                     key={r}
                     style={[
-                      styles.radiusOption,
-                      selectedLocation?.radius === r && styles.radiusOptionActive,
+                      styles.radiusChip,
+                      selectedLocation?.radius === r && styles.radiusChipActive,
                     ]}
                     onPress={() => handleChangeRadius(r)}
                   >
                     <Text
                       style={[
-                        styles.radiusOptionText,
-                        selectedLocation?.radius === r && styles.radiusOptionTextActive,
+                        styles.radiusChipText,
+                        selectedLocation?.radius === r && styles.radiusChipTextActive,
                       ]}
                     >
                       {r}m
@@ -317,8 +338,70 @@ export default function MapScreen() {
                 ))}
               </View>
 
+              <View style={styles.optionsModalDivider} />
+
+              {/* Actions List */}
+              <View style={styles.optionsActionsList}>
+                {/* Edit Name */}
+                <TouchableOpacity 
+                  style={styles.optionsActionItem}
+                  onPress={() => {
+                    handleCloseRadiusModal();
+                    // TODO: Open edit name modal
+                  }}
+                >
+                  <Ionicons name="pencil-outline" size={20} color={colors.text} />
+                  <Text style={styles.optionsActionText}>Edit Name</Text>
+                  <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />
+                </TouchableOpacity>
+
+                {/* Change Color */}
+                <TouchableOpacity 
+                  style={styles.optionsActionItem}
+                  onPress={() => {
+                    handleCloseRadiusModal();
+                    // TODO: Open color picker
+                  }}
+                >
+                  <Ionicons name="color-palette-outline" size={20} color={colors.text} />
+                  <Text style={styles.optionsActionText}>Change Color</Text>
+                  <View style={[styles.colorPreview, { backgroundColor: selectedLocation?.color || colors.primary }]} />
+                </TouchableOpacity>
+
+                {/* Pause Tracking */}
+                <TouchableOpacity 
+                  style={styles.optionsActionItem}
+                  onPress={() => {
+                    handleCloseRadiusModal();
+                    // TODO: Toggle pause state
+                  }}
+                >
+                  <Ionicons name="pause-circle-outline" size={20} color={colors.text} />
+                  <Text style={styles.optionsActionText}>Pause Tracking</Text>
+                  <Text style={styles.optionsActionHint}>For vacations</Text>
+                </TouchableOpacity>
+
+                {/* Open in Maps */}
+                <TouchableOpacity 
+                  style={styles.optionsActionItem}
+                  onPress={() => {
+                    if (selectedLocation) {
+                      const url = `https://www.google.com/maps/search/?api=1&query=${selectedLocation.latitude},${selectedLocation.longitude}`;
+                      Linking.openURL(url);
+                    }
+                  }}
+                >
+                  <Ionicons name="navigate-outline" size={20} color={colors.text} />
+                  <Text style={styles.optionsActionText}>Open in Maps</Text>
+                  <Ionicons name="open-outline" size={16} color={colors.textTertiary} />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.optionsModalDivider} />
+
+              {/* Delete */}
               <TouchableOpacity
-                style={styles.radiusDeleteButton}
+                style={styles.optionsDeleteBtn}
                 onPress={() => {
                   handleCloseRadiusModal();
                   if (selectedLocation) {
@@ -326,7 +409,8 @@ export default function MapScreen() {
                   }
                 }}
               >
-                <Text style={styles.radiusDeleteText}>🗑️ Remove Location</Text>
+                <Ionicons name="trash-outline" size={20} color={colors.error} />
+                <Text style={styles.optionsDeleteText}>Delete Location</Text>
               </TouchableOpacity>
             </View>
           </TouchableOpacity>

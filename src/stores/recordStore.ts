@@ -98,6 +98,7 @@ interface RecordState {
     entry: string;
     exit: string;
     pauseMinutes?: number;
+    absenceType?: string; // 'rain' | 'snow' | 'sick' | 'day_off' | 'holiday'
   }) => Promise<string>;
 }
 
@@ -502,7 +503,7 @@ export const useRecordStore = create<RecordState>((set, get) => ({
   // ============================================
   // CREATE MANUAL RECORD
   // ============================================
-  createManualRecord: async ({ locationId, locationName, entry, exit, pauseMinutes }) => {
+  createManualRecord: async ({ locationId, locationName, entry, exit, pauseMinutes, absenceType }) => {
     const userId = useAuthStore.getState().getUserId();
     if (!userId) {
       throw new Error('User not authenticated');
@@ -513,7 +514,21 @@ export const useRecordStore = create<RecordState>((set, get) => ({
       if (!dbOk) throw new Error('Database not available');
 
       // Generate unique ID
-      const id = `manual_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const { generateUUID } = await import('../lib/database');
+const id = generateUUID();
+
+      // Determine edit_reason based on absence type
+      let editReason = 'Manual entry by user';
+      if (absenceType) {
+        const absenceLabels: Record<string, string> = {
+          rain: 'Rain Day',
+          snow: 'Snow Day',
+          sick: 'Sick Day',
+          day_off: 'Day Off',
+          holiday: 'Holiday',
+        };
+        editReason = `Absence: ${absenceLabels[absenceType] || absenceType}`;
+      }
 
       // Insert complete record (with entry and exit)
       db.runSync(
@@ -530,12 +545,12 @@ export const useRecordStore = create<RecordState>((set, get) => ({
           exit,
           'manual',
           1,
-          'Manual entry by user',
+          editReason,
           pauseMinutes || 0,
         ]
       );
 
-      logger.info('record', `✏️ Manual record created: ${id}`, { locationName, entry, exit, pauseMinutes });
+      logger.info('record', `✏️ Manual record created: ${id}`, { locationName, entry, exit, pauseMinutes, absenceType });
 
       // Reload data
       await get().reloadData();

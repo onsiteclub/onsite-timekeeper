@@ -123,6 +123,8 @@ export const styles = StyleSheet.create({
     position: 'absolute',
     top: Platform.OS === 'ios' ? 130 : 110,
     left: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: colors.card,
     paddingVertical: 10,
     paddingHorizontal: 16,
@@ -135,6 +137,16 @@ export const styles = StyleSheet.create({
   },
   monitorButtonActive: {
     backgroundColor: colors.success,
+  },
+  monitorDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.textMuted,
+    marginRight: 6,
+  },
+  monitorDotActive: {
+    backgroundColor: colors.white,
   },
   monitorText: {
     fontSize: 13,
@@ -190,6 +202,9 @@ export const styles = StyleSheet.create({
     bottom: 100,
     left: 20,
     right: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: withOpacity(colors.black, 0.7),
     padding: 16,
     borderRadius: 12,
@@ -211,8 +226,122 @@ export const styles = StyleSheet.create({
   },
 
   // ============================================
-  // RADIUS MODAL
+  // LOCATION OPTIONS MODAL
   // ============================================
+  optionsModal: {
+    backgroundColor: colors.card,
+    borderRadius: 20,
+    padding: 20,
+    width: width - 48,
+    maxWidth: 360,
+  },
+  optionsModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  optionsModalIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  optionsModalHeaderInfo: {
+    flex: 1,
+  },
+  optionsModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  optionsModalSubtitle: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  optionsModalDivider: {
+    height: 1,
+    backgroundColor: colors.border,
+    marginVertical: 16,
+  },
+  optionsSectionLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    marginBottom: 10,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  radiusOptionsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  radiusChip: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+    backgroundColor: colors.backgroundSecondary,
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: 'transparent',
+  },
+  radiusChipActive: {
+    backgroundColor: withOpacity(colors.primary, 0.15),
+    borderColor: colors.primary,
+  },
+  radiusChipText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  radiusChipTextActive: {
+    color: colors.primary,
+  },
+  optionsActionsList: {
+    gap: 2,
+  },
+  optionsActionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 4,
+    gap: 12,
+  },
+  optionsActionText: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: '500',
+    color: colors.text,
+  },
+  optionsActionHint: {
+    fontSize: 12,
+    color: colors.textSecondary,
+  },
+  colorPreview: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: colors.border,
+  },
+  optionsDeleteBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    backgroundColor: withOpacity(colors.error, 0.1),
+    borderRadius: 12,
+  },
+  optionsDeleteText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.error,
+  },
+
+  // Legacy radius modal styles (keep for compatibility)
   radiusModal: {
     backgroundColor: colors.card,
     borderRadius: 20,
@@ -281,12 +410,25 @@ export const styles = StyleSheet.create({
     width: width - 48,
     maxWidth: 340,
   },
+  nameModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    marginBottom: 4,
+  },
+  nameModalIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: withOpacity(colors.primary, 0.15),
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   nameModalTitle: {
     fontSize: 18,
     fontWeight: 'bold',
     color: colors.text,
-    textAlign: 'center',
-    marginBottom: 4,
   },
   nameModalSubtitle: {
     fontSize: 13,
@@ -367,10 +509,12 @@ export const styles = StyleSheet.create({
   },
   nameModalConfirm: {
     flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
     paddingVertical: 14,
     borderRadius: 12,
     backgroundColor: colors.primary,
-    alignItems: 'center',
   },
   nameModalConfirmDisabled: {
     opacity: 0.6,

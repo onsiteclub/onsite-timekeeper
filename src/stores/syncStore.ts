@@ -46,8 +46,7 @@ import {
   type LocationAuditDB,
 } from '../lib/database';
 import { useAuthStore } from './authStore';
-import { useLocationStore } from './locationStore';
-
+import { setReconfiguring } from '../lib/backgroundTasks';
 // ============================================
 // CONSTANTS
 // ============================================
@@ -101,6 +100,7 @@ interface SyncState {
 let midnightCheckInterval: ReturnType<typeof setInterval> | null = null;
 let netInfoUnsubscribe: (() => void) | null = null;
 let lastSyncDate: string | null = null;
+let lastOnlineState: boolean | null = null;
 
 // ============================================
 // HELPERS
@@ -132,11 +132,17 @@ export const useSyncStore = create<SyncState>((set, get) => ({
     // ============================================
     // NETWORK LISTENER
     // ============================================
-    netInfoUnsubscribe = NetInfo.addEventListener((state) => {
-      const online = !!state.isConnected;
-      logger.info('sync', `📶 Network: ${online ? 'online' : 'offline'}`);
-      set({ isOnline: online });
-    });
+  netInfoUnsubscribe = NetInfo.addEventListener((state) => {
+  const online = !!state.isConnected;
+  
+  // Only log when state actually changes
+  if (lastOnlineState !== online) {
+    logger.info('sync', `📶 Network: ${online ? 'online' : 'offline'}`);
+    lastOnlineState = online;
+  }
+  
+  set({ isOnline: online });
+});
 
     // Initial check
     const state = await NetInfo.fetch();
@@ -265,15 +271,16 @@ export const useSyncStore = create<SyncState>((set, get) => ({
         lastSyncStats: stats,
       });
 
-      logger.info('sync', '✅ Sync completed', {
+      const hasErrors = stats.errors.length > 0;
+        logger.info('sync', `${hasErrors ? '⚠️' : '✅'} Sync completed`, {
         up: `${stats.uploadedLocations}L/${stats.uploadedRecords}R/${stats.uploadedAnalytics}A`,
         down: `${stats.downloadedLocations}L/${stats.downloadedRecords}R`,
         errors: stats.errors.length,
       });
 
       // Reload locations
+      const { useLocationStore } = require('./locationStore');
       await useLocationStore.getState().reloadLocations();
-
       return stats;
 
     } catch (error) {
@@ -299,7 +306,8 @@ export const useSyncStore = create<SyncState>((set, get) => ({
     
     await uploadLocations(userId);
     await downloadLocations(userId);
-    await useLocationStore.getState().reloadLocations();
+    const { useLocationStore } = require('./locationStore');
+await useLocationStore.getState().reloadLocations();
   },
 
   syncRecordsOnly: async () => {
@@ -464,14 +472,16 @@ async function uploadRecords(userId: string): Promise<{ count: number; errors: s
         });
 
         if (error) {
-          errors.push(`Record: ${error.message}`);
-        } else {
+  errors.push(`Record: ${error.message}`);
+  await captureSyncError(new Error(error.message), { userId, action: 'uploadRecords' });
+}  else {
           await markRecordSynced(record.id);
           count++;
         }
       } catch (e) {
-        errors.push(`Record: ${e}`);
-      }
+  errors.push(`Record: ${e}`);
+  await captureSyncError(e as Error, { userId, action: 'uploadRecords' });
+}
     }
   } catch (error) {
     errors.push(String(error));
@@ -524,16 +534,20 @@ async function uploadAnalytics(userId: string): Promise<{ count: number; errors:
 
         if (error) {
           errors.push(`Analytics ${day.date}: ${error.message}`);
+          // ✅ AGORA SALVA O ERRO NO SQLITE
+          await captureSyncError(new Error(error.message), { userId, action: 'uploadAnalytics' });
         } else {
           await markAnalyticsSynced(day.date, day.user_id);
           count++;
         }
       } catch (e) {
         errors.push(`Analytics: ${e}`);
+        await captureSyncError(e as Error, { userId, action: 'uploadAnalytics' });
       }
     }
   } catch (error) {
     errors.push(String(error));
+    await captureSyncError(error as Error, { userId, action: 'uploadAnalytics' });
   }
 
   return { count, errors };
@@ -670,13 +684,26 @@ async function downloadLocations(userId: string): Promise<{ count: number; error
         errors.push(`Location ${remote.name}: ${e}`);
       }
     }
+
+    // After downloading locations, ensure monitoring is started if needed
+    if (count > 0) {
+      const { useLocationStore } = require('./locationStore');
+await useLocationStore.getState().reloadLocations(); // Reload from SQLite first!
+const { locations, isMonitoring, startMonitoring } = useLocationStore.getState();
+      
+      if (locations.length > 0 && !isMonitoring) {
+        logger.info('sync', '🚀 Starting monitoring after download...');
+        setReconfiguring(true); // Abre janela
+await startMonitoring();
+// Reconcile será chamado automaticamente quando janela fechar
+      }
+    }
   } catch (error) {
     errors.push(String(error));
   }
 
   return { count, errors };
 }
-
 async function downloadRecords(userId: string): Promise<{ count: number; errors: string[] }> {
   let count = 0;
   const errors: string[] = [];

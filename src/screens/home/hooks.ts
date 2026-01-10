@@ -43,8 +43,12 @@ import {
   formatTimeAMPM,
   isSameDay,
   isToday,
+  isFutureDay,
+  isWeekend,
   getDayKey,
+  DAY_TAGS,
   type CalendarDay,
+  type DayTagType,
 } from './helpers';
 
 // ============================================
@@ -57,11 +61,13 @@ export function useHomeScreen() {
   // ============================================
   
   const userName = useAuthStore(s => s.getUserName());
+  const userId = useAuthStore(s => s.getUserId());
   
   // Using selectors for locationStore (proper Zustand pattern)
   const locations = useLocationStore(selectLocations);
   const activeGeofence = useLocationStore(selectActiveGeofence);
   const isGeofencingActive = useLocationStore(selectIsGeofencingActive);
+  const lastGeofenceEvent = useLocationStore(s => s.lastGeofenceEvent);
   
   const { 
     currentSession, 
@@ -133,6 +139,15 @@ export function useHomeScreen() {
   const [manualExitH, setManualExitH] = useState('');
   const [manualExitM, setManualExitM] = useState('');
   const [manualPause, setManualPause] = useState('');
+  
+  // Manual entry mode: 'hours' or 'absence'
+  const [manualEntryMode, setManualEntryMode] = useState<'hours' | 'absence'>('hours');
+  const [manualAbsenceType, setManualAbsenceType] = useState<string | null>(null);
+
+  // Day Tags (Rain, Snow, Day Off, etc.)
+  const [dayTags, setDayTags] = useState<Record<string, DayTagType>>({});
+  const [showTagModal, setShowTagModal] = useState(false);
+  const [tagModalDate, setTagModalDate] = useState<Date | null>(null);
 
   // REMOVED: showSessionFinishedModal - was causing confusion
 
@@ -140,7 +155,20 @@ export function useHomeScreen() {
   // DERIVED STATE
   // ============================================
 
-  const activeLocation = activeGeofence ? locations.find(l => l.id === activeGeofence) : null;
+  // Determine which fence the user is currently inside (even without active session)
+  const insideFenceId = useMemo(() => {
+    // If there's an active session, use that location
+    if (activeGeofence) return activeGeofence;
+    
+    // If last event was 'enter', user is inside that fence
+    if (lastGeofenceEvent?.type === 'enter') {
+      return lastGeofenceEvent.regionIdentifier;
+    }
+    
+    return null;
+  }, [activeGeofence, lastGeofenceEvent]);
+
+  const activeLocation = insideFenceId ? locations.find(l => l.id === insideFenceId) : null;
   const canRestart = activeLocation && !currentSession;
   const sessions = viewMode === 'week' ? weekSessions : monthSessions;
   const weekStart = getWeekStart(currentWeek);
@@ -154,6 +182,87 @@ export function useHomeScreen() {
       return isSameDay(sessionDate, selectedDayForModal);
     });
   }, [selectedDayForModal, sessions]);
+
+  // ============================================
+  // LOCATION CARDS DATA
+  // ============================================
+  
+  // Active locations only (not deleted)
+  const activeLocations = useMemo(() => {
+    return locations.filter(l => l.status === 'active' && !l.deleted_at);
+  }, [locations]);
+
+  // Compute data for each location card
+  const locationCardsData = useMemo(() => {
+    // Determine the period to calculate hours
+    let periodSessions: ComputedSession[];
+    
+    if (selectedDays.size > 0) {
+      // Filter sessions from selected days
+      periodSessions = sessions.filter(s => {
+        if (!s.exit_at) return false; // Only completed sessions
+        const sessionDate = new Date(s.entry_at);
+        const dayKey = getDayKey(sessionDate);
+        return selectedDays.has(dayKey);
+      });
+    } else {
+      // Default: use current week sessions
+      periodSessions = weekSessions.filter(s => s.exit_at);
+    }
+
+    return activeLocations.map(location => {
+      // Check if this location has active session
+      const hasActiveSession = currentSession?.location_id === location.id;
+      const activeSessionEntry = hasActiveSession ? currentSession?.entry_at : null;
+      
+      // Calculate total hours for this location in the period
+      const locationSessions = periodSessions.filter(s => s.location_id === location.id);
+      const totalMinutes = locationSessions.reduce((acc, s) => {
+        const pauseMin = s.pause_minutes || 0;
+        return acc + Math.max(0, s.duration_minutes - pauseMin);
+      }, 0);
+
+      // Format coordinates as short string
+      const coordsText = `${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}`;
+
+      // Last check-in (most recent session for this location)
+      const lastSession = [...sessions]
+        .filter(s => s.location_id === location.id && s.exit_at)
+        .sort((a, b) => new Date(b.entry_at).getTime() - new Date(a.entry_at).getTime())[0];
+      
+      let lastCheckIn = 'Never';
+      if (lastSession) {
+        const lastDate = new Date(lastSession.entry_at);
+        if (isToday(lastDate)) {
+          lastCheckIn = `Today, ${formatTimeAMPM(lastSession.entry_at)}`;
+        } else {
+          const yesterday = new Date();
+          yesterday.setDate(yesterday.getDate() - 1);
+          if (isSameDay(lastDate, yesterday)) {
+            lastCheckIn = `Yesterday, ${formatTimeAMPM(lastSession.entry_at)}`;
+          } else {
+            lastCheckIn = lastDate.toLocaleDateString('en-US', { 
+              month: 'short', 
+              day: 'numeric' 
+            }) + `, ${formatTimeAMPM(lastSession.entry_at)}`;
+          }
+        }
+      }
+
+      return {
+        id: location.id,
+        name: location.name,
+        color: location.color,
+        coords: coordsText,
+        hasActiveSession,
+        activeSessionEntry: activeSessionEntry ? formatTimeAMPM(activeSessionEntry) : null,
+        totalMinutes,
+        totalFormatted: formatDuration(totalMinutes),
+        lastCheckIn,
+        sessionsCount: locationSessions.length,
+      };
+    });
+  }, [activeLocations, sessions, weekSessions, selectedDays, currentSession]);
 
   // ============================================
   // PENDING EXPORT EFFECT (from notification)
@@ -334,13 +443,8 @@ export function useHomeScreen() {
     }
   }, [viewMode, currentWeek, currentMonth, loadWeekSessions, loadMonthSessions]);
 
-  useEffect(() => {
-    if (viewMode === 'week') {
-      loadWeekSessions();
-    } else {
-      loadMonthSessions();
-    }
-  }, [currentSession]);
+  // Note: Removed useEffect[currentSession] - was causing memory issues
+  // The effect above already handles all necessary reloads
 
   // ============================================
   // REFRESH
@@ -593,24 +697,37 @@ export function useHomeScreen() {
   // DAY PRESS HANDLERS (UPDATED!)
   // ============================================
 
-  const handleDayPress = (dayKey: string, hasSessions: boolean) => {
-    if (selectionMode) {
-      // In selection mode, toggle day selection
-      if (hasSessions) {
-        toggleSelectDay(dayKey);
-      }
-    } else {
-      // NEW: Open day modal instead of expanding inline
-      const date = new Date(dayKey.replace(/-/g, '/'));
-      openDayModal(date);
-    }
-  };
+const handleDayPress = (dayKey: string, hasSessions: boolean) => {
+  // Parse date safely (YYYY-MM-DD)
+  const [year, month, day] = dayKey.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
+  
+  // Block future days
+  if (isFutureDay(date)) {
+    return; // Do nothing for future days
+  }
+  
+  if (selectionMode) {
+    // In selection mode, allow selecting ANY past/present day (including empty)
+    toggleSelectDay(dayKey);
+  } else {
+    // Normal mode: open day modal
+    openDayModal(date);
+  }
+};
 
   const handleDayLongPress = (dayKey: string, hasSessions: boolean) => {
-    if (!hasSessions) return;
+    // Parse date
+    const [year, month, day] = dayKey.split('-').map(Number);
+    const date = new Date(year, month - 1, day);
+    
+    // Block future days
+    if (isFutureDay(date)) {
+      return;
+    }
     
     if (!selectionMode) {
-      // Enter selection mode
+      // Enter selection mode - allow even empty days
       setSelectionMode(true);
       setSelectedDays(new Set([dayKey]));
       setExpandedDay(null);
@@ -660,6 +777,42 @@ export function useHomeScreen() {
   };
 
   // ============================================
+  // DAY TAGS (Rain, Snow, Day Off, etc.)
+  // ============================================
+
+  const openTagModal = (date: Date) => {
+    // Block future days
+    if (isFutureDay(date)) return;
+    
+    setTagModalDate(date);
+    setShowTagModal(true);
+  };
+
+  const closeTagModal = () => {
+    setShowTagModal(false);
+    setTagModalDate(null);
+  };
+
+  const setDayTag = (date: Date, tagType: DayTagType | null) => {
+    const dayKey = getDayKey(date);
+    setDayTags(prev => {
+      const newTags = { ...prev };
+      if (tagType === null) {
+        delete newTags[dayKey];
+      } else {
+        newTags[dayKey] = tagType;
+      }
+      return newTags;
+    });
+    closeTagModal();
+  };
+
+  const getDayTag = (date: Date): DayTagType | null => {
+    const dayKey = getDayKey(date);
+    return dayTags[dayKey] || null;
+  };
+
+  // ============================================
   // MANUAL ENTRY
   // ============================================
 
@@ -672,12 +825,64 @@ export function useHomeScreen() {
     setManualExitH('17');
     setManualExitM('00');
     setManualPause('');
+    // Reset entry mode
+    setManualEntryMode('hours');
+    setManualAbsenceType(null);
     setShowManualModal(true);
     // Close day modal if open
     setShowDayModal(false);
   };
 
   const handleSaveManual = async () => {
+    // Handle absence mode
+    if (manualEntryMode === 'absence') {
+      if (!manualAbsenceType) {
+        Alert.alert('Error', 'Select an absence reason');
+        return;
+      }
+      
+      // For absence, we don't need location but use first one as placeholder
+      const location = locations[0];
+      if (!location) {
+        Alert.alert('Error', 'No location configured');
+        return;
+      }
+      
+      // Create a record with entry = exit (0 duration)
+      const absenceDate = new Date(manualDate);
+      absenceDate.setHours(0, 0, 0, 0);
+      const isoDate = absenceDate.toISOString();
+      
+      try {
+        await createManualRecord({
+          locationId: location.id,
+          locationName: location.name,
+          entry: isoDate,
+          exit: isoDate,
+          pauseMinutes: 0,
+          absenceType: manualAbsenceType,
+        });
+        
+        const absenceLabels: Record<string, string> = {
+          rain: 'Rain Day',
+          snow: 'Snow Day',
+          sick: 'Sick Day',
+          day_off: 'Day Off',
+          holiday: 'Holiday',
+        };
+        Alert.alert('✅ Success', `${absenceLabels[manualAbsenceType]} recorded!`);
+        
+        setShowManualModal(false);
+        setManualAbsenceType(null);
+        setManualEntryMode('hours');
+        // Note: createManualRecord already calls reloadData()
+      } catch (error: any) {
+        Alert.alert('Error', error.message || 'Could not save');
+      }
+      return;
+    }
+    
+    // Handle hours mode (original logic)
     if (!manualLocationId) {
       Alert.alert('Error', 'Select a location');
       return;
@@ -730,123 +935,146 @@ export function useHomeScreen() {
 
       setShowManualModal(false);
       setManualPause('');
-      if (viewMode === 'week') {
-        loadWeekSessions();
-      } else {
-        loadMonthSessions();
-      }
+      // Note: createManualRecord already calls reloadData()
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Could not save');
     }
   };
 
   // ============================================
-  // DELETE
+  // DELETE - UNIFIED ARCHITECTURE
   // ============================================
 
-  const handleDeleteDay = (_dayKey: string, daySessions: ComputedSession[]) => {
-    const finishedSessions = daySessions.filter(s => s.exit_at);
-    if (finishedSessions.length === 0) return;
+  /**
+   * Core delete function - single source of truth
+   * All delete operations go through here
+   */
+  const deleteSessionsByIds = async (
+    sessionIds: string[], 
+    options: { 
+      closeModal?: boolean; 
+      closeBatch?: boolean;
+      silent?: boolean;
+    } = {}
+  ) => {
+    const { closeModal = false, closeBatch = false, silent = false } = options;
+    
+    if (sessionIds.length === 0) {
+      if (!silent) {
+        Alert.alert('Nothing to delete', 'No sessions found.');
+      }
+      if (closeBatch) {
+        cancelSelection();
+      }
+      return;
+    }
+
+    const confirmDelete = async () => {
+      let deleted = 0;
+      for (const id of sessionIds) {
+        try {
+          await deleteRecord(id);
+          deleted++;
+        } catch (e: any) {
+          // Ignore "not found" - already deleted
+          if (!e?.message?.includes('not found')) {
+            console.warn('Delete error:', e);
+          }
+        }
+      }
+      
+      // Always reload fresh data
+      await reloadData();
+      if (viewMode === 'week') {
+        loadWeekSessions();
+      } else {
+        loadMonthSessions();
+      }
+      
+      // Clear states
+      setSelectedSessions(new Set());
+      
+      if (closeModal) {
+        closeDayModal();
+      }
+      if (closeBatch) {
+        cancelSelection();
+      }
+      
+      if (deleted > 0 && !silent) {
+        Alert.alert('✅ Deleted', `${deleted} session(s) deleted.`);
+      }
+    };
 
     Alert.alert(
-      '🗑️ Delete Day',
-      `Delete all ${finishedSessions.length} record(s) from this day?`,
+      '🗑️ Delete Sessions',
+      `Delete ${sessionIds.length} session(s)?`,
       [
         { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              for (const session of finishedSessions) {
-                await deleteRecord(session.id);
-              }
-              setExpandedDay(null);
-              closeDayModal();
-              if (viewMode === 'week') {
-                loadWeekSessions();
-              } else {
-                loadMonthSessions();
-              }
-            } catch (error: any) {
-              Alert.alert('Error', error.message || 'Could not delete');
-            }
-          },
-        },
+        { text: 'Delete', style: 'destructive', onPress: confirmDelete },
       ]
     );
   };
 
+  /**
+   * Delete from Day Modal - uses selected or all sessions
+   */
+  const handleDeleteFromModal = () => {
+    const finishedSessions = dayModalSessions.filter(s => s.exit_at);
+    
+    let idsToDelete: string[];
+    if (selectedSessions.size > 0) {
+      // Delete only selected
+      idsToDelete = Array.from(selectedSessions);
+    } else {
+      // Delete all from day
+      idsToDelete = finishedSessions.map(s => s.id);
+    }
+    
+    deleteSessionsByIds(idsToDelete, { closeModal: true });
+  };
+
+  /**
+   * Delete single session (long press on session item)
+   */
   const handleDeleteSession = (session: ComputedSession) => {
-    Alert.alert(
-      '🗑️ Delete Session',
-      `Delete this session at "${session.location_name}"?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteRecord(session.id);
-              // Remove from selection
-              const newSelected = new Set(selectedSessions);
-              newSelected.delete(session.id);
-              setSelectedSessions(newSelected);
-              // Reload
-              if (viewMode === 'week') {
-                loadWeekSessions();
-              } else {
-                loadMonthSessions();
-              }
-              // Close modal if no more sessions
-              const remaining = dayModalSessions.filter(s => s.id !== session.id && s.exit_at);
-              if (remaining.length === 0) {
-                closeDayModal();
-              }
-            } catch (error: any) {
-              Alert.alert('Error', error.message || 'Could not delete');
-            }
-          },
-        },
-      ]
-    );
+    deleteSessionsByIds([session.id], { closeModal: false });
   };
 
+  /**
+   * Delete selected sessions inside modal
+   */
   const handleDeleteSelectedSessions = () => {
     if (selectedSessions.size === 0) return;
+    const ids = Array.from(selectedSessions);
+    deleteSessionsByIds(ids, { closeModal: false });
+  };
 
-    Alert.alert(
-      '🗑️ Delete Selected',
-      `Delete ${selectedSessions.size} selected session(s)?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              for (const sessionId of selectedSessions) {
-                await deleteRecord(sessionId);
-              }
-              setSelectedSessions(new Set());
-              if (viewMode === 'week') {
-                loadWeekSessions();
-              } else {
-                loadMonthSessions();
-              }
-              // Check if modal should close
-              const remaining = dayModalSessions.filter(s => !selectedSessions.has(s.id) && s.exit_at);
-              if (remaining.length === 0) {
-                closeDayModal();
-              }
-            } catch (error: any) {
-              Alert.alert('Error', error.message || 'Could not delete');
-            }
-          },
-        },
-      ]
-    );
+  /**
+   * Delete from batch selection (long press days)
+   */
+  const handleDeleteSelectedDays = () => {
+    if (!selectionMode || selectedDays.size === 0) {
+      Alert.alert('Nothing selected', 'Long press a day to select.');
+      return;
+    }
+
+    // Get fresh sessions using getSessionsForDay
+    const allIds: string[] = [];
+    for (const dayKey of selectedDays) {
+      const [year, month, day] = dayKey.split('-').map(Number);
+      const date = new Date(year, month - 1, day);
+      const daySessions = getSessionsForDay(date).filter(s => s.exit_at);
+      allIds.push(...daySessions.map(s => s.id));
+    }
+
+    deleteSessionsByIds(allIds, { closeBatch: true });
+  };
+
+  // Keep for backward compatibility
+  const handleDeleteDay = (_dayKey: string, daySessions: ComputedSession[]) => {
+    const ids = daySessions.filter(s => s.exit_at).map(s => s.id);
+    deleteSessionsByIds(ids, { closeModal: true });
   };
 
   // ============================================
@@ -854,7 +1082,7 @@ export function useHomeScreen() {
   // ============================================
 
   const exportAsText = async (sessionsToExport: ComputedSession[]) => {
-    const txt = generateCompleteReport(sessionsToExport, userName || undefined);
+    const txt = generateCompleteReport(sessionsToExport, userName || undefined, userId || undefined);
     
     try {
       await Share.share({ message: txt, title: 'Time Report' });
@@ -866,7 +1094,7 @@ export function useHomeScreen() {
   };
 
   const exportAsFile = async (sessionsToExport: ComputedSession[]) => {
-    const txt = generateCompleteReport(sessionsToExport, userName || undefined);
+    const txt = generateCompleteReport(sessionsToExport, userName || undefined, userId || undefined);
     
     try {
       const now = new Date();
@@ -943,6 +1171,7 @@ export function useHomeScreen() {
     );
   };
 
+
   // NEW: Send to favorite contact
   const sendToFavorite = async (sessionsToExport: ComputedSession[]) => {
     const { favoriteContact } = useSettingsStore.getState();
@@ -951,7 +1180,7 @@ export function useHomeScreen() {
       return;
     }
 
-    const report = generateCompleteReport(sessionsToExport, userName || undefined);
+    const report = generateCompleteReport(sessionsToExport, userName || undefined, userId || undefined);
 
     try {
       if (favoriteContact.type === 'whatsapp') {
@@ -1004,6 +1233,7 @@ export function useHomeScreen() {
     }
 
     const { favoriteContact } = useSettingsStore.getState();
+    console.log('🔍 DEBUG favoriteContact:', JSON.stringify(favoriteContact));
     const exportLabel = selectedSessions.size > 0 
       ? `Export ${selectedSessions.size} session(s)?`
       : `Export all ${sessionsToExport.length} session(s) from this day?`;
@@ -1075,6 +1305,10 @@ export function useHomeScreen() {
     openDayModal,
     closeDayModal,
     
+    // NEW: Location Cards
+    activeLocations,
+    locationCardsData,
+    
     // NEW: Session selection
     selectedSessions,
     toggleSelectSession,
@@ -1102,6 +1336,10 @@ export function useHomeScreen() {
     setManualExitM,
     manualPause,
     setManualPause,
+    manualEntryMode,
+    setManualEntryMode,
+    manualAbsenceType,
+    setManualAbsenceType,
     
     // Refresh
     refreshing,
@@ -1133,9 +1371,20 @@ export function useHomeScreen() {
     handleDeleteDay,
     handleDeleteSession,
     handleDeleteSelectedSessions,
+    handleDeleteFromModal,
     handleExport,
+    handleDeleteSelectedDays,
     handleExportFromModal,
     sendToFavorite,
+    
+    // Day Tags
+    dayTags,
+    showTagModal,
+    tagModalDate,
+    openTagModal,
+    closeTagModal,
+    setDayTag,
+    getDayTag,
     
     // Helpers (re-export for JSX)
     formatDateRange,
@@ -1143,8 +1392,11 @@ export function useHomeScreen() {
     formatTimeAMPM,
     formatDuration,
     isToday,
+    isFutureDay,
+    isWeekend,
     getDayKey,
     isSameDay,
+    DAY_TAGS,
   };
 }
 

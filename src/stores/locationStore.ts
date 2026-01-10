@@ -5,6 +5,8 @@
  * BACKWARD COMPATIBLE with V1 API
  * 
  * FIX: Added auto-start monitoring on initialize
+ * FIX: Added setReconfiguring to suppress phantom events during fence restart
+ * FIX: Added reconcile callback to check actual state when window closes
  */
 
 import { create } from 'zustand';
@@ -48,16 +50,20 @@ import {
 import {
   setGeofenceCallback,
   setHeartbeatCallback,
+  setReconcileCallback,
   updateActiveFences,
   startHeartbeat,
   stopHeartbeat,
   addToSkippedToday,
   removeFromSkippedToday,
+  setReconfiguring,
+  checkInsideFence,
   type GeofenceEvent,
   type HeartbeatResult,
 } from '../lib/backgroundTasks';
 import { useAuthStore } from './authStore';
 import { useSyncStore } from './syncStore';
+import { useWorkSessionStore } from './workSessionStore';
 import { useRecordStore } from './recordStore';
 
 // ============================================
@@ -65,6 +71,9 @@ import { useRecordStore } from './recordStore';
 // ============================================
 
 const MONITORING_STATE_KEY = '@onsite:monitoringEnabled';
+let isReconciling = false;
+let lastReconcileAt = 0;
+const RECONCILE_COOLDOWN_MS = 2000;
 
 // ============================================
 // TYPES (BACKWARD COMPATIBLE)
@@ -105,6 +114,8 @@ export interface LocationState {
   updateLocation: (id: string, updates: Partial<Pick<LocationDB, 'name' | 'latitude' | 'longitude' | 'radius' | 'color'>>) => Promise<void>; // Alias
   startMonitoring: () => Promise<boolean>;
   stopMonitoring: () => Promise<void>;
+  restartMonitoring: () => Promise<boolean>; // NEW: Restart with reconfiguration window
+  reconcileState: () => Promise<void>; // NEW: Check GPS and create entry/exit if needed
   handleGeofenceEvent: (event: GeofenceEvent) => Promise<void>;
   handleManualEntry: (locationId: string) => Promise<string>;
   handleManualExit: (locationId: string) => Promise<void>;
@@ -201,6 +212,9 @@ export const useLocationStore = create<LocationState>((set, get) => ({
         });
       }
 
+      // Initialize work session store (notifications + pending action flow)
+      await useWorkSessionStore.getState().initialize();
+
       // Setup geofence callback
       setGeofenceCallback(async (event) => {
         await get().handleGeofenceEvent(event);
@@ -219,6 +233,11 @@ export const useLocationStore = create<LocationState>((set, get) => ({
           const session = await getGlobalActiveSession(userId);
           set({ activeSession: session });
         }
+      });
+
+      // Setup reconcile callback - called when reconfigure window closes
+      setReconcileCallback(async () => {
+        await get().reconcileState();
       });
 
       // Check for active session
@@ -314,16 +333,19 @@ export const useLocationStore = create<LocationState>((set, get) => ({
       await get().reloadLocations();
       
       if (get().isMonitoring) {
-        await get().stopMonitoring();
-        await get().startMonitoring();
+        // Use restartMonitoring to suppress phantom events
+        await get().restartMonitoring();
       } else {
-        // Auto-start if this is the first location
-        const { locations, permissionStatus } = get();
-        if (permissionStatus === 'granted' && locations.length > 0) {
-          logger.info('geofence', '🚀 First location added, auto-starting monitoring');
-          await get().startMonitoring();
-        }
-      }
+  // Auto-start if this is the first location
+  const { locations, permissionStatus } = get();
+  if (permissionStatus === 'granted' && locations.length > 0) {
+    logger.info('geofence', '🚀 First location added, auto-starting monitoring');
+    // Use restartMonitoring to suppress phantom events
+    setReconfiguring(true);
+    await get().startMonitoring();
+    // Reconcile will be called automatically when window closes
+  }
+}
 
       // Sync to cloud
       await useSyncStore.getState().syncLocationsOnly();
@@ -353,8 +375,8 @@ export const useLocationStore = create<LocationState>((set, get) => ({
       await get().reloadLocations();
       
       if (get().isMonitoring) {
-        await get().stopMonitoring();
-        await get().startMonitoring();
+        // Use restartMonitoring to suppress phantom events
+        await get().restartMonitoring();
       }
 
       // Sync to cloud
@@ -396,10 +418,8 @@ export const useLocationStore = create<LocationState>((set, get) => ({
       await get().reloadLocations();
       
       if (get().isMonitoring) {
-        await get().stopMonitoring();
-        if (get().locations.length > 0) {
-          await get().startMonitoring();
-        }
+        // Use restartMonitoring to suppress phantom events
+        await get().restartMonitoring();
       }
 
       // Sync to cloud
@@ -491,6 +511,157 @@ export const useLocationStore = create<LocationState>((set, get) => ({
   },
 
   // ============================================
+  // RESTART MONITORING (NEW!)
+  // Uses reconfiguration window to suppress phantom events
+  // Reconcile callback will be called when window closes
+  // ============================================
+  restartMonitoring: async () => {
+    const { locations, permissionStatus } = get();
+
+    if (permissionStatus !== 'granted') {
+      logger.warn('geofence', 'Cannot restart monitoring: permission not granted');
+      return false;
+    }
+
+    if (locations.length === 0) {
+      // No locations, just stop
+      await get().stopMonitoring();
+      return false;
+    }
+
+    try {
+      // Open reconfiguration window BEFORE stopping
+      // This suppresses phantom events for 3 seconds
+      // When window closes, reconcileState() will be called automatically
+      setReconfiguring(true);
+
+      // Stop everything
+      await stopGeofencing();
+      await stopBackgroundLocation();
+      await stopHeartbeat();
+
+      // Small delay to let OS process the stop
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Start fresh
+      const regions = locations.map(l => ({
+        identifier: l.id,
+        latitude: l.latitude,
+        longitude: l.longitude,
+        radius: l.radius,
+        notifyOnEnter: true,
+        notifyOnExit: true,
+      }));
+
+      await startGeofencing(regions);
+      await startBackgroundLocation();
+      await startHeartbeat();
+
+      set({ isMonitoring: true });
+      logger.info('geofence', `🔄 Monitoring restarted (${locations.length} fences)`);
+      
+      // Window will auto-close after 3s and call reconcileState()
+      return true;
+    } catch (error) {
+      setReconfiguring(false);
+      logger.error('geofence', 'Error restarting monitoring', { error: String(error) });
+      return false;
+    }
+  },
+
+  // ============================================
+  // RECONCILE STATE (NEW!)
+  // Check actual GPS position and create entry/exit if needed
+  // Called automatically when reconfigure window closes
+  // ============================================
+  reconcileState: async () => {
+    // Cooldown: evita reconcile duplicado
+    const now = Date.now();
+    if (isReconciling || (now - lastReconcileAt) < RECONCILE_COOLDOWN_MS) {
+      logger.debug('geofence', '🟡 Reconcile skipped (cooldown)');
+      return;
+    }
+    
+    isReconciling = true;
+    lastReconcileAt = now;
+
+    const userId = useAuthStore.getState().getUserId();
+    if (!userId) {
+      logger.warn('geofence', 'Cannot reconcile: no userId');
+      isReconciling = false;
+      return;
+    }
+    
+
+    try {
+      logger.info('geofence', '🔍 Reconciling state...');
+
+      // Get current GPS position
+      const location = await getCurrentLocation();
+      if (!location) {
+        logger.warn('geofence', 'Cannot reconcile: no GPS');
+        return;
+      }
+
+      // Não toma decisão com GPS ruim
+      const MIN_ACCURACY_FOR_RECONCILE = 50; // metros
+      if (location.accuracy && location.accuracy > MIN_ACCURACY_FOR_RECONCILE) {
+        logger.warn('geofence', `⏸️ Reconcile deferred: low accuracy (${location.accuracy.toFixed(0)}m)`);
+        setTimeout(() => get().reconcileState(), 10000);
+        return;
+      }
+
+      const { latitude, longitude } = location.coords;
+
+      // Check which fence we're in (if any)
+      const { isInside, fence } = await checkInsideFence(latitude, longitude, userId, false);
+
+      // Get current session
+      const activeSession = await getGlobalActiveSession(userId);
+
+      logger.debug('geofence', 'Reconcile state', {
+        isInside,
+        fence: fence?.name,
+        activeSession: activeSession?.location_name,
+      });
+
+      // Case 1: Inside a fence but no session → defer to WorkSessionStore (pending flow)
+      const sessionFlow = useWorkSessionStore.getState();
+      const payloadCoords = { latitude, longitude, accuracy: location.accuracy ?? undefined };
+
+      if (isInside && fence && !activeSession) {
+        logger.info('geofence', `🧭 Reconcile: inside ${fence.name} with no session — pending entry flow`);
+        await sessionFlow.handleGeofenceEnter(fence.id, fence.name, payloadCoords);
+      }
+
+      // Case 2: Outside all fences but have session → defer to WorkSessionStore (pending exit flow)
+      else if (!isInside && activeSession) {
+        logger.info('geofence', `🧭 Reconcile: outside with active session — pending exit flow`);
+        await sessionFlow.handleGeofenceExit(
+          activeSession.location_id,
+          activeSession.location_name || 'Unknown',
+          payloadCoords
+        );
+      }
+
+      // Case 3: Already consistent
+      else {
+        logger.info('geofence', `✅ Reconcile: State already consistent`);
+      }
+
+      // Refresh active session from DB (best-effort)
+      const refreshed = await getGlobalActiveSession(userId);
+      set({ activeSession: refreshed });
+
+
+} catch (error) {
+      logger.error('geofence', 'Error in reconcileState', { error: String(error) });
+    } finally {
+      isReconciling = false;
+    }
+  },
+
+  // ============================================
   // HANDLE GEOFENCE EVENT
   // ============================================
   handleGeofenceEvent: async (event) => {
@@ -522,85 +693,20 @@ export const useLocationStore = create<LocationState>((set, get) => ({
     await trackGeofenceTrigger(userId, coords?.accuracy ?? null);
 
     try {
+      const sessionFlow = useWorkSessionStore.getState();
+      const payloadCoords = coords
+        ? {
+            latitude: coords.coords.latitude,
+            longitude: coords.coords.longitude,
+            accuracy: coords.accuracy ?? undefined,
+          }
+        : undefined;
+
       if (event.type === 'enter') {
-        // Check for existing open session
-        const existingSession = await getOpenSession(userId, location.id);
-        if (existingSession) {
-          logger.info('geofence', 'Session already active, ignoring entry');
-          return;
-        }
-
-        // Create entry record
-        const sessionId = await createEntryRecord({
-          userId,
-          locationId: location.id,
-          locationName: location.name,
-          type: 'automatic',
-          color: location.color,
-        });
-
-        // V2: Record audit (GPS proof)
-        if (coords) {
-          await recordEntryAudit(
-            userId,
-            coords.coords.latitude,
-            coords.coords.longitude,
-            coords.accuracy ?? null,
-            location.id,
-            location.name,
-            sessionId
-          );
-        }
-
-        // Update last seen
-        await updateLastSeen(location.id);
-
-        // Update state
-        const session = await getGlobalActiveSession(userId);
-        set({ activeSession: session });
-
-        // Notify record store
-        useRecordStore.getState().reloadData?.();
-
-        logger.info('geofence', `✅ Entry recorded: ${location.name}`);
-
+        await sessionFlow.handleGeofenceEnter(location.id, location.name, payloadCoords);
       } else if (event.type === 'exit') {
-        // Find open session for this location
-        const session = await getOpenSession(userId, location.id);
-        if (!session) {
-          logger.info('geofence', 'No active session, ignoring exit');
-          return;
-        }
-
-        // V2: Record audit (GPS proof) BEFORE exit
-        if (coords) {
-          await recordExitAudit(
-            userId,
-            coords.coords.latitude,
-            coords.coords.longitude,
-            coords.accuracy ?? null,
-            location.id,
-            location.name,
-            session.id
-          );
-        }
-
-        // Register exit
-        await registerExit(userId, location.id);
-
-        // Update state
-        const newSession = await getGlobalActiveSession(userId);
-        set({ activeSession: newSession });
-
-        // Notify record store
-        useRecordStore.getState().reloadData?.();
-
-        logger.info('geofence', `✅ Exit recorded: ${location.name}`);
+        await sessionFlow.handleGeofenceExit(location.id, location.name, payloadCoords);
       }
-
-      // Sync records
-      await useSyncStore.getState().syncRecordsOnly();
-
     } catch (error) {
       logger.error('geofence', 'Error handling geofence event', { error: String(error) });
       

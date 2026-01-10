@@ -5,6 +5,11 @@
  * - GEOFENCE_TASK: Detects entry/exit (real time, via OS)
  * - LOCATION_TASK: Position updates
  * - HEARTBEAT_TASK: Checks every 15 min if still in fence (safety net)
+ * 
+ * FIXED: Import constants from shared file to avoid require cycle
+ * FIXED: Added dedupe to prevent duplicate events
+ * FIXED: Added reconfiguration window to suppress events during fence restart
+ * FIXED: Added reconcile callback when window closes
  */
 
 import * as TaskManager from 'expo-task-manager';
@@ -12,7 +17,20 @@ import * as Location from 'expo-location';
 import * as BackgroundFetch from 'expo-background-fetch';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { logger } from './logger';
-import { LOCATION_TASK_NAME, GEOFENCE_TASK_NAME } from './location';
+import {
+  LOCATION_TASK_NAME,
+  GEOFENCE_TASK_NAME,
+  HEARTBEAT_TASK_NAME,
+  HEARTBEAT_INTERVAL,
+  HYSTERESIS_EXIT,
+  USER_ID_KEY,
+  SKIPPED_TODAY_KEY,
+  DEDUPE_WINDOW_MS,
+  RECONFIGURE_WINDOW_MS,
+} from './constants';
+
+// Re-export for backward compatibility
+export { HEARTBEAT_TASK_NAME, HEARTBEAT_INTERVAL };
 
 // ============================================
 // DATABASE IMPORTS (V2)
@@ -32,15 +50,89 @@ import {
 } from './database';
 
 // ============================================
-// CONSTANTS
+// DEDUPE: Prevent duplicate events
 // ============================================
 
-export const HEARTBEAT_TASK_NAME = 'onsite-heartbeat-task';
-export const HEARTBEAT_INTERVAL = 15 * 60; // 15 minutes in seconds
-const HYSTERESIS_ENTRY = 1.0; // Entry uses normal radius
-const HYSTERESIS_EXIT = 1.3; // Exit uses radius × 1.3 (prevents ping-pong)
-const USER_ID_KEY = '@onsite:userId'; // Key to persist userId
-const SKIPPED_TODAY_KEY = '@onsite:skippedToday'; // Key to persist skipped locations
+const processedEvents = new Map<string, number>(); // eventKey -> timestamp
+let isReconfiguring = false;
+let reconfigureTimeout: ReturnType<typeof setTimeout> | null = null;
+
+// Reconcile callback - called when reconfigure window closes
+type ReconcileCallback = () => Promise<void>;
+let onReconcile: ReconcileCallback | null = null;
+
+function getEventKey(type: string, regionId: string): string {
+  const timeBucket = Math.floor(Date.now() / DEDUPE_WINDOW_MS);
+  return `${type}-${regionId}-${timeBucket}`;
+}
+
+function isDuplicateEvent(type: string, regionId: string): boolean {
+  const key = getEventKey(type, regionId);
+  const now = Date.now();
+  
+  // Clean old entries
+  for (const [k, timestamp] of processedEvents.entries()) {
+    if (now - timestamp > DEDUPE_WINDOW_MS * 2) {
+      processedEvents.delete(k);
+    }
+  }
+  
+  if (processedEvents.has(key)) {
+    return true;
+  }
+  
+  processedEvents.set(key, now);
+  return false;
+}
+
+/**
+ * Register reconcile callback - called when reconfigure window closes
+ * This should check current GPS position and create entry/exit if needed
+ */
+export function setReconcileCallback(callback: ReconcileCallback): void {
+  onReconcile = callback;
+  logger.debug('geofence', 'Reconcile callback registered');
+}
+
+/**
+ * Set reconfiguring state - suppresses geofence events during fence restart
+ * Call this BEFORE stopping/starting geofencing
+ */
+export function setReconfiguring(value: boolean): void {
+  isReconfiguring = value;
+  
+  if (value) {
+    // Auto-reset after configured window
+    if (reconfigureTimeout) clearTimeout(reconfigureTimeout);
+    reconfigureTimeout = setTimeout(async () => {
+      isReconfiguring = false;
+      logger.debug('geofence', '🔓 Reconfigure window closed');
+      
+      // Call reconcile to check actual state
+      if (onReconcile) {
+        logger.info('geofence', '🔄 Running reconcile after reconfigure...');
+        try {
+          await onReconcile();
+        } catch (error) {
+          logger.error('geofence', 'Error in reconcile callback', { error: String(error) });
+        }
+      }
+    }, RECONFIGURE_WINDOW_MS);
+    logger.debug('geofence', `🔒 Reconfigure window opened (${RECONFIGURE_WINDOW_MS / 1000}s)`);
+  } else {
+    if (reconfigureTimeout) {
+      clearTimeout(reconfigureTimeout);
+      reconfigureTimeout = null;
+    }
+  }
+}
+
+/**
+ * Check if currently in reconfiguring state
+ */
+export function isInReconfiguring(): boolean {
+  return isReconfiguring;
+}
 
 // ============================================
 // TYPES
@@ -134,6 +226,7 @@ export function clearCallbacks(): void {
   onGeofenceEvent = null;
   onLocationUpdate = null;
   onHeartbeat = null;
+  onReconcile = null;
   logger.debug('gps', 'Callbacks removed');
 }
 
@@ -280,7 +373,7 @@ function calculateDistance(
   return R * c;
 }
 
-async function checkInsideFence(
+export async function checkInsideFence(
   latitude: number,
   longitude: number,
   userId: string,
@@ -323,7 +416,7 @@ async function checkInsideFence(
 }
 
 // ============================================
-// GEOFENCE TASK
+// GEOFENCE TASK (WITH DEDUPE)
 // ============================================
 
 TaskManager.defineTask(GEOFENCE_TASK_NAME, async ({ data, error }) => {
@@ -341,9 +434,23 @@ TaskManager.defineTask(GEOFENCE_TASK_NAME, async ({ data, error }) => {
 
   const { eventType, region } = eventData;
   const eventTypeStr = eventType === Location.GeofencingEventType.Enter ? 'enter' : 'exit';
-
-  // Handle undefined identifier
   const regionId = region.identifier || 'unknown';
+
+  // ============================================
+  // DEDUPE CHECK
+  // ============================================
+  
+  // Ignore events during reconfiguration window
+  if (isReconfiguring) {
+    logger.debug('geofence', `🚫 Event suppressed (reconfiguring): ${eventTypeStr} - ${regionId}`);
+    return;
+  }
+  
+  // Ignore duplicate events within window
+  if (isDuplicateEvent(eventTypeStr, regionId)) {
+    logger.debug('geofence', `🚫 Duplicate event ignored: ${eventTypeStr} - ${regionId}`);
+    return;
+  }
 
   logger.info('geofence', `📍 Native geofence: ${eventTypeStr} - ${regionId}`);
 

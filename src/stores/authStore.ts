@@ -3,6 +3,8 @@
  * 
  * Handles authentication state and user session.
  * BACKWARD COMPATIBLE with V1 API
+ * 
+ * FIXED: Removed duplicate app_opens tracking
  */
 
 import { create } from 'zustand';
@@ -85,7 +87,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         // Set userId for background tasks
         await setBackgroundUserId(session.user.id);
 
-        // V2: Track app open
+        // Track app open (ONLY HERE - single source of truth)
         try {
           await trackMetric(session.user.id, 'app_opens');
         } catch (e) {
@@ -102,13 +104,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         if (event === 'SIGNED_IN' && newSession) {
           set({ session: newSession, user: newSession.user, error: null });
           await setBackgroundUserId(newSession.user.id);
-          
-          // V2: Track app open on sign in
-          try {
-            await trackMetric(newSession.user.id, 'app_opens');
-          } catch (e) {
-            // Ignore tracking errors
-          }
+          // NOTE: app_opens tracked in initialize, not here
         }
 
         if (event === 'SIGNED_OUT') {
@@ -121,19 +117,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         }
       });
 
-      // Setup app state listener for tracking
+      // Setup app state listener for session refresh only (not tracking)
       AppState.addEventListener('change', async (state: AppStateStatus) => {
         if (state === 'active') {
-          const userId = get().getUserId();
-          if (userId) {
-            // V2: Track when app comes to foreground
-            try {
-              await trackMetric(userId, 'app_opens');
-            } catch (e) {
-              // Ignore tracking errors
-            }
-          }
-          
           // Refresh session when app becomes active
           await get().refreshSession();
         }
@@ -182,13 +168,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         });
         
         await setBackgroundUserId(data.session.user.id);
-        
-        // V2: Track sign in as app open
-        try {
-          await trackMetric(data.session.user.id, 'app_opens');
-        } catch (e) {
-          // Ignore tracking errors
-        }
+        // NOTE: app_opens tracked in initialize, not here
         
         return { success: true };
       }
@@ -237,13 +217,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         });
         
         await setBackgroundUserId(data.session.user.id);
-        
-        // V2: Track first app open
-        try {
-          await trackMetric(data.session.user.id, 'app_opens');
-        } catch (e) {
-          // Ignore tracking errors
-        }
+        // NOTE: app_opens tracked in initialize, not here
         
         return { success: true };
       }

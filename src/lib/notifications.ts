@@ -16,6 +16,8 @@
  * 
  * REPORT REMINDER: Weekly/biweekly/monthly notification
  *   Buttons: [Send Now] [Later]
+ * 
+ * FIXED: Added guard to prevent duplicate category configuration
  */
 
 import * as Notifications from 'expo-notifications';
@@ -65,6 +67,12 @@ export interface GeofenceNotificationData {
 // ============================================
 
 const REPORT_REMINDER_ID = 'report-reminder-scheduled';
+
+// ============================================
+// GUARDS (prevent duplicate initialization)
+// ============================================
+
+let categoriesConfigured = false;
 
 // ============================================
 // PERMISSIONS
@@ -118,6 +126,12 @@ export async function requestNotificationPermission(): Promise<boolean> {
 // ============================================
 
 export async function configureNotificationCategories(): Promise<void> {
+  // Guard: only configure once per app session
+  if (categoriesConfigured) {
+    logger.debug('notification', 'Categories already configured, skipping');
+    return;
+  }
+
   try {
     // Category for geofence ENTRY
     await Notifications.setNotificationCategoryAsync('geofence_enter', [
@@ -161,7 +175,7 @@ export async function configureNotificationCategories(): Promise<void> {
       },
     ]);
 
-    // Category for REPORT REMINDER (NEW)
+    // Category for REPORT REMINDER
     await Notifications.setNotificationCategoryAsync('report_reminder', [
       {
         identifier: 'send_now',
@@ -175,6 +189,7 @@ export async function configureNotificationCategories(): Promise<void> {
       },
     ]);
 
+    categoriesConfigured = true;
     logger.info('notification', '✅ Notification categories configured');
   } catch (error) {
     logger.error('notification', 'Error configuring categories', { error: String(error) });
@@ -316,7 +331,7 @@ export async function showAutoActionNotification(
 }
 
 // ============================================
-// REPORT REMINDER NOTIFICATIONS (NEW)
+// REPORT REMINDER NOTIFICATIONS
 // ============================================
 
 /**

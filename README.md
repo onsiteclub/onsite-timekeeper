@@ -1,57 +1,64 @@
 # OnSite Timekeeper
 
-📍 App mobile de registro de ponto baseado em geofencing. O trabalhador cadastra locais de trabalho, e o app automaticamente detecta entrada/saída via GPS, registrando horas trabalhadas de forma offline-first.
+📍 Mobile time tracking app based on geofencing. Workers register work locations, and the app automatically detects entry/exit via GPS, recording hours worked in an offline-first architecture.
 
 ## Features
 
-- ✅ **Geofencing automático** - detecta entrada/saída do trabalho
-- ✅ **Offline-first** - funciona sem internet, sincroniza depois
-- ✅ **Popup estilo "soneca"** - 30s para decidir antes da ação automática
-- ✅ **3 modos de adicionar local** - GPS atual, busca de endereço, toque no mapa
-- ✅ **Histórico e relatórios** - exporta em TXT
-- ✅ **DevMonitor** - console de debug para desenvolvimento
+- ✅ **Automatic Geofencing** - detects entry/exit from work locations
+- ✅ **Offline-first** - works without internet, syncs later
+- ✅ **Notification-based UI** - action buttons directly in notification bar
+- ✅ **3 ways to add locations** - current GPS, address search, map tap
+- ✅ **Calendar View** - week/month view with session details
+- ✅ **Export Reports** - share via WhatsApp, Email, or save as file
+- ✅ **Auto-Report Reminders** - weekly/bi-weekly/monthly notifications
+- ✅ **Favorite Contact** - one-tap send to supervisor
+- ✅ **Day Detail Modal** - view, select, and batch export sessions
+- ✅ **DevMonitor** - debug console for development
 
 ## Stack
 
-- **Mobile:** React Native + Expo (SDK 52)
-- **Navegação:** Expo Router (file-based)
-- **Estado:** Zustand
-- **Database Local:** SQLite (expo-sqlite)
-- **Database Cloud:** Supabase (PostgreSQL)
-- **Auth:** Supabase Auth
-- **Maps:** react-native-maps (Google Maps)
-- **Geofencing:** expo-location + expo-task-manager
+| Layer | Technology |
+|-------|------------|
+| **Mobile** | React Native + Expo (SDK 52) |
+| **Navigation** | Expo Router (file-based) |
+| **State** | Zustand |
+| **Local Database** | SQLite (expo-sqlite) |
+| **Cloud Database** | Supabase (PostgreSQL) |
+| **Auth** | Supabase Auth |
+| **Maps** | react-native-maps (Google Maps) |
+| **Geofencing** | expo-location + expo-task-manager |
+| **Notifications** | expo-notifications |
 
 ## Setup
 
-### 1. Clone e instale
+### 1. Clone and install
 
 ```bash
-git clone https://github.com/seu-usuario/onsite-timekeeper.git
+git clone https://github.com/your-username/onsite-timekeeper.git
 cd onsite-timekeeper
 npm install
 ```
 
-### 2. Configure o Supabase
+### 2. Configure Supabase
 
-1. Crie um projeto no [Supabase](https://supabase.com)
-2. Vá em **SQL Editor** e execute o arquivo `supabase/migrations/001_create_tables.sql`
-3. Vá em **Authentication > Providers** e habilite **Email**
-4. Copie as credenciais em **Settings > API**
+1. Create a project at [Supabase](https://supabase.com)
+2. Go to **SQL Editor** and run `supabase/migrations/001_create_tables.sql`
+3. Go to **Authentication > Providers** and enable **Email**
+4. Copy credentials from **Settings > API**
 
-### 3. Configure variáveis de ambiente
+### 3. Configure environment variables
 
-Crie um arquivo `.env` na raiz:
+Create a `.env` file at root:
 
 ```env
-EXPO_PUBLIC_SUPABASE_URL=https://seu-projeto.supabase.co
+EXPO_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 EXPO_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIs...
 ```
 
-### 4. Execute o app
+### 4. Run the app
 
 ```bash
-# Desenvolvimento
+# Development
 npx expo start
 
 # Android
@@ -61,57 +68,61 @@ npx expo run:android
 npx expo run:ios
 ```
 
-## Scripts Disponíveis
+## Available Scripts
 
 ```bash
-npm start          # Inicia o Expo
-npm run android    # Abre no Android
-npm run ios        # Abre no iOS
-npm run web        # Abre no navegador
+npm start          # Start Expo
+npm run android    # Open on Android
+npm run ios        # Open on iOS
+npm run web        # Open in browser
 
-# Validação (rodar antes de push)
-npm run typecheck  # Verifica erros TypeScript
-npm run doctor     # Verifica configuração Expo
+# Validation (run before push)
+npx tsc --noEmit   # Check TypeScript errors
+npx expo-doctor    # Check Expo configuration
 ```
 
 ## CI/CD Pipeline
 
-O projeto usa GitHub Actions para validação automática e build do APK.
+The project uses GitHub Actions for automatic validation and APK build.
 
 ```
 Push/Manual → Checks (typecheck + doctor) → Build APK → Download
                     ~2 min                    ~12 min
 ```
 
-**Como usar:**
-1. Vá em **Actions** no GitHub
-2. Selecione **"Build Android APK"**
-3. Clique **"Run workflow"**
-4. Baixe o APK em **Artifacts**
+**How to use:**
+1. Go to **Actions** on GitHub
+2. Select **"Build Android APK"**
+3. Click **"Run workflow"**
+4. Download APK from **Artifacts**
 
-📖 [Documentação completa do Pipeline](docs/PIPELINE.md)
+**Skip CI for docs/WIP commits:**
+```bash
+git commit -m "docs: update readme [skip ci]"
+```
 
-## Estrutura do Projeto
+📖 [Full Pipeline Documentation](docs/PIPELINE.md)
+
+## Project Structure
 
 ```
 onsite-timekeeper/
-├── app/                          # Expo Router (telas)
-│   ├── (auth)/                   # Telas de autenticação
+├── app/                          # Expo Router (screens)
+│   ├── (auth)/                   # Auth screens
 │   │   ├── _layout.tsx
 │   │   ├── login.tsx
 │   │   └── register.tsx
-│   ├── (tabs)/                   # Tabs principais
+│   ├── (tabs)/                   # Main tabs
 │   │   ├── _layout.tsx
 │   │   ├── index.tsx             # Home/Dashboard
-│   │   ├── map.tsx               # Mapa + gerenciar locais
-│   │   ├── history.tsx           # Histórico de sessões
-│   │   └── settings.tsx          # Configurações
-│   ├── _layout.tsx               # Root layout
+│   │   ├── map.tsx               # Map + manage locations
+│   │   └── settings.tsx          # Settings + Auto-Report
+│   ├── _layout.tsx               # Root layout + notification handler
 │   └── index.tsx
 ├── src/
 │   ├── components/
-│   │   ├── DevMonitor.tsx        # Console de debug
-│   │   ├── GeofenceAlert.tsx     # Popup fullscreen
+│   │   ├── DevMonitor.tsx        # Debug console
+│   │   ├── ErrorBoundary.tsx     # Error handling
 │   │   └── ui/
 │   │       └── Button.tsx
 │   ├── constants/
@@ -121,20 +132,29 @@ onsite-timekeeper/
 │   │   ├── database.ts           # SQLite CRUD
 │   │   ├── geocoding.ts          # Nominatim API
 │   │   ├── location.ts           # GPS + Geofencing
-│   │   ├── logger.ts             # Sistema de logs
-│   │   ├── notifications.ts      # Expo Notifications
-│   │   ├── reports.ts            # Geração de relatórios
+│   │   ├── logger.ts             # Structured logging
+│   │   ├── notifications.ts      # Expo Notifications + Report Reminders
+│   │   ├── reports.ts            # Report text generation
 │   │   ├── supabase.ts           # Supabase client
 │   │   └── sync.ts               # Sync engine
+│   ├── screens/
+│   │   └── home/
+│   │       ├── index.tsx         # Home screen UI
+│   │       ├── hooks.ts          # Home logic + export handlers
+│   │       ├── styles.ts         # Home styles
+│   │       └── helpers.ts        # Date utilities
 │   └── stores/
-│       ├── authStore.ts
-│       ├── locationStore.ts
-│       ├── registroStore.ts
-│       ├── settingsStore.ts
-│       ├── syncStore.ts
-│       └── workSessionStore.ts
+│       ├── authStore.ts          # Authentication state
+│       ├── locationStore.ts      # Locations + geofencing
+│       ├── recordStore.ts        # Work sessions (records)
+│       ├── settingsStore.ts      # User preferences + Auto-Report
+│       ├── syncStore.ts          # Sync orchestration
+│       └── workSessionStore.ts   # Active session UI state
 ├── docs/
-│   └── PIPELINE.md               # Documentação CI/CD
+│   ├── PIPELINE.md               # CI/CD documentation
+│   ├── DATA_ARCHITECTURE.md      # Database schema docs
+│   ├── BACKGROUND_SYSTEM.md      # Geofencing docs
+│   └── REPORT_SYSTEM.md          # Report system docs
 ├── supabase/
 │   └── migrations/
 │       └── 001_create_tables.sql
@@ -147,23 +167,51 @@ onsite-timekeeper/
 └── tsconfig.json
 ```
 
-## Fluxo de Geofencing
+## Geofencing Flow
 
 ```
-┌─────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│   ENTRADA   │────▶│  Popup 30s       │────▶│  Auto-start     │
-│  (geofence) │     │  ▶️ Trabalhar     │     │  (se timeout)   │
-│             │     │  😴 Ignorar hoje │     │                 │
-│             │     │  ⏰ Em 10 min    │     │                 │
-└─────────────┘     └──────────────────┘     └─────────────────┘
+┌─────────────┐     ┌──────────────────────────┐     ┌─────────────────┐
+│   ENTRY     │────▶│  Notification (X min)    │────▶│  Auto-start     │
+│  (geofence) │     │  [▶️ Start] [😴 Skip]    │     │  (on timeout)   │
+└─────────────┘     └──────────────────────────┘     └─────────────────┘
 
-┌─────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│   SAÍDA     │────▶│  Popup 30s       │────▶│  Auto-stop      │
-│  (geofence) │     │  ⏹️ Encerrar     │     │  (se timeout)   │
-│             │     │  ▶️ Continuar    │     │                 │
-│             │     │  ✏️ Ajustar      │     │                 │
-└─────────────┘     └──────────────────┘     └─────────────────┘
+┌─────────────┐     ┌──────────────────────────┐     ┌─────────────────┐
+│   EXIT      │────▶│  Notification (X sec)    │────▶│  Auto-stop      │
+│  (geofence) │     │  [✔ OK] [⏸️ Pause]       │     │  (on timeout)   │
+└─────────────┘     └──────────────────────────┘     └─────────────────┘
+
+┌─────────────┐     ┌──────────────────────────┐     ┌─────────────────┐
+│   RETURN    │────▶│  Notification (X min)    │────▶│  Auto-resume    │
+│  (paused)   │     │  [▶️ Resume] [⏹️ Stop]   │     │  (on timeout)   │
+└─────────────┘     └──────────────────────────┘     └─────────────────┘
 ```
+
+**Timer values configurable in Settings:**
+- Entry timeout: 1-10 minutes
+- Exit timeout: 10-60 seconds
+- Return timeout: 1-10 minutes
+- Pause limit: 15-60 minutes
+
+## Report System
+
+### Export Methods
+
+| Method | Description |
+|--------|-------------|
+| **Share** | Opens system share sheet (WhatsApp, Telegram, etc.) |
+| **File** | Creates `.txt` file for download |
+| **Favorite** | Direct send to configured WhatsApp/Email contact |
+
+### Auto-Report Reminder
+
+Configure in **Settings > Auto-Report**:
+- Set favorite contact (WhatsApp or Email)
+- Enable reminder (Weekly/Bi-weekly/Monthly)
+- Choose day and time (e.g., Friday 18:00)
+
+When triggered, notification appears with **[Send Now]** and **[Later]** buttons.
+
+📖 [Full Report System Documentation](docs/REPORT_SYSTEM.md)
 
 ## Sync Architecture
 
@@ -171,14 +219,13 @@ onsite-timekeeper/
 ┌──────────────┐          ┌──────────────┐
 │   SQLite     │◀────────▶│   Supabase   │
 │   (local)    │   Sync   │   (cloud)    │
-│              │  5 min   │              │
-│  - locais    │          │  - locais    │
-│  - registros │          │  - registros │
-│  - sync_log  │          │  - sync_log  │
+│              │          │              │
+│  - locations │          │  - locations │
+│  - records   │          │  - records   │
+│  - analytics │          │  - analytics │
 └──────────────┘          └──────────────┘
        │
        │ Source of Truth
-       │
        ▼
 ┌──────────────┐
 │   Zustand    │
@@ -191,58 +238,54 @@ onsite-timekeeper/
 └──────────────┘
 ```
 
+**Sync triggers:**
+- App initialization (if online)
+- After creating location
+- After finishing session
+- Manual sync button
+- Midnight cleanup
+
+📖 [Full Data Architecture Documentation](docs/DATA_ARCHITECTURE.md)
+
 ## Database Schema
 
-### locais
-| Campo | Tipo | Descrição |
-|-------|------|-----------|
+### locations
+| Field | Type | Description |
+|-------|------|-------------|
 | id | UUID | Primary key |
 | user_id | UUID | FK → auth.users |
-| nome | TEXT | Nome do local |
-| latitude | DOUBLE | Latitude |
-| longitude | DOUBLE | Longitude |
-| raio | INTEGER | Raio em metros (default: 100) |
-| cor | TEXT | Cor hex (default: #3B82F6) |
-| status | TEXT | 'active' \| 'deleted' \| 'pending_delete' \| 'syncing' |
-| deleted_at | TIMESTAMPTZ | Quando foi deletado (soft delete) |
-| created_at | TIMESTAMPTZ | Criação |
-| updated_at | TIMESTAMPTZ | Última atualização |
-| synced_at | TIMESTAMPTZ | Último sync com servidor |
+| name | TEXT | Location name |
+| latitude | REAL | Latitude |
+| longitude | REAL | Longitude |
+| radius | INTEGER | Radius in meters (default: 100) |
+| color | TEXT | Hex color (default: #3B82F6) |
+| status | TEXT | 'active' \| 'deleted' \| 'pending_delete' |
+| created_at | TEXT | Creation timestamp |
+| synced_at | TEXT | Last sync timestamp |
 
-### registros
-| Campo | Tipo | Descrição |
-|-------|------|-----------|
+### records
+| Field | Type | Description |
+|-------|------|-------------|
 | id | UUID | Primary key |
 | user_id | UUID | FK → auth.users |
-| local_id | UUID | FK → locais |
-| local_nome | TEXT | Nome do local (cache) |
-| entrada | TIMESTAMPTZ | Horário de entrada |
-| saida | TIMESTAMPTZ | Horário de saída (null = ativa) |
-| tipo | TEXT | 'automatico' \| 'manual' |
-| editado_manualmente | BOOLEAN | Se foi ajustado |
-| motivo_edicao | TEXT | Motivo do ajuste |
-
-### sync_log
-| Campo | Tipo | Descrição |
-|-------|------|-----------|
-| id | UUID | Primary key |
-| user_id | UUID | FK → auth.users |
-| entity_type | TEXT | 'local' \| 'registro' |
-| entity_id | UUID | ID da entidade |
-| action | TEXT | 'create' \| 'update' \| 'delete' \| 'sync_up' \| 'sync_down' |
-| old_value | JSONB | Estado anterior |
-| new_value | JSONB | Estado novo |
-| sync_status | TEXT | 'pending' \| 'synced' \| 'conflict' \| 'failed' |
+| location_id | UUID | FK → locations |
+| location_name | TEXT | Location name (cached) |
+| entry_at | TEXT | Entry timestamp |
+| exit_at | TEXT | Exit timestamp (null = active) |
+| pause_minutes | INTEGER | Total break time |
+| type | TEXT | 'automatic' \| 'manual' |
+| manually_edited | INTEGER | If adjusted by user |
+| edit_reason | TEXT | Reason for adjustment |
 
 ## DevMonitor
 
-Botão flutuante (🔧) disponível em desenvolvimento:
+Floating button (🔧) available in development:
 
-- **Logs**: Tempo real com filtros por nível
-- **Stats**: Contagem de tabelas, status de sync
-- **Actions**: Force sync, purge deletados, reset database
+- **Logs**: Real-time with level filters
+- **Stats**: Table counts, sync status
+- **Actions**: Force sync, purge deleted, reset database
 
-## Permissões Necessárias
+## Required Permissions
 
 ### Android
 - ACCESS_FINE_LOCATION
@@ -259,48 +302,58 @@ Botão flutuante (🔧) disponível em desenvolvimento:
 ## Build
 
 ```bash
-# EAS Build (produção)
+# EAS Build (production)
 npx eas build --platform android
 npx eas build --platform ios
 
-# Build local
+# Local build
 npx expo run:android --variant release
 npx expo run:ios --configuration Release
 
-# Via GitHub Actions (recomendado)
-# Vá em Actions > Build Android APK > Run workflow
+# Via GitHub Actions (recommended)
+# Go to Actions > Build Android APK > Run workflow
 ```
 
 ## Troubleshooting
 
-### Geofencing não detecta entrada/saída
-1. Verifique permissão "Sempre" em localização
-2. Desabilite otimização de bateria para o app
-3. Verifique se o raio é grande o suficiente (min 50m)
+### Geofencing not detecting entry/exit
+1. Check "Always" permission for location
+2. Disable battery optimization for the app
+3. Check if radius is large enough (min 50m)
 
-### Sync não funciona
-1. Verifique conexão com internet
-2. Verifique variáveis de ambiente do Supabase
-3. Use o DevMonitor para ver logs de erro
+### Sync not working
+1. Check internet connection
+2. Verify Supabase environment variables
+3. Use DevMonitor to see error logs
 
-### Phantom Geofence (local fantasma)
-1. Use DevMonitor > Actions > Purge Deletados
-2. Force Full Sync
-3. Se persistir, Reset Database
+### TypeScript errors on build
+1. Run `npx tsc --noEmit` locally
+2. Fix listed errors
+3. Push again
 
-### TypeScript errors no build
-1. Rode `npm run typecheck` localmente
-2. Corrija os erros listados
-3. Faça push novamente
+### Logger category error
+Valid categories: `boot`, `database`, `session`, `geofence`, `notification`, `sync`, `record`
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [PIPELINE.md](docs/PIPELINE.md) | CI/CD workflow and validation |
+| [DATA_ARCHITECTURE.md](docs/DATA_ARCHITECTURE.md) | Database schema and sync |
+| [BACKGROUND_SYSTEM.md](docs/BACKGROUND_SYSTEM.md) | Geofencing and background tasks |
+| [REPORT_SYSTEM.md](docs/REPORT_SYSTEM.md) | Report generation and sharing |
 
 ## Contributing
 
-1. Rode `npm run typecheck` antes de cada push
-2. Teste no Expo Go / dev build
-3. Use commits descritivos
-
-📖 [Ver documentação do Pipeline](docs/PIPELINE.md)
+1. Run `npx tsc --noEmit` before each push
+2. Test on Expo Go / dev build
+3. Use descriptive commits (feat/fix/docs/refactor)
+4. Use `[skip ci]` for docs/WIP commits
 
 ## License
 
 MIT © OnSite Club
+
+---
+
+*Last updated: January 2025*

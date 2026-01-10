@@ -323,6 +323,12 @@ export const useWorkSessionStore = create<WorkSessionState>((set, get) => ({
   handleGeofenceExit: async (locationId, locationName, coords) => {
     const { pendingAction, pauseState, skippedToday } = get();
 
+    // Prevent duplicate exit processing (common with jittery geofence events)
+    if (pendingAction?.type === 'exit' && pendingAction.locationId === locationId) {
+      logger.debug('session', 'Duplicate exit ignored (already pending)', { locationId });
+      return;
+    }
+
     // Get timeout from settings
     const settings = useSettingsStore.getState();
     const EXIT_TIMEOUT = settings.getExitTimeoutMs();
@@ -452,6 +458,15 @@ export const useWorkSessionStore = create<WorkSessionState>((set, get) => ({
     await clearPendingAction(pendingAction);
 
     const recordStore = useRecordStore.getState();
+    // Guard: session may have already ended/changed due to another signal
+    const current = (recordStore as any).currentSession;
+    if (!current || current.location_id !== pendingAction.locationId) {
+      logger.debug('session', 'OK ignored (session not active for this location)', {
+        locationId: pendingAction.locationId,
+      });
+      set({ pendingAction: null });
+      return;
+    }
     await recordStore.registerExit(pendingAction.locationId, pendingAction.coords);
 
     set({ pendingAction: null });

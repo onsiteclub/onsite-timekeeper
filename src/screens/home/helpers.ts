@@ -31,6 +31,24 @@ export interface CalendarDay {
   totalMinutes: number;
 }
 
+// Day Tags for special conditions
+export type DayTagType = 'rain' | 'snow' | 'day_off' | 'holiday' | 'sick';
+
+export interface DayTag {
+  type: DayTagType;
+  label: string;
+  icon: string;
+  color: string;
+}
+
+export const DAY_TAGS: Record<DayTagType, DayTag> = {
+  rain: { type: 'rain', label: 'Rain Day', icon: 'rainy', color: '#3B82F6' },
+  snow: { type: 'snow', label: 'Snow Day', icon: 'snow', color: '#60A5FA' },
+  day_off: { type: 'day_off', label: 'Day Off', icon: 'sunny', color: '#F59E0B' },
+  holiday: { type: 'holiday', label: 'Holiday', icon: 'star', color: '#8B5CF6' },
+  sick: { type: 'sick', label: 'Sick Day', icon: 'medical', color: '#EF4444' },
+};
+
 // ============================================
 // WEEK FUNCTIONS
 // ============================================
@@ -127,6 +145,19 @@ export function isSameDay(d1: Date, d2: Date): boolean {
 
 export function isToday(date: Date): boolean {
   return isSameDay(date, new Date());
+}
+
+export function isFutureDay(date: Date): boolean {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const checkDate = new Date(date);
+  checkDate.setHours(0, 0, 0, 0);
+  return checkDate > today;
+}
+
+export function isWeekend(date: Date): boolean {
+  const day = date.getDay();
+  return day === 0 || day === 6; // Sunday = 0, Saturday = 6
 }
 
 export function getDayKey(date: Date): string {

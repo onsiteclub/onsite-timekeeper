@@ -856,7 +856,7 @@ export default function SettingsScreen() {
       <View style={styles.footer}>
         <Text style={styles.footerText}>OnSite Timekeeper</Text>
         <Text style={styles.footerText}>© 2025 OnSite Club</Text>
-        <Text style={styles.footerText}>Made with ❤️ in Canada</Text>
+        <Text style={styles.footerText}>Made in Canada</Text>
       </View>
 
     </ScrollView>
@@ -870,7 +870,7 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.backgroundSecondary,
+    backgroundColor: colors.background,
   },
   content: {
     paddingBottom: 40,
@@ -878,11 +878,19 @@ const styles = StyleSheet.create({
 
   // Accordion
   accordionContainer: {
-    backgroundColor: colors.background,
+    backgroundColor: colors.card,
     marginHorizontal: 12,
     marginTop: 12,
-    borderRadius: 12,
+    borderRadius: 16,
     overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: colors.border,
+    // Soft yellow shadow
+    shadowColor: '#F6C343',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 2,
   },
   accordionHeader: {
     flexDirection: 'row',
@@ -925,7 +933,7 @@ const styles = StyleSheet.create({
   avatarText: {
     fontSize: 28,
     fontWeight: '700',
-    color: colors.white,
+    color: colors.buttonPrimaryText,
   },
   avatarBadge: {
     position: 'absolute',
@@ -934,11 +942,11 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: colors.textSecondary,
+    backgroundColor: colors.surfaceMuted,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 2,
-    borderColor: colors.background,
+    borderColor: colors.card,
   },
   profileInfo: {
     flex: 1,
@@ -982,7 +990,7 @@ const styles = StyleSheet.create({
   sectionSubtitle: {
     fontSize: 14,
     fontWeight: '600',
-    color: colors.primary,
+    color: colors.accent,
     marginBottom: 4,
   },
 
@@ -996,13 +1004,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 8,
-    backgroundColor: colors.backgroundSecondary,
+    backgroundColor: colors.surfaceMuted,
     borderWidth: 1,
     borderColor: colors.border,
   },
   optionButtonActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
   },
   optionText: {
     fontSize: 14,
@@ -1065,14 +1073,14 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 10,
     borderRadius: 8,
-    backgroundColor: colors.backgroundSecondary,
+    backgroundColor: colors.surfaceMuted,
     borderWidth: 1,
     borderColor: colors.border,
     alignItems: 'center',
   },
   typeBtnActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
   },
   typeBtnText: {
     fontSize: 14,
@@ -1080,11 +1088,11 @@ const styles = StyleSheet.create({
     color: colors.text,
   },
   typeBtnTextActive: {
-    color: colors.black,
+    color: colors.white,
   },
 
   contactInput: {
-    backgroundColor: colors.backgroundSecondary,
+    backgroundColor: colors.surfaceMuted,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 8,
@@ -1104,7 +1112,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 12,
     borderRadius: 8,
-    backgroundColor: colors.backgroundSecondary,
+    backgroundColor: colors.surfaceMuted,
     borderWidth: 1,
     borderColor: colors.error,
   },
@@ -1112,7 +1120,7 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 10,
     borderRadius: 8,
-    backgroundColor: colors.backgroundSecondary,
+    backgroundColor: colors.surfaceMuted,
     borderWidth: 1,
     borderColor: colors.border,
     alignItems: 'center',
@@ -1132,7 +1140,7 @@ const styles = StyleSheet.create({
   saveContactBtnText: {
     fontSize: 14,
     fontWeight: '600',
-    color: colors.black,
+    color: colors.buttonPrimaryText,
   },
   btnDisabled: {
     opacity: 0.5,
@@ -1162,14 +1170,14 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 8,
     borderRadius: 8,
-    backgroundColor: colors.backgroundSecondary,
+    backgroundColor: colors.surfaceMuted,
     borderWidth: 1,
     borderColor: colors.border,
     alignItems: 'center',
   },
   freqBtnActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
   },
   freqBtnText: {
     fontSize: 12,
@@ -1177,7 +1185,7 @@ const styles = StyleSheet.create({
     color: colors.text,
   },
   freqBtnTextActive: {
-    color: colors.black,
+    color: colors.white,
   },
 
   daySelector: {
@@ -1189,15 +1197,15 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: colors.backgroundSecondary,
+    backgroundColor: colors.surfaceMuted,
     borderWidth: 1,
     borderColor: colors.border,
     justifyContent: 'center',
     alignItems: 'center',
   },
   dayBtnActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
   },
   dayBtnText: {
     fontSize: 13,
@@ -1205,7 +1213,7 @@ const styles = StyleSheet.create({
     color: colors.text,
   },
   dayBtnTextActive: {
-    color: colors.black,
+    color: colors.white,
   },
 
   timeSelector: {
@@ -1217,7 +1225,7 @@ const styles = StyleSheet.create({
     width: 50,
     paddingVertical: 8,
     paddingHorizontal: 12,
-    backgroundColor: colors.backgroundSecondary,
+    backgroundColor: colors.surfaceMuted,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 8,
@@ -1252,7 +1260,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: colors.primary,
+    backgroundColor: colors.accent,
     paddingVertical: 12,
     borderRadius: 8,
   },
@@ -1280,14 +1288,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: colors.textSecondary,
+    backgroundColor: colors.surfaceMuted,
     paddingVertical: 12,
     borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   logoutButtonText: {
     fontSize: 15,
     fontWeight: '600',
-    color: colors.white,
+    color: colors.text,
   },
 
   // Danger zone
