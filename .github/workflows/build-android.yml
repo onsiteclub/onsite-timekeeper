@@ -1,6 +1,12 @@
 name: Build Android APK
 
 on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - '.gitignore'
+      - 'docs/**'
   workflow_dispatch:
 
 jobs:
@@ -48,20 +54,23 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Setup EAS
-        uses: expo/expo-github-action@v8
-        with:
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
-
       - name: Install dependencies
         run: npm ci
 
-      - name: Build APK
-        run: eas build --platform android --local --profile preview --non-interactive
+      - name: Prebuild native Android project
+        run: npx expo prebuild --platform android --clean
+
+      - name: Setup Gradle cache
+        uses: gradle/gradle-build-action@v2
+        with:
+          gradle-home-cache-cleanup: true
+
+      - name: Build APK with Gradle
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: onsite-timekeeper-apk
-          path: '*.apk'
+          path: android/app/build/outputs/apk/release/*.apk

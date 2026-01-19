@@ -8,8 +8,7 @@
 .env.production
 !.env.example
 
-# EAS Build secrets
-eas.json
+# EAS Build secrets (eas.json is safe to commit - no secrets there)
 credentials.json
 google-services.json
 GoogleService-Info.plist
