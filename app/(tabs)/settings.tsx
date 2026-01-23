@@ -294,41 +294,11 @@ export default function SettingsScreen() {
         <View style={styles.divider} />
 
         <SelectRow
-          label="Exit timeout"
-          value={settings.exitTimeoutSeconds}
-          options={TIMER_OPTIONS.exitTimeout}
-          onChange={(v) => settings.updateSetting('exitTimeoutSeconds', v)}
-          hint="Time before auto-stop when leaving a location"
-        />
-
-        <View style={styles.divider} />
-
-        <SelectRow
-          label="Return timeout"
-          value={settings.returnTimeoutMinutes}
-          options={TIMER_OPTIONS.returnTimeout}
-          onChange={(v) => settings.updateSetting('returnTimeoutMinutes', v)}
-          hint="Time before auto-resume when returning during pause"
-        />
-
-        <View style={styles.divider} />
-
-        <SelectRow
-          label="Pause limit"
-          value={settings.pauseLimitMinutes}
-          options={TIMER_OPTIONS.pauseLimit}
-          onChange={(v) => settings.updateSetting('pauseLimitMinutes', v)}
-          hint="Maximum pause duration before alarm"
-        />
-
-        <View style={styles.divider} />
-
-        <SelectRow
           label="Exit adjustment"
           value={settings.exitAdjustmentMinutes}
           options={TIMER_OPTIONS.exitAdjustment}
           onChange={(v) => settings.updateSetting('exitAdjustmentMinutes', v)}
-          hint="Minutes deducted from recorded time on auto-stop"
+          hint="Minutes deducted from exit time at end of day"
         />
       </AccordionSection>
 

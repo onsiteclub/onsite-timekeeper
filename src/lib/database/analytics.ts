@@ -83,16 +83,17 @@ export function getDeviceMetadata(): {
 function ensureTodayAnalytics(userId: string): void {
   const today = getToday();
   const metadata = getDeviceMetadata();
-  
+
   try {
+    logger.debug('database', `[DB:analytics_daily] INSERT OR IGNORE - date: ${today}`);
     db.runSync(
-      `INSERT OR IGNORE INTO analytics_daily 
-       (date, user_id, app_version, os, device_model, created_at) 
+      `INSERT OR IGNORE INTO analytics_daily
+       (date, user_id, app_version, os, device_model, created_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
       [today, userId, metadata.app_version, metadata.os, metadata.device_model, now()]
     );
   } catch {
-    logger.debug('telemetry', 'Today row already exists or error creating');
+    logger.debug('telemetry', '[DB:analytics_daily] Today row already exists');
   }
 }
 
@@ -111,17 +112,17 @@ export async function trackMetric(
   try {
     ensureTodayAnalytics(userId);
     const today = getToday();
-    
+
     db.runSync(
-      `UPDATE analytics_daily 
-       SET ${field} = ${field} + ?, synced_at = NULL 
+      `UPDATE analytics_daily
+       SET ${field} = ${field} + ?, synced_at = NULL
        WHERE date = ? AND user_id = ?`,
       [increment, today, userId]
     );
-    
-    logger.debug('telemetry', `📊 Tracked: ${field} +${increment}`);
+
+    logger.info('database', `[DB:analytics_daily] UPDATE - ${field} +${increment}`);
   } catch (error) {
-    logger.error('telemetry', `Error tracking ${field}`, { error: String(error) });
+    logger.error('database', `[DB:analytics_daily] UPDATE ERROR - ${field}`, { error: String(error) });
   }
 }
 
@@ -213,11 +214,11 @@ export async function trackSessionMinutes(
   try {
     ensureTodayAnalytics(userId);
     const today = getToday();
-    
+
     const entryField = isManual ? 'manual_entries' : 'auto_entries';
-    
+
     db.runSync(
-      `UPDATE analytics_daily SET 
+      `UPDATE analytics_daily SET
         sessions_count = sessions_count + 1,
         total_minutes = total_minutes + ?,
         ${entryField} = ${entryField} + 1,
@@ -225,10 +226,10 @@ export async function trackSessionMinutes(
       WHERE date = ? AND user_id = ?`,
       [minutes, today, userId]
     );
-    
-    logger.debug('telemetry', `📊 Session tracked: ${minutes}min (${isManual ? 'manual' : 'auto'})`);
+
+    logger.info('database', `[DB:analytics_daily] UPDATE SESSION - ${minutes}min (${isManual ? 'manual' : 'auto'})`);
   } catch (error) {
-    logger.error('telemetry', 'Error tracking session', { error: String(error) });
+    logger.error('database', '[DB:analytics_daily] UPDATE SESSION ERROR', { error: String(error) });
   }
 }
 

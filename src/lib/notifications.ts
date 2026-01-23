@@ -109,7 +109,6 @@ export async function requestNotificationPermission(): Promise<boolean> {
         name: 'Location Alerts',
         importance: Notifications.AndroidImportance.HIGH,
         vibrationPattern: [0, 250, 250, 250],
-        lightColor: '#3B82F6',
         sound: 'default',
       });
 
@@ -118,7 +117,6 @@ export async function requestNotificationPermission(): Promise<boolean> {
         name: 'Report Reminders',
         importance: Notifications.AndroidImportance.DEFAULT,
         vibrationPattern: [0, 250],
-        lightColor: '#F7B324',
         sound: 'default',
       });
     }
@@ -143,63 +141,11 @@ export async function configureNotificationCategories(): Promise<void> {
   }
 
   try {
-    // Category for geofence ENTRY
-    await Notifications.setNotificationCategoryAsync('geofence_enter', [
-      {
-        identifier: 'start',
-        buttonTitle: '▶️ Start Work',
-        options: { opensAppToForeground: false },
-      },
-      {
-        identifier: 'skip_today',
-        buttonTitle: '😴 Skip Today',
-        options: { opensAppToForeground: false },
-      },
-    ]);
+    // SIMPLIFIED SYSTEM: No button-based categories needed
+    // All geofence notifications are now informative only (no user action required)
+    // Only report reminder keeps buttons for user convenience
 
-    // Category for geofence EXIT
-    await Notifications.setNotificationCategoryAsync('geofence_exit', [
-      {
-        identifier: 'ok',
-        buttonTitle: '✔ OK',
-        options: { opensAppToForeground: false },
-      },
-      {
-        identifier: 'pause',
-        buttonTitle: '⏸️ Pause',
-        options: { opensAppToForeground: false },
-      },
-    ]);
-
-    // Category for RETURN during pause
-    await Notifications.setNotificationCategoryAsync('geofence_return', [
-      {
-        identifier: 'resume',
-        buttonTitle: '▶️ Resume',
-        options: { opensAppToForeground: false },
-      },
-      {
-        identifier: 'stop',
-        buttonTitle: '⏹️ Stop',
-        options: { opensAppToForeground: false },
-      },
-    ]);
-
-    // Category for PAUSE EXPIRED (alarm style)
-    await Notifications.setNotificationCategoryAsync('pause_expired', [
-      {
-        identifier: 'resume',
-        buttonTitle: '▶️ Resume Work',
-        options: { opensAppToForeground: false },
-      },
-      {
-        identifier: 'snooze',
-        buttonTitle: '😴 +30 min',
-        options: { opensAppToForeground: false },
-      },
-    ]);
-
-    // Category for REPORT REMINDER
+    // Category for REPORT REMINDER (kept for user convenience)
     await Notifications.setNotificationCategoryAsync('report_reminder', [
       {
         identifier: 'send_now',
@@ -214,7 +160,7 @@ export async function configureNotificationCategories(): Promise<void> {
     ]);
 
     categoriesConfigured = true;
-    logger.info('notification', '✅ Notification categories configured');
+    logger.info('notification', '✅ Notification categories configured (simplified)');
   } catch (error) {
     logger.error('notification', 'Error configuring categories', { error: String(error) });
   }
@@ -225,137 +171,171 @@ export async function configureNotificationCategories(): Promise<void> {
 // ============================================
 
 /**
- * Show geofence ENTRY notification (expanded style)
- * @param timeoutMinutes - from settingsStore.entryTimeoutMinutes
+ * @deprecated Use showArrivalNotification() instead
+ * Show geofence ENTRY notification (old button-based style)
+ * Kept for backward compatibility - now redirects to simple notification
  */
 export async function showEntryNotification(
-  locationId: string,
+  _locationId: string,
   locationName: string,
-  timeoutMinutes: number = 5
+  _timeoutMinutes: number = 5
+): Promise<string> {
+  // DEPRECATED: Redirect to new simple arrival notification
+  logger.debug('notification', 'showEntryNotification deprecated, using showArrivalNotification');
+  return showArrivalNotification(locationName);
+}
+
+/**
+ * Show simple informative notification (no buttons)
+ * Used by the new exitHandler system for informative messages
+ */
+export async function showSimpleNotification(
+  title: string,
+  body: string
 ): Promise<string> {
   try {
     const notificationId = await Notifications.scheduleNotificationAsync({
       content: {
-        title: `📍 Arrived at ${locationName}`,
-        body: `Your timer will start automatically in ${timeoutMinutes} minutes.\n\nTap a button below to start now or skip this location for today.`,
+        title,
+        body,
+        data: {
+          type: 'auto_action',
+        } as GeofenceNotificationData,
+        sound: 'default',
+        priority: Notifications.AndroidNotificationPriority.DEFAULT,
+      },
+      trigger: null,
+    });
+
+    logger.info('notification', `📬 Simple notification: ${title}`, { notificationId });
+    return notificationId;
+  } catch (error) {
+    logger.error('notification', '❌ Error showing simple notification', { error: String(error), title });
+    return '';
+  }
+}
+
+/**
+ * Show arrival notification (first entry of the day only)
+ * Simple informative notification without buttons
+ */
+export async function showArrivalNotification(locationName: string): Promise<string> {
+  try {
+    const notificationId = await Notifications.scheduleNotificationAsync({
+      content: {
+        title: `📍 ${locationName}`,
+        body: 'You arrived at work. Timer started. Have a great day!',
         data: {
           type: 'geofence_enter',
-          locationId,
           locationName,
         } as GeofenceNotificationData,
-        categoryIdentifier: 'geofence_enter',
         sound: 'default',
         priority: Notifications.AndroidNotificationPriority.HIGH,
       },
       trigger: null,
     });
 
-    logger.info('notification', `📬 Entry notification: ${locationName}`, { notificationId, timeoutMinutes });
+    logger.info('notification', `📬 Arrival notification: ${locationName}`, { notificationId });
     return notificationId;
   } catch (error) {
-    logger.error('notification', '❌ Error showing entry notification', { error: String(error), locationName });
+    logger.error('notification', '❌ Error showing arrival notification', { error: String(error), locationName });
     return '';
   }
 }
 
 /**
- * Show geofence EXIT notification (expanded style)
- * @param timeoutSeconds - from settingsStore.exitTimeoutSeconds
- * @param adjustmentMinutes - from settingsStore.exitAdjustmentMinutes
+ * Show pending entry notification (waiting to register)
+ * User has X minutes to leave if they don't want to start session
  */
-export async function showExitNotification(
-  locationId: string,
+export async function showPendingEntryNotification(
   locationName: string,
-  timeoutSeconds: number = 15,
-  adjustmentMinutes: number = 10
+  timeoutMinutes: number
 ): Promise<string> {
   try {
     const notificationId = await Notifications.scheduleNotificationAsync({
       content: {
-        title: `🚪 Leaving ${locationName}`,
-        body: `Session will end in ${timeoutSeconds} seconds.\n\nExit time will be recorded as ${adjustmentMinutes} minutes earlier.\n\nTap Pause if you're on a break.`,
+        title: `⏳ ${locationName}`,
+        body: `You arrived. Timer starts in ${timeoutMinutes} min. Leave to cancel.`,
+        data: {
+          type: 'geofence_enter',
+          locationName,
+        } as GeofenceNotificationData,
+        sound: 'default',
+        priority: Notifications.AndroidNotificationPriority.DEFAULT,
+      },
+      trigger: null,
+    });
+
+    logger.info('notification', `📬 Pending entry notification: ${locationName} (${timeoutMinutes} min)`, { notificationId });
+    return notificationId;
+  } catch (error) {
+    logger.error('notification', '❌ Error showing pending entry notification', { error: String(error), locationName });
+    return '';
+  }
+}
+
+/**
+ * Show end of day notification with work summary
+ * Called after 45 min without returning to the location
+ */
+export async function showEndOfDayNotification(
+  totalHours: number,
+  totalMinutes: number,
+  locationName: string
+): Promise<string> {
+  try {
+    const timeStr = totalHours > 0
+      ? `${totalHours}h ${totalMinutes}min`
+      : `${totalMinutes} minutes`;
+
+    const notificationId = await Notifications.scheduleNotificationAsync({
+      content: {
+        title: '🏁 End of Day',
+        body: `You worked ${timeStr} at ${locationName} today. All saved. Rest well!`,
         data: {
           type: 'geofence_exit',
-          locationId,
           locationName,
         } as GeofenceNotificationData,
-        categoryIdentifier: 'geofence_exit',
         sound: 'default',
         priority: Notifications.AndroidNotificationPriority.HIGH,
       },
       trigger: null,
     });
 
-    logger.info('notification', `📬 Exit notification: ${locationName}`, { notificationId, timeoutSeconds, adjustmentMinutes });
+    logger.info('notification', `📬 End of day notification: ${locationName} - ${timeStr}`, { notificationId });
     return notificationId;
   } catch (error) {
-    logger.error('notification', '❌ Error showing exit notification', { error: String(error), locationName });
+    logger.error('notification', '❌ Error showing end of day notification', { error: String(error), locationName });
     return '';
   }
 }
 
 /**
- * Show RETURN notification (during pause) - expanded style
- * @param timeoutMinutes - from settingsStore.returnTimeoutMinutes
- */
-export async function showReturnNotification(
-  locationId: string,
-  locationName: string,
-  timeoutMinutes: number = 5
-): Promise<string> {
-  try {
-    const notificationId = await Notifications.scheduleNotificationAsync({
-      content: {
-        title: `🔄 Welcome back to ${locationName}`,
-        body: `Your timer will resume automatically in ${timeoutMinutes} minutes.\n\nTap Resume to continue now, or Stop to end your session.`,
-        data: {
-          type: 'geofence_return',
-          locationId,
-          locationName,
-        } as GeofenceNotificationData,
-        categoryIdentifier: 'geofence_return',
-        sound: 'default',
-        priority: Notifications.AndroidNotificationPriority.HIGH,
-      },
-      trigger: null,
-    });
-
-    logger.info('notification', `📬 Return notification: ${locationName}`, { notificationId, timeoutMinutes });
-    return notificationId;
-  } catch (error) {
-    logger.error('notification', '❌ Error showing return notification', { error: String(error), locationName });
-    return '';
-  }
-}
-
-/**
- * Show PAUSE EXPIRED notification with alarm sound
- * This acts like an alarm clock to remind the worker break is over
- * @param snoozeMinutes - additional break time if snoozed
+ * Show pause expired notification (alarm)
+ * Called when pause limit is reached
  */
 export async function showPauseExpiredNotification(
   locationId: string,
   locationName: string,
-  snoozeMinutes: number = 30
+  pauseLimitMinutes: number
 ): Promise<string> {
   try {
     const notificationId = await Notifications.scheduleNotificationAsync({
       content: {
-        title: `⏰ Break Time Ended!`,
-        body: `Your ${snoozeMinutes}-minute break at ${locationName} is over.\n\nTap Resume to continue working, or Snooze for ${snoozeMinutes} more minutes.`,
+        title: `⏰ Break Expired!`,
+        body: `Your break time (${pauseLimitMinutes} min) at ${locationName} is over.`,
         data: {
           type: 'pause_expired',
           locationId,
           locationName,
         } as GeofenceNotificationData,
-        categoryIdentifier: 'pause_expired',
         sound: 'default',
         priority: Notifications.AndroidNotificationPriority.MAX,
       },
       trigger: null,
     });
 
-    logger.info('notification', `📬 Pause expired notification (alarm): ${locationName}`, { notificationId, snoozeMinutes });
+    logger.info('notification', `📬 Pause expired notification: ${locationName}`, { notificationId });
     return notificationId;
   } catch (error) {
     logger.error('notification', '❌ Error showing pause expired notification', { error: String(error), locationName });

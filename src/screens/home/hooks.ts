@@ -138,6 +138,13 @@ export function useHomeScreen() {
   // NEW: Session selection (inside day modal)
   const [selectedSessions, setSelectedSessions] = useState<Set<string>>(new Set());
 
+  // NEW: Session action modal (Edit/Delete on long press)
+  const [showActionModal, setShowActionModal] = useState(false);
+  const [sessionForAction, setSessionForAction] = useState<ComputedSession | null>(null);
+
+  // NEW: Edit mode tracking
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
+
   // NEW: Export modal (for notification-triggered export)
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportModalSessions, setExportModalSessions] = useState<ComputedSession[]>([]);
@@ -835,6 +842,59 @@ const handleDayPress = (dayKey: string, hasSessions: boolean) => {
   };
 
   // ============================================
+  // SESSION ACTION MODAL (Edit/Delete on long press)
+  // ============================================
+
+  const openActionModal = (session: ComputedSession) => {
+    setSessionForAction(session);
+    setShowActionModal(true);
+  };
+
+  const closeActionModal = () => {
+    setShowActionModal(false);
+    setSessionForAction(null);
+  };
+
+  /**
+   * Open edit modal pre-populated with session data
+   */
+  const openEditSession = (session: ComputedSession) => {
+    closeActionModal();
+
+    // Parse session times
+    const entryDate = new Date(session.entry_at);
+    const exitDate = session.exit_at ? new Date(session.exit_at) : new Date();
+
+    // Set all form fields
+    setManualDate(entryDate);
+    setManualLocationId(session.location_id);
+    setManualEntryH(String(entryDate.getHours()).padStart(2, '0'));
+    setManualEntryM(String(entryDate.getMinutes()).padStart(2, '0'));
+    setManualExitH(String(exitDate.getHours()).padStart(2, '0'));
+    setManualExitM(String(exitDate.getMinutes()).padStart(2, '0'));
+    setManualPause(session.pause_minutes ? String(session.pause_minutes) : '');
+    setManualEntryMode('hours');
+    setManualAbsenceType(null);
+
+    // Track that we're editing (not creating)
+    setEditingSessionId(session.id);
+
+    // Open the manual modal
+    setShowManualModal(true);
+    // Close day modal
+    setShowDayModal(false);
+  };
+
+  /**
+   * Handle delete from action modal
+   */
+  const handleDeleteFromAction = () => {
+    if (!sessionForAction) return;
+    closeActionModal();
+    deleteSessionsByIds([sessionForAction.id], { closeModal: false });
+  };
+
+  // ============================================
   // MANUAL ENTRY
   // ============================================
 
@@ -861,6 +921,8 @@ const handleDayPress = (dayKey: string, hasSessions: boolean) => {
     // Reset entry mode
     setManualEntryMode('hours');
     setManualAbsenceType(null);
+    // Clear edit mode - this is a new entry
+    setEditingSessionId(null);
     setShowManualModal(true);
     // Close day modal if open
     setShowDayModal(false);
@@ -962,20 +1024,117 @@ const handleDayPress = (dayKey: string, hasSessions: boolean) => {
     const pauseMinutes = manualPause ? parseInt(manualPause, 10) : 0;
 
     try {
-      const location = locations.find(l => l.id === manualLocationId);
-      await createManualRecord({
-        locationId: manualLocationId,
-        locationName: location?.name || 'Location',
-        entry: entryDate.toISOString(),
-        exit: exitDate.toISOString(),
-        pauseMinutes: pauseMinutes,
-      });
-      Alert.alert('✅ Success', 'Record added!');
+      if (editingSessionId) {
+        // EDIT MODE: Update existing session
+        await editRecord(editingSessionId, {
+          entry_at: entryDate.toISOString(),
+          exit_at: exitDate.toISOString(),
+          pause_minutes: pauseMinutes,
+          manually_edited: 1,
+          edit_reason: 'Edited manually by user',
+        });
+        Alert.alert('✅ Success', 'Record updated!');
+        setEditingSessionId(null);
+      } else {
+        // CREATE MODE: New session
+        const location = locations.find(l => l.id === manualLocationId);
+        const locationName = location?.name || 'Location';
+
+        // Check for existing sessions on the same day for the same location
+        const sameDaySessions = sessions.filter(s => {
+          const sessionDate = new Date(s.entry_at);
+          return (
+            s.location_id === manualLocationId &&
+            isSameDay(sessionDate, entryDate) &&
+            s.exit_at // Only completed sessions
+          );
+        });
+
+        if (sameDaySessions.length > 0) {
+          // Show confirmation dialog to replace existing sessions
+          return new Promise<void>((resolve) => {
+            Alert.alert(
+              '📝 Sessões existentes',
+              `Já existem ${sameDaySessions.length} registro(s) para "${locationName}" neste dia. Deseja substituí-los pela entrada manual?`,
+              [
+                {
+                  text: 'Cancelar',
+                  style: 'cancel',
+                  onPress: () => resolve(),
+                },
+                {
+                  text: 'Adicionar',
+                  onPress: async () => {
+                    // Add alongside existing
+                    await createManualRecord({
+                      locationId: manualLocationId,
+                      locationName,
+                      entry: entryDate.toISOString(),
+                      exit: exitDate.toISOString(),
+                      pauseMinutes: pauseMinutes,
+                    });
+                    Alert.alert('✅ Sucesso', 'Registro adicionado!');
+                    setShowManualModal(false);
+                    setManualPause('');
+                    if (viewMode === 'week') {
+                      await loadWeekSessions();
+                    } else {
+                      await loadMonthSessions();
+                    }
+                    resolve();
+                  },
+                },
+                {
+                  text: 'Substituir',
+                  style: 'destructive',
+                  onPress: async () => {
+                    // Delete existing sessions first
+                    for (const s of sameDaySessions) {
+                      try {
+                        await deleteRecord(s.id);
+                      } catch (e) {
+                        // Ignore errors
+                      }
+                    }
+                    // Create new manual entry
+                    await createManualRecord({
+                      locationId: manualLocationId,
+                      locationName,
+                      entry: entryDate.toISOString(),
+                      exit: exitDate.toISOString(),
+                      pauseMinutes: pauseMinutes,
+                    });
+                    Alert.alert('✅ Sucesso', `${sameDaySessions.length} registro(s) substituído(s)!`);
+                    setShowManualModal(false);
+                    setManualPause('');
+                    if (viewMode === 'week') {
+                      await loadWeekSessions();
+                    } else {
+                      await loadMonthSessions();
+                    }
+                    resolve();
+                  },
+                },
+              ]
+            );
+          });
+        } else {
+          // No existing sessions - just create new
+          await createManualRecord({
+            locationId: manualLocationId,
+            locationName,
+            entry: entryDate.toISOString(),
+            exit: exitDate.toISOString(),
+            pauseMinutes: pauseMinutes,
+          });
+          Alert.alert('✅ Success', 'Record added!');
+        }
+      }
 
       setShowManualModal(false);
       setManualPause('');
-      
-      // Reload week/month sessions to show the new record
+
+      // Reload week/month sessions to show the new/updated record
       if (viewMode === 'week') {
         await loadWeekSessions();
       } else {
@@ -1452,7 +1611,16 @@ const getSuggestedTimes = useCallback((locationId: string) => {
     toggleSelectSession,
     selectAllSessions,
     deselectAllSessions,
-    
+
+    // NEW: Session action modal (Edit/Delete)
+    showActionModal,
+    sessionForAction,
+    openActionModal,
+    closeActionModal,
+    openEditSession,
+    handleDeleteFromAction,
+    editingSessionId,
+
     // NEW: Export modal (notification triggered)
     showExportModal,
     exportModalSessions,
@@ -1462,6 +1630,7 @@ const getSuggestedTimes = useCallback((locationId: string) => {
     showManualModal,
     setShowManualModal,
     manualDate,
+    setManualDate,
     manualLocationId,
     setManualLocationId,
     manualEntryH,

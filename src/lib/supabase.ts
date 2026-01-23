@@ -262,9 +262,10 @@ export interface Database {
       };
 
       // ============================================
-      // ERROR LOG
+      // LOG_ERRORS (Supabase table name)
+      // Local SQLite uses 'error_log' - views handle mapping
       // ============================================
-      error_log: {
+      log_errors: {
         Row: {
           id: string;
           user_id: string | null;
@@ -280,14 +281,15 @@ export interface Database {
           created_at: string;
           synced_at: string | null;
         };
-        Insert: Omit<Database['public']['Tables']['error_log']['Row'], 'id' | 'created_at'>;
-        Update: Partial<Database['public']['Tables']['error_log']['Insert']>;
+        Insert: Omit<Database['public']['Tables']['log_errors']['Row'], 'id' | 'created_at'>;
+        Update: Partial<Database['public']['Tables']['log_errors']['Insert']>;
       };
 
       // ============================================
-      // LOCATION AUDIT (GPS Proof)
+      // LOG_LOCATIONS (GPS Proof - Supabase table name)
+      // Local SQLite uses 'location_audit' - views handle mapping
       // ============================================
-      location_audit: {
+      log_locations: {
         Row: {
           id: string;
           user_id: string;
@@ -302,8 +304,8 @@ export interface Database {
           created_at: string;
           synced_at: string | null;
         };
-        Insert: Omit<Database['public']['Tables']['location_audit']['Row'], 'id' | 'created_at'>;
-        Update: Partial<Database['public']['Tables']['location_audit']['Insert']>;
+        Insert: Omit<Database['public']['Tables']['log_locations']['Row'], 'id' | 'created_at'>;
+        Update: Partial<Database['public']['Tables']['log_locations']['Insert']>;
       };
     };
   };
@@ -317,7 +319,7 @@ export type Tables = Database['public']['Tables'];
 export type LocationRow = Tables['locations']['Row'];
 export type RecordRow = Tables['records']['Row'];
 export type AnalyticsRow = Tables['analytics_daily']['Row'];
-export type ErrorLogRow = Tables['error_log']['Row'];
-export type AuditRow = Tables['location_audit']['Row'];
+export type ErrorLogRow = Tables['log_errors']['Row'];
+export type AuditRow = Tables['log_locations']['Row'];
 export type ProfileRow = Tables['profiles']['Row'];
 export type AdminUserRow = Tables['admin_users']['Row'];

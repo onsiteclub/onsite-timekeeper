@@ -13,11 +13,7 @@ import * as Location from 'expo-location';
 import * as BackgroundFetch from 'expo-background-fetch';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { logger } from './logger';
-import {
-  getOptimalHeartbeatInterval,
-  getHeartbeatState,
-  HEARTBEAT_INTERVALS,
-} from './pendingTTL';
+// NOTE: Removed pendingTTL dependency - heartbeat is now simplified
 import {
   setBackgroundUserId as _setBackgroundUserId,
   clearBackgroundUserId as _clearBackgroundUserId,
@@ -178,18 +174,13 @@ TaskManager.defineTask(LOCATION_TASK, async ({ data, error }) => {
   }
 });
 
-logger.info('boot', '📋 Background tasks V2 loaded (adaptive heartbeat)', {
+logger.info('boot', '📋 Background tasks V2 loaded (simplified)', {
   geofence: GEOFENCE_TASK,
   heartbeat: HEARTBEAT_TASK,
-  intervals: {
-    normal: `${HEARTBEAT_INTERVALS.NORMAL / 60}min`,
-    pendingEnter: `${HEARTBEAT_INTERVALS.PENDING_ENTER / 60}min`,
-    pendingExit: `${HEARTBEAT_INTERVALS.PENDING_EXIT / 60}min`,
-  },
 });
 
 // ============================================
-// PUBLIC API (used by bootstrap.ts)
+// PUBLIC API (used by bootstrap.ts) - SIMPLIFIED
 // ============================================
 
 export async function startHeartbeat(): Promise<void> {
@@ -197,11 +188,11 @@ export async function startHeartbeat(): Promise<void> {
   
   if (registered) {
     logger.info('heartbeat', 'Heartbeat already active');
-    await maybeUpdateHeartbeatInterval();
     return;
   }
   
-  const interval = await getOptimalHeartbeatInterval();
+  // Use simple 15 minute interval for sync-only heartbeat
+  const interval = 15 * 60; // 15 minutes
   await safeRegisterHeartbeat(interval);
 }
 
@@ -211,5 +202,6 @@ export async function stopHeartbeat(): Promise<void> {
 }
 
 export async function updateHeartbeatInterval(): Promise<void> {
-  await maybeUpdateHeartbeatInterval();
+  // Simplified: no adaptive intervals, just use fixed 15 min for sync
+  logger.debug('heartbeat', 'Using simplified heartbeat - no interval updates');
 }

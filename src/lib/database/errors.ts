@@ -87,21 +87,22 @@ export async function captureError(
 ): Promise<string> {
   const id = generateUUID();
   const timestamp = now();
-  
+
   try {
     const errorMessage = error instanceof Error ? error.message : String(error);
     const errorStack = error instanceof Error ? error.stack || null : null;
-    
+
     const metadata = {
       app_version: Application.nativeApplicationVersion || 'unknown',
       os: Platform.OS,
       os_version: String(Platform.Version),
       device_model: Device.modelName || 'unknown',
     };
-    
+
+    logger.info('database', `[DB:error_log] INSERT - type: ${type}, msg: ${errorMessage.substring(0, 50)}...`);
     db.runSync(
-      `INSERT INTO error_log 
-       (id, user_id, error_type, error_message, error_stack, error_context, 
+      `INSERT INTO error_log
+       (id, user_id, error_type, error_message, error_stack, error_context,
         app_version, os, os_version, device_model, occurred_at, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
@@ -119,18 +120,14 @@ export async function captureError(
         timestamp,
       ]
     );
-    
+
     // Update analytics error count
     if (context?.userId) {
       await trackMetric(context.userId, 'errors_count');
     }
-    
-    logger.error('database', `🔴 Error captured: ${type}`, { 
-      id, 
-      message: errorMessage.substring(0, 100),
-      context: context?.action,
-    });
-    
+
+    logger.info('database', `[DB:error_log] INSERT OK - id: ${id}, type: ${type}`);
+
     return id;
   } catch (logError) {
     // Don't throw if error logging fails
@@ -153,30 +150,31 @@ export async function capturePingPongEvent(
 ): Promise<string> {
   const id = generateUUID();
   const timestamp = now();
-  
+
   try {
     // Determine if this is a warning (low margin or actual ping-pong)
     const isWarning = data.isPingPonging || data.marginPercent < 15 || (data.gpsAccuracy && data.gpsAccuracy > 30);
     const type: ErrorType = isWarning ? 'pingpong_warning' : 'pingpong_event';
-    
+
     // Build descriptive message
     const message = `${data.eventType.toUpperCase()} @ ${data.fenceName} | ` +
       `dist: ${data.distance.toFixed(1)}m | ` +
       `radius: ${data.radius}m (eff: ${data.effectiveRadius.toFixed(1)}m) | ` +
       `margin: ${data.margin.toFixed(1)}m (${data.marginPercent.toFixed(1)}%) | ` +
       `GPS: ${data.gpsAccuracy ? data.gpsAccuracy.toFixed(1) + 'm' : 'N/A'}` +
-      (data.isPingPonging ? ' | 🔴 PING-PONG!' : '');
-    
+      (data.isPingPonging ? ' | PING-PONG!' : '');
+
     const metadata = {
       app_version: Application.nativeApplicationVersion || 'unknown',
       os: Platform.OS,
       os_version: String(Platform.Version),
       device_model: Device.modelName || 'unknown',
     };
-    
+
+    logger.info('database', `[DB:error_log] INSERT PINGPONG - ${data.eventType} @ ${data.fenceName}`);
     db.runSync(
-      `INSERT INTO error_log 
-       (id, user_id, error_type, error_message, error_stack, error_context, 
+      `INSERT INTO error_log
+       (id, user_id, error_type, error_message, error_stack, error_context,
         app_version, os, os_version, device_model, occurred_at, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
@@ -194,14 +192,14 @@ export async function capturePingPongEvent(
         timestamp,
       ]
     );
-    
+
     // Log to console as well
     if (isWarning) {
-      logger.warn('pingpong', `🔴 ${message}`);
+      logger.warn('pingpong', `[DB:error_log] PINGPONG WARNING - ${message}`);
     } else {
-      logger.debug('pingpong', `📍 ${message}`);
+      logger.debug('pingpong', `[DB:error_log] PINGPONG EVENT - ${message}`);
     }
-    
+
     return id;
   } catch (logError) {
     logger.error('database', 'Failed to capture ping-pong event', { error: String(logError) });

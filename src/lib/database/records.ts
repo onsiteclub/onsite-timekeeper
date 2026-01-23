@@ -39,6 +39,8 @@ export async function createEntryRecord(params: CreateRecordParams): Promise<str
   const timestamp = now();
 
   try {
+    logger.info('database', `[DB:records] INSERT ENTRY - location: ${params.locationName}, type: ${params.type || 'automatic'}`);
+
     // Get location color if not provided
     let color = params.color;
     if (!color) {
@@ -73,7 +75,7 @@ export async function createEntryRecord(params: CreateRecordParams): Promise<str
       // Ignore tracking errors
     }
 
-    logger.info('database', `📥 Record created: ${params.locationName}`, { id });
+    logger.info('database', `[DB:records] INSERT ENTRY OK - id: ${id}, location: ${params.locationName}`);
     return id;
   } catch (error) {
     logger.error('database', 'Error creating record', { error: String(error) });
@@ -87,6 +89,8 @@ export async function registerExit(
   adjustmentMinutes: number = 0
 ): Promise<void> {
   try {
+    logger.info('database', `[DB:records] UPDATE EXIT - locationId: ${locationId.substring(0, 8)}..., adjustment: ${adjustmentMinutes}min`);
+
     // Find active session for this location
     const session = db.getFirstSync<RecordDB>(
       `SELECT * FROM records WHERE user_id = ? AND location_id = ? AND exit_at IS NULL ORDER BY entry_at DESC LIMIT 1`,
@@ -94,6 +98,7 @@ export async function registerExit(
     );
 
     if (!session) {
+      logger.warn('database', `[DB:records] UPDATE EXIT - NO ACTIVE SESSION for locationId: ${locationId.substring(0, 8)}...`);
       throw new Error('No active session found for this location');
     }
 
@@ -118,7 +123,7 @@ export async function registerExit(
       // Ignore tracking errors
     }
 
-    logger.info('database', `📤 Exit registered`, { id: session.id, adjustmentMinutes });
+    logger.info('database', `[DB:records] UPDATE EXIT OK - id: ${session.id}, location: ${session.location_name}`);
   } catch (error) {
     logger.error('database', 'Error registering exit', { error: String(error) });
     throw error;
@@ -164,10 +169,12 @@ export async function getTodaySessions(userId: string): Promise<ComputedSession[
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
+    logger.info('database', `[DB:records] SELECT TODAY - userId: ${userId.substring(0, 8)}...`);
     const sessions = db.getAllSync<RecordDB>(
       `SELECT * FROM records WHERE user_id = ? AND entry_at >= ? AND entry_at < ? ORDER BY entry_at DESC`,
       [userId, today.toISOString(), tomorrow.toISOString()]
     );
+    logger.info('database', `[DB:records] SELECT TODAY OK - count: ${sessions.length}`);
 
     return sessions.map(s => ({
       ...s,
@@ -175,7 +182,7 @@ export async function getTodaySessions(userId: string): Promise<ComputedSession[
       duration_minutes: calculateDuration(s.entry_at, s.exit_at),
     })) as ComputedSession[];
   } catch (error) {
-    logger.error('database', 'Error fetching today sessions', { error: String(error) });
+    logger.error('database', '[DB:records] SELECT TODAY ERROR', { error: String(error) });
     return [];
   }
 }
@@ -280,5 +287,140 @@ export async function upsertRecordFromSync(record: RecordDB): Promise<void> {
     }
   } catch (error) {
     logger.error('database', 'Error in record upsert', { error: String(error) });
+  }
+}
+
+// ============================================
+// SESSION MERGE SYSTEM (NEW)
+// ============================================
+
+/**
+ * Get last session for a specific location
+ */
+export async function getLastSessionForLocation(userId: string, locationId: string): Promise<RecordDB | null> {
+  try {
+    return db.getFirstSync<RecordDB>(
+      `SELECT * FROM records WHERE user_id = ? AND location_id = ? ORDER BY entry_at DESC LIMIT 1`,
+      [userId, locationId]
+    );
+  } catch (error) {
+    logger.error('database', 'Error fetching last session for location', { error: String(error) });
+    return null;
+  }
+}
+
+/**
+ * Add break minutes to a session
+ */
+export async function addBreakMinutes(sessionId: string, minutes: number): Promise<void> {
+  try {
+    const session = db.getFirstSync<{ pause_minutes: number | null }>(
+      `SELECT pause_minutes FROM records WHERE id = ?`,
+      [sessionId]
+    );
+
+    if (!session) {
+      throw new Error('Session not found');
+    }
+
+    const currentBreak = session.pause_minutes || 0;
+    const newBreak = currentBreak + Math.round(minutes);
+
+    db.runSync(
+      `UPDATE records SET pause_minutes = ?, synced_at = NULL WHERE id = ?`,
+      [newBreak, sessionId]
+    );
+
+    logger.info('database', `🔄 Break added: ${minutes} min (total: ${newBreak} min)`, { sessionId });
+  } catch (error) {
+    logger.error('database', 'Error adding break minutes', { error: String(error) });
+    throw error;
+  }
+}
+
+/**
+ * Reopen last session (remove exit_at)
+ */
+export async function reopenLastSession(userId: string, locationId: string): Promise<boolean> {
+  try {
+    const lastSession = await getLastSessionForLocation(userId, locationId);
+    
+    if (!lastSession || !lastSession.exit_at) {
+      logger.warn('database', 'No session to reopen or already active', { locationId });
+      return false;
+    }
+
+    db.runSync(
+      `UPDATE records SET exit_at = NULL, synced_at = NULL WHERE id = ?`,
+      [lastSession.id]
+    );
+
+    logger.info('database', `🔄 Session reopened: ${lastSession.location_name}`, { id: lastSession.id });
+    return true;
+  } catch (error) {
+    logger.error('database', 'Error reopening session', { error: String(error) });
+    return false;
+  }
+}
+
+/**
+ * Handle session merge logic
+ * Returns 'merged', 'new_session', or 'already_active'
+ */
+export async function handleSessionMerge(
+  userId: string,
+  locationId: string,
+  locationName: string
+): Promise<'merged' | 'new_session' | 'already_active'> {
+  try {
+    logger.info('database', `[DB:records] SESSION MERGE CHECK - location: ${locationName}`);
+    const lastSession = await getLastSessionForLocation(userId, locationId);
+
+    if (!lastSession) {
+      logger.info('database', `[DB:records] SESSION MERGE - no previous session, will create new`);
+      return 'new_session';
+    }
+
+    // If session is still active (no exit), ignore
+    if (!lastSession.exit_at) {
+      logger.info('database', `[DB:records] SESSION MERGE - already active, ignoring`);
+      return 'already_active';
+    }
+
+    // Calculate gap in minutes
+    const now = new Date();
+    const exitTime = new Date(lastSession.exit_at);
+    const gapMinutes = (now.getTime() - exitTime.getTime()) / 60000;
+
+    // MERGE RULE: < 15 minutes = merge
+    if (gapMinutes < 15) {
+      await reopenLastSession(userId, locationId);
+
+      // Add break time if gap > 1 minute
+      if (gapMinutes > 1) {
+        await addBreakMinutes(lastSession.id, gapMinutes);
+        logger.info('database', `[DB:records] SESSION MERGE OK - merged with break: ${gapMinutes.toFixed(1)} min`, {
+          locationName,
+          gapMinutes: gapMinutes.toFixed(1)
+        });
+      } else {
+        logger.info('database', `[DB:records] SESSION MERGE OK - merged (no break): ${gapMinutes.toFixed(1)} min`, {
+          locationName,
+          gapMinutes: gapMinutes.toFixed(1)
+        });
+      }
+
+      return 'merged';
+    }
+
+    // Gap >= 15 minutes = new session
+    logger.info('database', `[DB:records] SESSION MERGE - gap too large: ${gapMinutes.toFixed(1)} min, will create new`, {
+      locationName
+    });
+    return 'new_session';
+    
+  } catch (error) {
+    logger.error('database', 'Error in session merge logic', { error: String(error) });
+    return 'new_session'; // Fallback to new session
   }
 }

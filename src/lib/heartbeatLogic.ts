@@ -1,41 +1,19 @@
 /**
- * Heartbeat Logic - OnSite Timekeeper
+ * Heartbeat Logic - OnSite Timekeeper (SIMPLIFIED)
  * 
- * Heartbeat execution, interval management, task registration.
+ * Simple heartbeat for sync purposes only - no session logic.
  */
 
 import * as TaskManager from 'expo-task-manager';
-import * as Location from 'expo-location';
 import * as BackgroundFetch from 'expo-background-fetch';
 import { logger } from './logger';
-import {
-  loadPendingAction,
-  checkAndProcessPendingTTL,
-  getOptimalHeartbeatInterval,
-  getHeartbeatState,
-  recordLowAccuracy,
-  recalculateHeartbeatInterval,
-  HEARTBEAT_INTERVALS,
-} from './pendingTTL';
-import {
-  logPingPongEvent,
-  checkForPingPong,
-  type PingPongEvent,
-} from './backgroundHelpers';
-import { getHeartbeatCallback } from './taskCallbacks';
 import { HEARTBEAT_TASK } from './backgroundTypes';
-import {
-  localCalculateDistance,
-  localCheckInsideFence,
-  checkInsideFenceAsync,
-  getFenceCache,
-} from './geofenceLogic';
 
 // ============================================
-// HEARTBEAT STATE (module-level, internal)
+// CONSTANTS
 // ============================================
 
-let currentHeartbeatInterval = HEARTBEAT_INTERVALS.NORMAL;
+const HEARTBEAT_INTERVAL = 15 * 60; // 15 minutes - fixed interval
 
 // ============================================
 // SAFE TASK MANAGEMENT
@@ -89,7 +67,6 @@ export async function safeRegisterHeartbeat(intervalSeconds: number): Promise<bo
       startOnBoot: true,
     });
     
-    currentHeartbeatInterval = intervalSeconds;
     logger.info('heartbeat', `✅ Heartbeat registered: ${intervalSeconds / 60}min`);
     return true;
   } catch (error) {
@@ -99,154 +76,54 @@ export async function safeRegisterHeartbeat(intervalSeconds: number): Promise<bo
 }
 
 // ============================================
-// INTERVAL MANAGEMENT
+// SIMPLIFIED HEARTBEAT EXECUTION
 // ============================================
 
 /**
- * Update heartbeat interval if needed (used by backgroundTasks)
- */
-export async function maybeUpdateHeartbeatInterval(): Promise<void> {
-  try {
-    const optimalInterval = await recalculateHeartbeatInterval();
-    
-    if (optimalInterval !== currentHeartbeatInterval) {
-      logger.info('heartbeat', `🔄 Interval change: ${currentHeartbeatInterval / 60}min → ${optimalInterval / 60}min`);
-      await safeRegisterHeartbeat(optimalInterval);
-    }
-  } catch (error) {
-    logger.error('heartbeat', 'Failed to update interval', { error: String(error) });
-  }
-}
-
-// ============================================
-// HEARTBEAT EXECUTION
-// ============================================
-
-/**
- * Run heartbeat check (used by backgroundTasks)
+ * Run simplified heartbeat check (used by backgroundTasks)
+ * Only for sync purposes - no session logic
  */
 export async function runHeartbeat(): Promise<void> {
   const startTime = Date.now();
-  const heartbeatState = await getHeartbeatState();
   
-  logger.info('heartbeat', `💓 Heartbeat (${heartbeatState.currentInterval / 60}min, ${heartbeatState.reason})`);
+  logger.info('heartbeat', `💓 Heartbeat (sync-only, 15min)`);
   
-  // Get current location
-  let location: Location.LocationObject | null = null;
   try {
-    location = await Location.getCurrentPositionAsync({
-      accuracy: Location.Accuracy.High,
-    });
+    // Simple heartbeat - just trigger sync if needed
+    const { useSyncStore } = await import('../stores/syncStore');
+    const syncStore = useSyncStore.getState();
     
-    logger.info('pingpong', `💓 Heartbeat GPS`, {
-      lat: location.coords.latitude.toFixed(6),
-      lng: location.coords.longitude.toFixed(6),
-      accuracy: location.coords.accuracy ? `${location.coords.accuracy.toFixed(1)}m` : 'N/A',
-    });
+    // Check if we need to sync
+    const lastSync = syncStore.lastSyncAt;
+    const now = new Date();
+    const hoursSinceSync = lastSync 
+      ? (now.getTime() - lastSync.getTime()) / (1000 * 60 * 60)
+      : 24; // Force sync if never synced
     
-    if (location.coords.accuracy && location.coords.accuracy > 50) {
-      await recordLowAccuracy(location.coords.accuracy);
-    }
-  } catch (error) {
-    logger.warn('heartbeat', 'Failed to get GPS', { error: String(error) });
-  }
-  
-  // Check pending TTL
-  const pending = await loadPendingAction();
-  if (pending) {
-    const result = await checkAndProcessPendingTTL(checkInsideFenceAsync, true);
-    
-    if (result.action !== 'none') {
-      logger.info('heartbeat', `📋 TTL action: ${result.action}`, { reason: result.reason });
-      // Action will be handled by workSessionStore
-    }
-  }
-  
-  // Verify geofence consistency
-  const fenceCache = getFenceCache();
-  if (location) {
-    const { isInside, fenceId, fenceName, distance } = localCheckInsideFence(
-      location.coords.latitude,
-      location.coords.longitude
-    );
-    
-    if (fenceCache.size > 0) {
-      // Log check for all fences
-      for (const [id, fence] of fenceCache.entries()) {
-        const dist = localCalculateDistance(
-          location.coords.latitude,
-          location.coords.longitude,
-          fence.lat,
-          fence.lng
-        );
-        const effectiveRadius = fence.radius * 1.3;
-        const margin = effectiveRadius - dist;
-        const marginPercent = (margin / effectiveRadius) * 100;
-        const inside = dist <= effectiveRadius;
-        
-        const pingPongEvent: PingPongEvent = {
-          type: 'check',
-          fenceId: id,
-          fenceName: fence.name,
-          timestamp: Date.now(),
-          distance: dist,
-          radius: fence.radius,
-          effectiveRadius,
-          margin,
-          marginPercent,
-          isInside: inside,
-          gpsAccuracy: location.coords.accuracy ?? undefined,
-          source: 'heartbeat',
-        };
-        
-        await logPingPongEvent(pingPongEvent);
-      }
-    }
-    
-    if (isInside) {
-      logger.info('heartbeat', `✅ Consistent: inside ${fenceName}`, { distance: `${distance?.toFixed(0)}m` });
+    // Sync every 6 hours during heartbeat
+    if (hoursSinceSync >= 6) {
+      logger.info('heartbeat', '🔄 Triggering background sync');
+      await syncStore.syncNow();
     } else {
-      logger.info('heartbeat', '✅ Consistent: outside all fences');
+      logger.debug('heartbeat', `⏭️ Sync not needed (last: ${hoursSinceSync.toFixed(1)}h ago)`);
     }
+    
+  } catch (error) {
+    logger.error('heartbeat', 'Error in heartbeat sync', { error: String(error) });
   }
-  
-  // Check for ping-pong
-  const { isPingPonging, recentEnters, recentExits } = await checkForPingPong();
-  if (isPingPonging) {
-    logger.warn('heartbeat', `🔴 PING-PONG DETECTED!`, { recentEnters, recentExits });
-  } else {
-    logger.debug('pingpong', `📊 Summary`, { total: recentEnters + recentExits, isPingPonging: false });
-  }
-  
-  // Update heartbeat interval
-  await maybeUpdateHeartbeatInterval();
   
   const elapsed = Date.now() - startTime;
   logger.info('heartbeat', `✅ Heartbeat completed in ${elapsed}ms`);
-  
-  // Call heartbeat callback if registered
-  const heartbeatCallback = getHeartbeatCallback();
-  if (heartbeatCallback && location) {
-    try {
-      const { isInside, fenceId, fenceName } = localCheckInsideFence(
-        location.coords.latitude,
-        location.coords.longitude
-      );
-      
-      await heartbeatCallback({
-        isInsideFence: isInside,
-        fenceId: fenceId ?? null,
-        fenceName: fenceName ?? null,
-        location: {
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
-          accuracy: location.coords.accuracy ?? null,
-        },
-        timestamp: Date.now(),
-        batteryLevel: null,
-      });
-    } catch (error) {
-      logger.error('heartbeat', 'Error in heartbeat callback', { error: String(error) });
-    }
-  }
+}
+
+// ============================================
+// SIMPLIFIED INTERVAL MANAGEMENT
+// ============================================
+
+/**
+ * No-op for compatibility (used by backgroundTasks)
+ */
+export async function maybeUpdateHeartbeatInterval(): Promise<void> {
+  // Simplified: always use fixed 15 min interval
+  logger.debug('heartbeat', 'Using fixed 15min interval - no updates needed');
 }

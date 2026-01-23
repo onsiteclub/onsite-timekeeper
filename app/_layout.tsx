@@ -9,7 +9,6 @@ import React, { useEffect, useState, useRef } from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import * as SplashScreen from 'expo-splash-screen';
 import * as Notifications from 'expo-notifications';
 
 // IMPORTANT: Import background tasks BEFORE anything else
@@ -38,7 +37,6 @@ import {
 } from '../src/lib/bootstrap';
 import type { GeofenceNotificationData } from '../src/lib/notifications';
 
-SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   const [isReady, setIsReady] = useState(false);
@@ -186,7 +184,6 @@ export default function RootLayout() {
         logger.error('boot', 'Bootstrap error', { error: String(error) });
       } finally {
         setIsReady(true);
-        await SplashScreen.hideAsync();
       }
     }
 

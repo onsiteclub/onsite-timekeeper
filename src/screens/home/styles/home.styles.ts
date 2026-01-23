@@ -34,15 +34,15 @@ export const homeStyles = StyleSheet.create({
   },
 
   // ============================================
-  // LOG HOURS FORM - Subtly highlighted as primary action
+  // LOG HOURS FORM - Enhanced prominence with darker gray background
   // ============================================
   formSection: {
-    padding: 14,
-    backgroundColor: colors.surface,  // One shade lighter/darker than cards
+    padding: 20,  // Increased from 18
+    backgroundColor: withOpacity(colors.border, 0.4),  // Darker gray
     borderRadius: 14,
     borderWidth: 2,  // Thicker border (was 1)
     borderColor: withOpacity(colors.border, 1.2),  // Slightly stronger border
-    marginBottom: 8,
+    marginBottom: 12,  // Increased from 8
     ...shadows.md,  // More pronounced shadow (was shadows.sm)
   },
   formHeader: {
@@ -253,6 +253,178 @@ export const homeStyles = StyleSheet.create({
     color: colors.buttonPrimaryText,
   },
 
+  // Send to button (always visible)
+  sendToButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: withOpacity(colors.accent, 0.1),
+    paddingVertical: 12,
+    borderRadius: 10,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: withOpacity(colors.accent, 0.3),
+  },
+  sendToButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.accent,
+  },
+
+  // ============================================
+  // SEND TO MODAL STYLES
+  // ============================================
+  sendToModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  sendToModalContainer: {
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    padding: 20,
+    width: '100%',
+    maxWidth: 400,
+    maxHeight: '80%',
+    ...shadows.lg,
+  },
+  sendToModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 20,
+  },
+  sendToModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.text,
+    flex: 1,
+  },
+  sendToModalCloseButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.surfaceMuted,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  phoneInputContainer: {
+    marginBottom: 16,
+  },
+  phoneInputLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    marginBottom: 8,
+    textTransform: 'uppercase',
+  },
+  phoneInputRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  phoneInput: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    fontSize: 16,
+    color: colors.text,
+  },
+  contactsButton: {
+    width: 44,
+    height: 44,
+    backgroundColor: colors.primary,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  recentContactsContainer: {
+    marginBottom: 20,
+  },
+  recentContactsTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    marginBottom: 12,
+  },
+  recentContactItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: 8,
+    marginBottom: 8,
+    gap: 12,
+  },
+  recentContactInfo: {
+    flex: 1,
+  },
+  recentContactName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text,
+    marginBottom: 2,
+  },
+  recentContactPhone: {
+    fontSize: 12,
+    color: colors.textSecondary,
+  },
+  recentContactSelect: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  sendToModalActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 20,
+  },
+  sendToModalCancelButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: colors.surfaceMuted,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  sendToModalCancelText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  sendToModalSendButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: colors.success,
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 6,
+  },
+  sendToModalSendText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.white,
+  },
+  emptyContactsText: {
+    textAlign: 'center',
+    color: colors.textMuted,
+    fontSize: 14,
+    fontStyle: 'italic',
+    paddingVertical: 20,
+  },
+
   // ============================================
   // LOCATIONS - Auto height
   // ============================================
@@ -351,12 +523,12 @@ export const homeStyles = StyleSheet.create({
   },
 
   // ============================================
-  // TIMER - Flexible height to fill available space
+  // TIMER - Much more reduced height to give maximum space to form
   // ============================================
   timerSection: {
     flex: 1,
-    minHeight: 180,
-    padding: 16,
+    minHeight: 90,  // Much smaller - reduced from 120
+    padding: 12,    // Reduced padding
     backgroundColor: colors.card,
     borderRadius: 12,
     borderWidth: 1,

@@ -22,6 +22,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
+import { useRouter } from 'expo-router';
 
 import { Card } from '../../src/components/ui/Button';
 import { colors, withOpacity, shadows } from '../../src/constants/colors';
@@ -36,6 +37,23 @@ const CALENDAR_PADDING = 32;
 const CALENDAR_GAP = 2;
 const DAYS_PER_WEEK = 7;
 const DAY_SIZE = Math.floor((SCREEN_WIDTH - CALENDAR_PADDING - (CALENDAR_GAP * 6)) / DAYS_PER_WEEK);
+
+// ============================================
+// AGGREGATED LOCATION INTERFACE
+// ============================================
+
+interface AggregatedLocation {
+  locationId: string;
+  locationName: string;
+  color: string;
+  firstEntry: string;
+  lastExit: string;
+  totalMinutes: number;
+  totalBreakMinutes: number;
+  sessionsCount: number;
+  isEdited: boolean;
+  sessions: ComputedSession[]; // Keep original sessions for editing
+}
 
 // ============================================
 // WEEKLY BAR CHART COMPONENT
@@ -187,6 +205,8 @@ function WeeklyBarChart({
 // ============================================
 
 export default function ReportsScreen() {
+  const router = useRouter();
+
   const {
     viewMode,
     setViewMode,
@@ -214,6 +234,10 @@ export default function ReportsScreen() {
     selectAllSessions,
     deselectAllSessions,
 
+    // Session editing
+    openEditSession,
+    editingSessionId,
+
     refreshing,
     onRefresh,
 
@@ -230,7 +254,6 @@ export default function ReportsScreen() {
     getTotalMinutesForDay,
 
     openManualEntry,
-    handleDeleteSession,
     handleDeleteFromModal,
     handleExport,
     handleDeleteSelectedDays,
@@ -268,6 +291,136 @@ export default function ReportsScreen() {
 
   // Sessions for chart - use appropriate data based on view mode
   const allSessions = viewMode === 'week' ? (weekSessions || []) : (monthSessions || []);
+
+  // ============================================
+  // AM/PM STATE FOR MANUAL ENTRY MODAL
+  // ============================================
+  const [entryPeriod, setEntryPeriod] = useState<'AM' | 'PM'>('AM');
+  const [exitPeriod, setExitPeriod] = useState<'AM' | 'PM'>('PM');
+
+  // Smart time handlers - convert 24h to 12h automatically
+  const handleEntryHourChange = (text: string) => {
+    const cleaned = text.replace(/[^0-9]/g, '').slice(0, 2);
+    const hour = parseInt(cleaned, 10);
+    if (!isNaN(hour) && hour >= 13 && hour <= 23) {
+      // 13-23 → convert to 12h PM
+      setManualEntryH(String(hour - 12).padStart(2, '0'));
+      setEntryPeriod('PM');
+    } else if (!isNaN(hour) && hour === 12) {
+      setManualEntryH('12');
+      setEntryPeriod('PM');
+    } else if (!isNaN(hour) && hour === 0) {
+      // 0 → 12 AM
+      setManualEntryH('12');
+      setEntryPeriod('AM');
+    } else {
+      setManualEntryH(cleaned);
+    }
+  };
+
+  const handleExitHourChange = (text: string) => {
+    const cleaned = text.replace(/[^0-9]/g, '').slice(0, 2);
+    const hour = parseInt(cleaned, 10);
+    if (!isNaN(hour) && hour >= 13 && hour <= 23) {
+      setManualExitH(String(hour - 12).padStart(2, '0'));
+      setExitPeriod('PM');
+    } else if (!isNaN(hour) && hour === 12) {
+      setManualExitH('12');
+      setExitPeriod('PM');
+    } else if (!isNaN(hour) && hour === 0) {
+      setManualExitH('12');
+      setExitPeriod('AM');
+    } else {
+      setManualExitH(cleaned);
+    }
+  };
+
+  // Convert 12h to 24h for saving
+  const get24Hour = (hour12: string, period: 'AM' | 'PM'): number => {
+    const h = parseInt(hour12, 10) || 0;
+    if (period === 'AM') {
+      return h === 12 ? 0 : h;
+    } else {
+      return h === 12 ? 12 : h + 12;
+    }
+  };
+
+  // Wrapper for save that converts to 24h format
+  const handleSaveManualWithAmPm = async () => {
+    // Convert to 24h and update the state temporarily
+    const entryH24 = get24Hour(manualEntryH, entryPeriod);
+    const exitH24 = get24Hour(manualExitH, exitPeriod);
+
+    // Temporarily set 24h values for save
+    setManualEntryH(String(entryH24).padStart(2, '0'));
+    setManualExitH(String(exitH24).padStart(2, '0'));
+
+    // Small delay to ensure state updates
+    setTimeout(async () => {
+      await handleSaveManual();
+    }, 50);
+  };
+
+  // ============================================
+  // AGGREGATE SESSIONS BY LOCATION FOR DAY MODAL
+  // ============================================
+  const aggregatedLocations = useMemo((): AggregatedLocation[] => {
+    const completedSessions = dayModalSessions.filter(s => s.exit_at);
+    if (completedSessions.length === 0) return [];
+
+    // Group sessions by location_id
+    const groupedByLocation = new Map<string, ComputedSession[]>();
+
+    for (const session of completedSessions) {
+      const existing = groupedByLocation.get(session.location_id) || [];
+      existing.push(session);
+      groupedByLocation.set(session.location_id, existing);
+    }
+
+    // Create aggregated entries
+    const aggregated: AggregatedLocation[] = [];
+
+    for (const [locationId, sessions] of groupedByLocation.entries()) {
+      // Sort by entry time
+      const sorted = [...sessions].sort((a, b) =>
+        new Date(a.entry_at).getTime() - new Date(b.entry_at).getTime()
+      );
+
+      const firstEntry = sorted[0].entry_at;
+      const lastExit = sorted[sorted.length - 1].exit_at || sorted[sorted.length - 1].entry_at;
+
+      let totalMinutes = 0;
+      let totalBreakMinutes = 0;
+      let isEdited = false;
+
+      for (const s of sessions) {
+        const pauseMin = s.pause_minutes || 0;
+        totalMinutes += Math.max(0, s.duration_minutes - pauseMin);
+        totalBreakMinutes += pauseMin;
+        if (s.type === 'manual' || s.manually_edited === 1) {
+          isEdited = true;
+        }
+      }
+
+      aggregated.push({
+        locationId,
+        locationName: sessions[0].location_name || 'Unknown',
+        color: sessions[0].color || colors.primary,
+        firstEntry,
+        lastExit,
+        totalMinutes,
+        totalBreakMinutes,
+        sessionsCount: sessions.length,
+        isEdited,
+        sessions: sorted,
+      });
+    }
+
+    // Sort by first entry time
+    return aggregated.sort((a, b) =>
+      new Date(a.firstEntry).getTime() - new Date(b.firstEntry).getTime()
+    );
+  }, [dayModalSessions]);
 
   // Animation values for morph transition
   const modalScale = useRef(new Animated.Value(0)).current;
@@ -374,6 +527,11 @@ export default function ReportsScreen() {
               const isSelected = selectedDays.has(dayKey);
               const isWeekend = day.date.getDay() === 0 || day.date.getDay() === 6; // Sunday or Saturday
 
+              // Check if day has work but NO breaks registered
+              const completedSessions = day.sessions.filter((s: ComputedSession) => s.exit_at);
+              const hasWorkNoBreak = completedSessions.length > 0 &&
+                completedSessions.every((s: ComputedSession) => !s.pause_minutes || s.pause_minutes === 0);
+
               return (
                 <TouchableOpacity
                   key={dayKey}
@@ -398,12 +556,17 @@ export default function ReportsScreen() {
                       </Text>
                     </View>
                   </View>
-                  <Text style={[
-                    reportStyles.weekDayHours,
-                    hasActive && { color: colors.success }
-                  ]}>
-                    {hasActive ? 'Active' : hasSessions ? formatDuration(day.totalMinutes) : '—'}
-                  </Text>
+                  <View style={reportStyles.weekDayRight}>
+                    {hasWorkNoBreak && !hasActive && (
+                      <View style={reportStyles.noBreakDot} />
+                    )}
+                    <Text style={[
+                      reportStyles.weekDayHours,
+                      hasActive && { color: colors.success }
+                    ]}>
+                      {hasActive ? 'Active' : hasSessions ? formatDuration(day.totalMinutes) : '—'}
+                    </Text>
+                  </View>
                 </TouchableOpacity>
               );
             })}
@@ -438,6 +601,11 @@ export default function ReportsScreen() {
                   const totalMinutes = getTotalMinutesForDay(date);
                   const isWeekend = date.getDay() === 0 || date.getDay() === 6; // Sunday or Saturday
 
+                  // Check if day has work but NO breaks registered
+                  const completedSessions = daySessions.filter((s: ComputedSession) => s.exit_at);
+                  const hasWorkNoBreak = completedSessions.length > 0 &&
+                    completedSessions.every((s: ComputedSession) => !s.pause_minutes || s.pause_minutes === 0);
+
                   return (
                     <TouchableOpacity
                       key={dayKey}
@@ -461,9 +629,14 @@ export default function ReportsScreen() {
                       ]}>
                         {date.getDate()}
                       </Text>
-                      {hasSessions && totalMinutes > 0 && (
-                        <View style={reportStyles.monthDayDot} />
-                      )}
+                      <View style={reportStyles.monthDayDots}>
+                        {hasSessions && totalMinutes > 0 && (
+                          <View style={reportStyles.monthDayDot} />
+                        )}
+                        {hasWorkNoBreak && (
+                          <View style={reportStyles.monthDayNoBreakDot} />
+                        )}
+                      </View>
                     </TouchableOpacity>
                   );
                 })}
@@ -522,83 +695,105 @@ export default function ReportsScreen() {
               }
             ]}
           >
-            <View style={styles.dayModalHeader}>
-              <Text style={styles.dayModalTitle}>
-                {selectedDayForModal?.toLocaleDateString('en-US', { 
-                  weekday: 'long', 
-                  day: '2-digit', 
+            {/* Header - Two lines: Date on top, action icons below */}
+            <View style={reportStyles.dayModalHeaderV2}>
+              <Text style={reportStyles.dayModalTitleV2}>
+                {selectedDayForModal?.toLocaleDateString('en-US', {
+                  weekday: 'long',
+                  day: '2-digit',
                   month: 'short',
                   year: 'numeric'
                 })}
               </Text>
-              <View style={styles.dayModalHeaderActions}>
-                <TouchableOpacity 
-                  style={styles.dayModalHeaderBtn} 
+              <View style={reportStyles.dayModalActionsRow}>
+                <TouchableOpacity
+                  style={[reportStyles.dayModalActionBtn, selectedSessions.size === 0 && reportStyles.dayModalActionBtnDisabled]}
                   onPress={handleDeleteFromModal}
-                  disabled={dayModalSessions.filter(s => s.exit_at).length === 0}
+                  disabled={selectedSessions.size === 0}
                 >
-                  <Ionicons 
-                    name="trash-outline" 
-                    size={20} 
-                    color={dayModalSessions.filter(s => s.exit_at).length === 0 ? colors.textMuted : colors.textSecondary} 
-                  />
+                  <Ionicons name="trash-outline" size={26} color={selectedSessions.size === 0 ? colors.textMuted : colors.error || '#EF4444'} />
+                  <Text style={[reportStyles.dayModalActionLabel, selectedSessions.size === 0 && reportStyles.dayModalActionLabelDisabled]}>Delete</Text>
                 </TouchableOpacity>
-                <TouchableOpacity 
-                  style={styles.dayModalHeaderBtn} 
+                <TouchableOpacity
+                  style={[reportStyles.dayModalActionBtn, selectedSessions.size !== 1 && reportStyles.dayModalActionBtnDisabled]}
+                  onPress={() => {
+                    // Edit only works with single selection
+                    if (selectedSessions.size === 1) {
+                      const sessionId = Array.from(selectedSessions)[0];
+                      const session = dayModalSessions.find(s => s.id === sessionId);
+                      if (session) openEditSession(session);
+                    }
+                  }}
+                  disabled={selectedSessions.size !== 1}
+                >
+                  <Ionicons name="pencil-outline" size={26} color={selectedSessions.size !== 1 ? colors.textMuted : colors.primary} />
+                  <Text style={[reportStyles.dayModalActionLabel, selectedSessions.size !== 1 && reportStyles.dayModalActionLabelDisabled]}>Edit</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[reportStyles.dayModalActionBtn, selectedSessions.size === 0 && reportStyles.dayModalActionBtnDisabled]}
                   onPress={handleExportFromModal}
-                  disabled={dayModalSessions.filter(s => s.exit_at).length === 0}
+                  disabled={selectedSessions.size === 0}
                 >
-                  <Ionicons 
-                    name="share-outline" 
-                    size={20} 
-                    color={dayModalSessions.filter(s => s.exit_at).length === 0 ? colors.textMuted : colors.textSecondary} 
-                  />
+                  <Ionicons name="share-outline" size={26} color={selectedSessions.size === 0 ? colors.textMuted : colors.primary} />
+                  <Text style={[reportStyles.dayModalActionLabel, selectedSessions.size === 0 && reportStyles.dayModalActionLabelDisabled]}>Share</Text>
                 </TouchableOpacity>
-                <TouchableOpacity 
-                  style={styles.dayModalHeaderBtn} 
+                <TouchableOpacity
+                  style={reportStyles.dayModalActionBtn}
                   onPress={() => selectedDayForModal && openManualEntry(selectedDayForModal)}
                 >
-                  <Ionicons name="add" size={22} color={colors.textSecondary} />
+                  <Ionicons name="add-circle-outline" size={26} color={colors.success || '#22C55E'} />
+                  <Text style={reportStyles.dayModalActionLabel}>Add</Text>
                 </TouchableOpacity>
-                <TouchableOpacity 
-                  style={[styles.dayModalHeaderBtn, styles.dayModalCloseHeaderBtn]} 
+                <TouchableOpacity
+                  style={reportStyles.dayModalActionBtnClose}
                   onPress={closeDayModal}
                 >
-                  <Ionicons name="close" size={22} color={colors.white} />
+                  <Ionicons name="close" size={26} color={colors.white} />
+                  <Text style={reportStyles.dayModalActionLabelClose}>Close</Text>
                 </TouchableOpacity>
               </View>
             </View>
 
-            {dayModalSessions.filter(s => s.exit_at).length >= 1 && (
-              <View style={styles.dayModalSelectionBar}>
-                <Text style={styles.dayModalSelectionText}>
-                  {selectedSessions.size > 0 
-                    ? `${selectedSessions.size} selected` 
-                    : 'Tap to select sessions'}
+            {/* No break warning banner */}
+            {aggregatedLocations.length >= 1 &&
+              aggregatedLocations.every(agg => agg.totalBreakMinutes === 0) && (
+              <View style={reportStyles.noBreakBanner}>
+                <Ionicons name="alert-circle" size={16} color={colors.error || '#EF4444'} />
+                <Text style={reportStyles.noBreakBannerText}>
+                  No break registered for this day
                 </Text>
-                <View style={styles.dayModalSelectionActions}>
-                  {selectedSessions.size > 0 ? (
-                    <TouchableOpacity onPress={deselectAllSessions}>
-                      <Text style={styles.dayModalSelectionBtn}>Clear</Text>
-                    </TouchableOpacity>
-                  ) : (
-                    <TouchableOpacity onPress={selectAllSessions}>
-                      <Text style={styles.dayModalSelectionBtn}>Select All</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
               </View>
             )}
 
-            <ScrollView 
+            {/* Selection hint */}
+            {aggregatedLocations.length >= 1 && (
+              <View style={reportStyles.selectionHintBar}>
+                <Text style={reportStyles.selectionHintText}>
+                  {selectedSessions.size > 0
+                    ? `${selectedSessions.size} selected`
+                    : 'Tap to select'}
+                </Text>
+                {selectedSessions.size > 0 ? (
+                  <TouchableOpacity onPress={deselectAllSessions}>
+                    <Text style={reportStyles.selectionHintBtn}>Clear</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity onPress={selectAllSessions}>
+                    <Text style={reportStyles.selectionHintBtn}>Select All</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
+
+            <ScrollView
               style={styles.dayModalSessionsList}
               contentContainerStyle={styles.dayModalSessionsContent}
             >
-              {dayModalSessions.filter(s => s.exit_at).length === 0 ? (
+              {aggregatedLocations.length === 0 ? (
                 <View style={styles.dayModalEmpty}>
                   <Ionicons name="document-text-outline" size={48} color={colors.textMuted} />
                   <Text style={styles.dayModalEmptyText}>No completed sessions</Text>
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={styles.dayModalAddBtn}
                     onPress={() => selectedDayForModal && openManualEntry(selectedDayForModal)}
                   >
@@ -606,78 +801,74 @@ export default function ReportsScreen() {
                   </TouchableOpacity>
                 </View>
               ) : (
-                dayModalSessions
-                  .filter(s => s.exit_at)
-                  .map((session: ComputedSession) => {
-                    const isSessionSelected = selectedSessions.has(session.id);
-                    const isManual = session.type === 'manual';
-                    const isEdited = session.manually_edited === 1 && !isManual;
-                    const pauseMin = session.pause_minutes || 0;
-                    const netTotal = Math.max(0, session.duration_minutes - pauseMin);
+                aggregatedLocations.map((agg: AggregatedLocation) => {
+                  // Check if all sessions in this location are selected
+                  const allSelected = agg.sessions.every(s => selectedSessions.has(s.id));
+                  const someSelected = agg.sessions.some(s => selectedSessions.has(s.id));
 
-                    return (
-                      <TouchableOpacity
-                        key={session.id}
-                        style={[
-                          styles.dayModalSession,
-                          isSessionSelected && styles.dayModalSessionSelected
-                        ]}
-                        onPress={() => toggleSelectSession(session.id)}
-                        onLongPress={() => handleDeleteSession(session)}
-                        delayLongPress={600}
-                      >
-                        <View style={[
-                          styles.dayModalCheckbox,
-                          isSessionSelected && styles.dayModalCheckboxSelected
-                        ]}>
-                          {isSessionSelected && <Ionicons name="checkmark" size={16} color={colors.white} />}
-                        </View>
-                        
-                        <View style={styles.dayModalSessionInfo}>
-                          <View style={styles.dayModalSessionHeader}>
-                            <Text style={styles.dayModalSessionLocation}>{session.location_name}</Text>
-                            <View style={[styles.dayModalSessionDot, { backgroundColor: session.color || colors.primary }]} />
-                          </View>
-                          
-                          <Text style={[
-                            styles.dayModalSessionTime,
-                            (isManual || isEdited) && styles.dayModalSessionTimeEdited
-                          ]}>
-                            {isManual || isEdited ? 'Edited · ' : 'GPS · '}
-                            {formatTimeAMPM(session.entry_at)} → {formatTimeAMPM(session.exit_at!)}
-                          </Text>
-                          
-                          {pauseMin > 0 && (
-                            <Text style={styles.dayModalSessionPause}>Break: {pauseMin}min</Text>
+                  return (
+                    <TouchableOpacity
+                      key={agg.locationId}
+                      style={[
+                        styles.dayModalSession,
+                        someSelected && reportStyles.sessionItemSelected
+                      ]}
+                      onPress={() => {
+                        // Toggle selection for all sessions in this location
+                        for (const s of agg.sessions) {
+                          toggleSelectSession(s.id);
+                        }
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <View style={[
+                        reportStyles.sessionCheckbox,
+                        allSelected && reportStyles.sessionCheckboxSelected
+                      ]}>
+                        {allSelected && <Ionicons name="checkmark" size={18} color={colors.white} />}
+                      </View>
+                      <View style={[reportStyles.sessionColorBar, { backgroundColor: agg.color }]} />
+                      <View style={styles.dayModalSessionInfo}>
+                        <View style={styles.dayModalSessionHeader}>
+                          <Text style={styles.dayModalSessionLocation}>{agg.locationName}</Text>
+                          {agg.sessionsCount > 1 && (
+                            <View style={reportStyles.sessionCountBadge}>
+                              <Text style={reportStyles.sessionCountText}>{agg.sessionsCount}x</Text>
+                            </View>
                           )}
-                          
-                          <Text style={styles.dayModalSessionTotal}>{formatDuration(netTotal)}</Text>
                         </View>
-                      </TouchableOpacity>
-                    );
-                  })
+
+                        <Text style={[
+                          styles.dayModalSessionTime,
+                          agg.isEdited && styles.dayModalSessionTimeEdited
+                        ]}>
+                          {agg.isEdited ? '✏️ ' : ''}
+                          {formatTimeAMPM(agg.firstEntry)} → {formatTimeAMPM(agg.lastExit)}
+                        </Text>
+
+                        {agg.totalBreakMinutes > 0 && (
+                          <Text style={styles.dayModalSessionPause}>☕ {agg.totalBreakMinutes}min break</Text>
+                        )}
+
+                        <Text style={styles.dayModalSessionTotal}>{formatDuration(agg.totalMinutes)}</Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })
               )}
             </ScrollView>
 
-            {dayModalSessions.filter(s => s.exit_at).length > 0 && (
+            {aggregatedLocations.length > 0 && (
               <View style={styles.dayModalTotalBar}>
                 <Text style={styles.dayModalTotalLabel}>Day Total</Text>
                 <Text style={styles.dayModalTotalValue}>
                   {formatDuration(
-                    dayModalSessions
-                      .filter(s => s.exit_at)
-                      .reduce((acc, s) => {
-                        const pauseMin = s.pause_minutes || 0;
-                        return acc + Math.max(0, s.duration_minutes - pauseMin);
-                      }, 0)
+                    aggregatedLocations.reduce((acc, agg) => acc + agg.totalMinutes, 0)
                   )}
                 </Text>
               </View>
             )}
 
-            <TouchableOpacity style={styles.dayModalCloseBtn} onPress={closeDayModal}>
-              <Text style={styles.dayModalCloseBtnText}>Close</Text>
-            </TouchableOpacity>
           </Animated.View>
         </Animated.View>
       </Modal>
@@ -696,7 +887,7 @@ export default function ReportsScreen() {
             {/* Header */}
             <View style={styles.dayModalHeader}>
               <Text style={styles.dayModalTitle}>
-                Add Manual Entry
+                {editingSessionId ? 'Edit Entry' : 'Add Manual Entry'}
               </Text>
               <Text style={styles.dayModalSubtitle}>
                 {manualDate ? formatDateRange(manualDate, manualDate) : ''}
@@ -745,17 +936,34 @@ export default function ReportsScreen() {
                   {/* Location Picker */}
                   <View style={reportStyles.inputGroup}>
                     <Text style={reportStyles.inputLabel}>Location</Text>
-                    <View style={reportStyles.pickerContainer}>
-                      <Picker
-                        selectedValue={manualLocationId}
-                        onValueChange={setManualLocationId}
-                        style={reportStyles.picker}
+                    {locations.length === 0 ? (
+                      <TouchableOpacity
+                        style={reportStyles.noLocationsContainer}
+                        onPress={() => {
+                          setShowManualModal(false);
+                          router.push('/(tabs)/map');
+                        }}
                       >
-                        {locations.map((loc: any) => (
-                          <Picker.Item key={loc.id} label={loc.name} value={loc.id} />
-                        ))}
-                      </Picker>
-                    </View>
+                        <Ionicons name="location-outline" size={24} color={colors.textMuted} />
+                        <Text style={reportStyles.noLocationsText}>Register a location first</Text>
+                        <View style={reportStyles.noLocationsBtn}>
+                          <Ionicons name="add" size={20} color={colors.white} />
+                          <Text style={reportStyles.noLocationsBtnText}>Go to Locations</Text>
+                        </View>
+                      </TouchableOpacity>
+                    ) : (
+                      <View style={reportStyles.pickerContainer}>
+                        <Picker
+                          selectedValue={manualLocationId}
+                          onValueChange={setManualLocationId}
+                          style={reportStyles.picker}
+                        >
+                          {locations.map((loc: any) => (
+                            <Picker.Item key={loc.id} label={loc.name} value={loc.id} />
+                          ))}
+                        </Picker>
+                      </View>
+                    )}
                   </View>
 
                   {/* Entry Time */}
@@ -765,7 +973,7 @@ export default function ReportsScreen() {
                       <TextInput
                         style={reportStyles.timeInput}
                         value={manualEntryH}
-                        onChangeText={setManualEntryH}
+                        onChangeText={handleEntryHourChange}
                         keyboardType="number-pad"
                         placeholder="HH"
                         maxLength={2}
@@ -781,6 +989,20 @@ export default function ReportsScreen() {
                         maxLength={2}
                         placeholderTextColor={colors.textMuted}
                       />
+                      <View style={reportStyles.ampmToggle}>
+                        <TouchableOpacity
+                          style={[reportStyles.ampmBtn, entryPeriod === 'AM' && reportStyles.ampmBtnActive]}
+                          onPress={() => setEntryPeriod('AM')}
+                        >
+                          <Text style={[reportStyles.ampmText, entryPeriod === 'AM' && reportStyles.ampmTextActive]}>AM</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[reportStyles.ampmBtn, entryPeriod === 'PM' && reportStyles.ampmBtnActive]}
+                          onPress={() => setEntryPeriod('PM')}
+                        >
+                          <Text style={[reportStyles.ampmText, entryPeriod === 'PM' && reportStyles.ampmTextActive]}>PM</Text>
+                        </TouchableOpacity>
+                      </View>
                     </View>
                   </View>
 
@@ -791,7 +1013,7 @@ export default function ReportsScreen() {
                       <TextInput
                         style={reportStyles.timeInput}
                         value={manualExitH}
-                        onChangeText={setManualExitH}
+                        onChangeText={handleExitHourChange}
                         keyboardType="number-pad"
                         placeholder="HH"
                         maxLength={2}
@@ -807,6 +1029,20 @@ export default function ReportsScreen() {
                         maxLength={2}
                         placeholderTextColor={colors.textMuted}
                       />
+                      <View style={reportStyles.ampmToggle}>
+                        <TouchableOpacity
+                          style={[reportStyles.ampmBtn, exitPeriod === 'AM' && reportStyles.ampmBtnActive]}
+                          onPress={() => setExitPeriod('AM')}
+                        >
+                          <Text style={[reportStyles.ampmText, exitPeriod === 'AM' && reportStyles.ampmTextActive]}>AM</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[reportStyles.ampmBtn, exitPeriod === 'PM' && reportStyles.ampmBtnActive]}
+                          onPress={() => setExitPeriod('PM')}
+                        >
+                          <Text style={[reportStyles.ampmText, exitPeriod === 'PM' && reportStyles.ampmTextActive]}>PM</Text>
+                        </TouchableOpacity>
+                      </View>
                     </View>
                   </View>
 
@@ -862,7 +1098,7 @@ export default function ReportsScreen() {
               </TouchableOpacity>
               <TouchableOpacity
                 style={reportStyles.manualModalSaveBtn}
-                onPress={handleSaveManual}
+                onPress={handleSaveManualWithAmPm}
               >
                 <Text style={reportStyles.manualModalSaveBtnText}>Save</Text>
               </TouchableOpacity>
@@ -1028,10 +1264,40 @@ const reportStyles = StyleSheet.create({
   weekDayNumToday: {
     color: colors.buttonPrimaryText,
   },
+  weekDayRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   weekDayHours: {
     fontSize: 13,
     fontWeight: '600',
     color: colors.text,
+  },
+  noBreakDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.error || '#EF4444',
+  },
+  noBreakBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    backgroundColor: withOpacity(colors.error || '#EF4444', 0.1),
+    borderRadius: 8,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: withOpacity(colors.error || '#EF4444', 0.3),
+  },
+  noBreakBannerText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: colors.error || '#EF4444',
+    flex: 1,
   },
 
   monthHeader: {
@@ -1091,12 +1357,22 @@ const reportStyles = StyleSheet.create({
     color: colors.white,
     fontWeight: '700',
   },
+  monthDayDots: {
+    flexDirection: 'row',
+    gap: 2,
+    marginTop: 1,
+  },
   monthDayDot: {
     width: 3,
     height: 3,
     borderRadius: 1.5,
     backgroundColor: colors.accent,
-    marginTop: 1,
+  },
+  monthDayNoBreakDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: colors.error || '#EF4444',
   },
 
   // Batch Action Bar - Between calendar and chart
@@ -1289,6 +1565,182 @@ const reportStyles = StyleSheet.create({
   manualModalSaveBtnText: {
     fontSize: 16,
     fontWeight: '700',
+    color: colors.buttonPrimaryText,
+  },
+
+  // Action Modal (Edit/Delete)
+  // Day Modal Header V2 - Two lines
+  dayModalHeaderV2: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  dayModalTitleV2: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.text,
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  dayModalActionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+  },
+  dayModalActionBtn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    minWidth: 56,
+  },
+  dayModalActionBtnDisabled: {
+    opacity: 0.4,
+  },
+  dayModalActionLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    marginTop: 4,
+  },
+  dayModalActionLabelDisabled: {
+    color: colors.textMuted,
+  },
+  dayModalActionBtnClose: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: colors.accent,
+    minWidth: 56,
+  },
+  dayModalActionLabelClose: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.white,
+    marginTop: 4,
+  },
+
+  // Selection hint bar
+  selectionHintBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: colors.surfaceMuted,
+  },
+  selectionHintText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: colors.textSecondary,
+  },
+  selectionHintBtn: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.primary,
+  },
+
+  // Session item styles
+  sessionItemSelected: {
+    backgroundColor: withOpacity(colors.primary, 0.1),
+    borderColor: colors.primary,
+  },
+  sessionCheckbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: colors.border,
+    marginRight: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: colors.card,
+  },
+  sessionCheckboxSelected: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  sessionColorBar: {
+    width: 4,
+    borderRadius: 2,
+    marginRight: 12,
+    alignSelf: 'stretch',
+  },
+  sessionCountBadge: {
+    backgroundColor: colors.surfaceMuted,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    marginLeft: 8,
+  },
+  sessionCountText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+
+  // No locations message
+  noLocationsContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 24,
+    paddingHorizontal: 16,
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderStyle: 'dashed',
+    gap: 12,
+  },
+  noLocationsText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: colors.textSecondary,
+    textAlign: 'center',
+  },
+  noLocationsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    backgroundColor: colors.primary,
+    borderRadius: 10,
+  },
+  noLocationsBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.white,
+  },
+
+  // AM/PM Toggle Styles
+  ampmToggle: {
+    flexDirection: 'row',
+    marginLeft: 12,
+    borderRadius: 8,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  ampmBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    backgroundColor: colors.surfaceMuted,
+  },
+  ampmBtnActive: {
+    backgroundColor: colors.primary,
+  },
+  ampmText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  ampmTextActive: {
     color: colors.buttonPrimaryText,
   },
 });

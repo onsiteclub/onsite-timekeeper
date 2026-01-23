@@ -25,7 +25,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import DateTimePicker from '@react-native-community/datetimepicker';
+import DateTimePicker from '@react-native-community/datetimepicker'; // Keep for date picker only
 
 import { Card } from '../../src/components/ui/Button';
 import { colors } from '../../src/constants/colors';
@@ -34,6 +34,7 @@ import type { WorkLocation } from '../../src/stores/locationStore';
 import { useHomeScreen } from '../../src/screens/home/hooks';
 import { styles, fixedStyles } from '../../src/screens/home/styles';
 import { HomePermissionBanner } from '../../src/components/PermissionBanner';
+import { useSettingsStore } from '../../src/stores/settingsStore';
 
 // Helper to format date
 function formatDate(date: Date): string {
@@ -90,24 +91,30 @@ export default function HomeScreen() {
   const [showLogoTooltip, setShowLogoTooltip] = useState(false);
   const [showLocationDropdown, setShowLocationDropdown] = useState(false);
 
-  // Date picker state
-  const [selectedDate, setSelectedDate] = useState(new Date());
+  // Date picker state (use hook's state for unified handling)
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showDateDropdown, setShowDateDropdown] = useState(false);
 
-  // Time picker modals (using native pickers)
-  const [showEntryPicker, setShowEntryPicker] = useState(false);
-  const [showExitPicker, setShowExitPicker] = useState(false);
-  const [tempEntryTime, setTempEntryTime] = useState(new Date());
-  const [tempExitTime, setTempExitTime] = useState(new Date());
 
   // Break dropdown state
   const [showBreakDropdown, setShowBreakDropdown] = useState(false);
   const [showBreakCustomInput, setShowBreakCustomInput] = useState(false);
 
+  // AM/PM state for time inputs
+  const [entryPeriod, setEntryPeriod] = useState<'AM' | 'PM'>('AM');
+  const [exitPeriod, setExitPeriod] = useState<'PM' | 'AM'>('PM');
+
+  // Success modal state (after save)
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+
   // Toast notification for future dates
   const [toastMessage, setToastMessage] = useState('');
   const toastOpacity = useRef(new Animated.Value(0)).current;
+
+  // Send to modal state
+  const [showSendToModal, setShowSendToModal] = useState(false);
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [recentContacts] = useState<{ name: string; phone: string }[]>([]);
 
   const {
     userName,
@@ -121,6 +128,8 @@ export default function HomeScreen() {
     pauseTimer,
     activeLocations,
     locationCardsData,
+    manualDate,
+    setManualDate,
     manualLocationId,
     setManualLocationId,
     manualEntryH,
@@ -139,7 +148,27 @@ export default function HomeScreen() {
     handleRestart,
     handleSaveManual,
     getSuggestedTimes,
+    sendToFavorite,
   } = useHomeScreen();
+
+  // Get favorite contact from settings store
+  const { favoriteContact } = useSettingsStore();
+
+  // Helper to set time with AM/PM from 24h format
+  const setTimeWithAmPm = (
+    hour24: string,
+    setHour: (h: string) => void,
+    setPeriod: (p: 'AM' | 'PM') => void
+  ) => {
+    const h = parseInt(hour24, 10);
+    if (h >= 12) {
+      setPeriod('PM');
+      setHour(h === 12 ? '12' : String(h - 12).padStart(2, '0'));
+    } else {
+      setPeriod('AM');
+      setHour(h === 0 ? '12' : String(h).padStart(2, '0'));
+    }
+  };
 
   useEffect(() => {
     if (locations.length > 0 && !manualLocationId) {
@@ -147,15 +176,17 @@ export default function HomeScreen() {
       setManualLocationId(firstLocationId);
       const suggested = getSuggestedTimes?.(firstLocationId);
       if (suggested) {
-        setManualEntryH(suggested.entryH);
+        setTimeWithAmPm(suggested.entryH, setManualEntryH, setEntryPeriod);
         setManualEntryM(suggested.entryM);
-        setManualExitH(suggested.exitH);
+        setTimeWithAmPm(suggested.exitH, setManualExitH, setExitPeriod);
         setManualExitM(suggested.exitM);
       } else {
         setManualEntryH('09');
         setManualEntryM('00');
-        setManualExitH('17');
+        setEntryPeriod('AM');
+        setManualExitH('05');
         setManualExitM('00');
+        setExitPeriod('PM');
       }
     }
   }, [locations]);
@@ -165,9 +196,9 @@ export default function HomeScreen() {
     setShowLocationDropdown(false);
     const suggested = getSuggestedTimes?.(locationId);
     if (suggested) {
-      setManualEntryH(suggested.entryH);
+      setTimeWithAmPm(suggested.entryH, setManualEntryH, setEntryPeriod);
       setManualEntryM(suggested.entryM);
-      setManualExitH(suggested.exitH);
+      setTimeWithAmPm(suggested.exitH, setManualExitH, setExitPeriod);
       setManualExitM(suggested.exitM);
     }
   };
@@ -203,7 +234,7 @@ export default function HomeScreen() {
     ]).start(() => setToastMessage(''));
   };
 
-  // Date selection handlers
+  // Date selection handlers (using hook's manualDate for unified state)
   const handleDateSelect = (option: 'today' | 'yesterday' | 'custom') => {
     const newDate = new Date();
     if (option === 'yesterday') {
@@ -213,7 +244,7 @@ export default function HomeScreen() {
       setShowDateDropdown(false);
       return;
     }
-    setSelectedDate(newDate);
+    setManualDate(newDate);
     setShowDateDropdown(false);
   };
 
@@ -229,77 +260,137 @@ export default function HomeScreen() {
         return;
       }
 
-      setSelectedDate(date);
+      setManualDate(date);
     }
   };
 
-  // Time picker handlers
-  const handleOpenEntryPicker = () => {
-    const hour = parseInt(manualEntryH) || 9;
-    const minute = parseInt(manualEntryM) || 0;
-    const date = new Date();
-    date.setHours(hour, minute, 0, 0);
-    setTempEntryTime(date);
-    setShowEntryPicker(true);
-  };
 
-  const handleOpenExitPicker = () => {
-    const hour = parseInt(manualExitH) || 17;
-    const minute = parseInt(manualExitM) || 0;
-    const date = new Date();
-    date.setHours(hour, minute, 0, 0);
-    setTempExitTime(date);
-    setShowExitPicker(true);
-  };
+  // Smart time handlers - convert 24h to 12h automatically
+  const handleEntryHourChange = (text: string) => {
+    const cleaned = text.replace(/[^0-9]/g, '').slice(0, 2);
+    const hour = parseInt(cleaned, 10);
 
-  const onEntryTimeChange = (event: any, time?: Date) => {
-    if (Platform.OS === 'android') {
-      setShowEntryPicker(false);
-    }
-    if (time && event.type === 'set') {
-      const h = time.getHours().toString().padStart(2, '0');
-      const m = time.getMinutes().toString().padStart(2, '0');
-      setManualEntryH(h);
-      setManualEntryM(m);
-      if (Platform.OS === 'ios') {
-        setTempEntryTime(time);
-      }
+    if (!isNaN(hour) && hour >= 13 && hour <= 23) {
+      // 24h format detected - convert to 12h
+      setManualEntryH(String(hour - 12).padStart(2, '0'));
+      setEntryPeriod('PM');
+    } else if (!isNaN(hour) && hour === 12) {
+      setManualEntryH('12');
+      setEntryPeriod('PM');
+    } else if (!isNaN(hour) && hour === 0) {
+      setManualEntryH('12');
+      setEntryPeriod('AM');
+    } else {
+      setManualEntryH(cleaned);
     }
   };
 
-  const onExitTimeChange = (event: any, time?: Date) => {
-    if (Platform.OS === 'android') {
-      setShowExitPicker(false);
+  const handleExitHourChange = (text: string) => {
+    const cleaned = text.replace(/[^0-9]/g, '').slice(0, 2);
+    const hour = parseInt(cleaned, 10);
+
+    if (!isNaN(hour) && hour >= 13 && hour <= 23) {
+      // 24h format detected - convert to 12h
+      setManualExitH(String(hour - 12).padStart(2, '0'));
+      setExitPeriod('PM');
+    } else if (!isNaN(hour) && hour === 12) {
+      setManualExitH('12');
+      setExitPeriod('PM');
+    } else if (!isNaN(hour) && hour === 0) {
+      setManualExitH('12');
+      setExitPeriod('AM');
+    } else {
+      setManualExitH(cleaned);
     }
-    if (time && event.type === 'set') {
-      const h = time.getHours().toString().padStart(2, '0');
-      const m = time.getMinutes().toString().padStart(2, '0');
-      setManualExitH(h);
-      setManualExitM(m);
-      if (Platform.OS === 'ios') {
-        setTempExitTime(time);
-      }
+  };
+
+  // Convert 12h to 24h for calculation and saving
+  const get24Hour = (hour12: string, period: 'AM' | 'PM'): number => {
+    const h = parseInt(hour12, 10) || 0;
+    if (period === 'AM') {
+      return h === 12 ? 0 : h;
+    } else {
+      return h === 12 ? 12 : h + 12;
     }
   };
 
-  const confirmEntryTime = () => {
-    const h = tempEntryTime.getHours().toString().padStart(2, '0');
-    const m = tempEntryTime.getMinutes().toString().padStart(2, '0');
-    setManualEntryH(h);
-    setManualEntryM(m);
-    setShowEntryPicker(false);
+  // Calculate total hours in real-time (using 24h internally)
+  const entryH24 = get24Hour(manualEntryH, entryPeriod);
+  const exitH24 = get24Hour(manualExitH, exitPeriod);
+  const totalHours = calculateTotalHours(
+    String(entryH24).padStart(2, '0'),
+    manualEntryM,
+    String(exitH24).padStart(2, '0'),
+    manualExitM,
+    manualPause
+  );
+
+  // Save with AM/PM conversion to 24h format
+  const handleSaveManualWithAmPm = async () => {
+    // Convert to 24h format before saving
+    const entry24 = get24Hour(manualEntryH, entryPeriod);
+    const exit24 = get24Hour(manualExitH, exitPeriod);
+
+    // Temporarily set 24h values for the save function
+    setManualEntryH(String(entry24).padStart(2, '0'));
+    setManualExitH(String(exit24).padStart(2, '0'));
+
+    // Small delay to ensure state is updated
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    // Call the original save function
+    await handleSaveManual();
+
+    // Reset to 12h display values
+    const displayEntryH = entry24 > 12 ? entry24 - 12 : (entry24 === 0 ? 12 : entry24);
+    const displayExitH = exit24 > 12 ? exit24 - 12 : (exit24 === 0 ? 12 : exit24);
+    setManualEntryH(String(displayEntryH).padStart(2, '0'));
+    setManualExitH(String(displayExitH).padStart(2, '0'));
   };
 
-  const confirmExitTime = () => {
-    const h = tempExitTime.getHours().toString().padStart(2, '0');
-    const m = tempExitTime.getMinutes().toString().padStart(2, '0');
-    setManualExitH(h);
-    setManualExitM(m);
-    setShowExitPicker(false);
+  // Send to modal handlers
+  const handleSelectContact = (contact: { name: string; phone: string }) => {
+    setPhoneNumber(contact.phone);
   };
 
-  // Calculate total hours in real-time
-  const totalHours = calculateTotalHours(manualEntryH, manualEntryM, manualExitH, manualExitM, manualPause);
+  const handleSendToWhatsApp = async () => {
+    if (!phoneNumber.trim()) {
+      showToast('⚠️ Please enter a phone number');
+      return;
+    }
+
+    try {
+      // Format report message
+      const reportText = `📊 OnSite Work Report
+
+📍 Location: ${selectedLocation?.name || 'Unknown Location'}
+📅 Date: ${formatDate(manualDate)}
+
+⏰ Entry: ${manualEntryH.padStart(2, '0')}:${manualEntryM.padStart(2, '0')}
+⏰ Exit: ${manualExitH.padStart(2, '0')}:${manualExitM.padStart(2, '0')}
+☕ Break: ${manualPause ? `${manualPause} min` : 'None'}
+
+⏱️ Total: ${totalHours}
+
+Sent via OnSite Timekeeper 📱`;
+
+      // Clean phone number (remove all non-digits)
+      const cleanPhone = phoneNumber.replace(/\D/g, '');
+      
+      // Add country code if not present (assuming Canada)
+      const formattedPhone = cleanPhone.startsWith('1') ? cleanPhone : `1${cleanPhone}`;
+
+      // Open WhatsApp
+      const whatsappUrl = `whatsapp://send?phone=${formattedPhone}&text=${encodeURIComponent(reportText)}`;
+      
+      await Linking.openURL(whatsappUrl);
+      setShowSendToModal(false);
+      showToast('✅ Opening WhatsApp...');
+    } catch (error) {
+      showToast('❌ Could not open WhatsApp');
+      console.error('Error opening WhatsApp:', error);
+    }
+  };
 
   return (
     <View style={fixedStyles.container}>
@@ -431,7 +522,7 @@ export default function HomeScreen() {
         >
           <View style={fixedStyles.dateSelectorContent}>
             <Ionicons name="calendar-outline" size={16} color={colors.textSecondary} />
-            <Text style={fixedStyles.dateSelectorText}>{formatDateWithDay(selectedDate)}</Text>
+            <Text style={fixedStyles.dateSelectorText}>{formatDateWithDay(manualDate)}</Text>
           </View>
           <Ionicons name="chevron-down" size={16} color={colors.textSecondary} />
         </TouchableOpacity>
@@ -463,32 +554,88 @@ export default function HomeScreen() {
           </View>
         )}
 
-        {/* ENTRY TIME - Tap to select */}
+        {/* ENTRY TIME - Text inputs with AM/PM */}
         <View style={fixedStyles.timeRow}>
           <Text style={fixedStyles.timeLabel}>Entry</Text>
-          <TouchableOpacity
-            style={fixedStyles.timePickerButton}
-            onPress={handleOpenEntryPicker}
-          >
-            <Text style={fixedStyles.timePickerText}>
-              {manualEntryH.padStart(2, '0')}:{manualEntryM.padStart(2, '0')}
-            </Text>
-            <Ionicons name="time-outline" size={18} color={colors.textSecondary} />
-          </TouchableOpacity>
+          <View style={homeInputStyles.timeInputGroup}>
+            <TextInput
+              style={homeInputStyles.timeInput}
+              value={manualEntryH}
+              onChangeText={handleEntryHourChange}
+              keyboardType="number-pad"
+              placeholder="HH"
+              placeholderTextColor={colors.textMuted}
+              maxLength={2}
+              selectTextOnFocus
+            />
+            <Text style={homeInputStyles.timeSeparator}>:</Text>
+            <TextInput
+              style={homeInputStyles.timeInput}
+              value={manualEntryM}
+              onChangeText={(t) => setManualEntryM(t.replace(/[^0-9]/g, '').slice(0, 2))}
+              keyboardType="number-pad"
+              placeholder="MM"
+              placeholderTextColor={colors.textMuted}
+              maxLength={2}
+              selectTextOnFocus
+            />
+            <View style={homeInputStyles.ampmToggle}>
+              <TouchableOpacity
+                style={[homeInputStyles.ampmBtn, entryPeriod === 'AM' && homeInputStyles.ampmBtnActive]}
+                onPress={() => setEntryPeriod('AM')}
+              >
+                <Text style={[homeInputStyles.ampmText, entryPeriod === 'AM' && homeInputStyles.ampmTextActive]}>AM</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[homeInputStyles.ampmBtn, entryPeriod === 'PM' && homeInputStyles.ampmBtnActive]}
+                onPress={() => setEntryPeriod('PM')}
+              >
+                <Text style={[homeInputStyles.ampmText, entryPeriod === 'PM' && homeInputStyles.ampmTextActive]}>PM</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
 
-        {/* EXIT TIME - Tap to select */}
+        {/* EXIT TIME - Text inputs with AM/PM */}
         <View style={fixedStyles.timeRow}>
-          <Text style={fixedStyles.timeLabelLg}>Exit</Text>
-          <TouchableOpacity
-            style={fixedStyles.timePickerButtonLg}
-            onPress={handleOpenExitPicker}
-          >
-            <Text style={fixedStyles.timePickerTextLg}>
-              {manualExitH.padStart(2, '0')}:{manualExitM.padStart(2, '0')}
-            </Text>
-            <Ionicons name="time-outline" size={20} color={colors.textSecondary} />
-          </TouchableOpacity>
+          <Text style={fixedStyles.timeLabel}>Exit</Text>
+          <View style={homeInputStyles.timeInputGroup}>
+            <TextInput
+              style={homeInputStyles.timeInput}
+              value={manualExitH}
+              onChangeText={handleExitHourChange}
+              keyboardType="number-pad"
+              placeholder="HH"
+              placeholderTextColor={colors.textMuted}
+              maxLength={2}
+              selectTextOnFocus
+            />
+            <Text style={homeInputStyles.timeSeparator}>:</Text>
+            <TextInput
+              style={homeInputStyles.timeInput}
+              value={manualExitM}
+              onChangeText={(t) => setManualExitM(t.replace(/[^0-9]/g, '').slice(0, 2))}
+              keyboardType="number-pad"
+              placeholder="MM"
+              placeholderTextColor={colors.textMuted}
+              maxLength={2}
+              selectTextOnFocus
+            />
+            <View style={homeInputStyles.ampmToggle}>
+              <TouchableOpacity
+                style={[homeInputStyles.ampmBtn, exitPeriod === 'AM' && homeInputStyles.ampmBtnActive]}
+                onPress={() => setExitPeriod('AM')}
+              >
+                <Text style={[homeInputStyles.ampmText, exitPeriod === 'AM' && homeInputStyles.ampmTextActive]}>AM</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[homeInputStyles.ampmBtn, exitPeriod === 'PM' && homeInputStyles.ampmBtnActive]}
+                onPress={() => setExitPeriod('PM')}
+              >
+                <Text style={[homeInputStyles.ampmText, exitPeriod === 'PM' && homeInputStyles.ampmTextActive]}>PM</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
 
         {/* BREAK - Dropdown with presets */}
@@ -576,7 +723,10 @@ export default function HomeScreen() {
         {/* Save Button */}
         <TouchableOpacity
           style={fixedStyles.saveButton}
-          onPress={handleSaveManual}
+          onPress={async () => {
+            await handleSaveManualWithAmPm();
+            setShowSuccessModal(true);
+          }}
         >
           <Ionicons name="checkmark-circle" size={20} color={colors.buttonPrimaryText} />
           <Text style={fixedStyles.saveButtonText}>Save Hours</Text>
@@ -649,102 +799,10 @@ export default function HomeScreen() {
         )}
       </Card>
 
-      {/* ============================================ */}
-      {/* TIME PICKERS - Native Modals */}
-      {/* ============================================ */}
-
-      {/* Entry Time Picker */}
-      {Platform.OS === 'ios' ? (
-        <Modal
-          visible={showEntryPicker}
-          transparent
-          animationType="slide"
-          onRequestClose={() => setShowEntryPicker(false)}
-        >
-          <TouchableOpacity
-            style={fixedStyles.pickerOverlay}
-            activeOpacity={1}
-            onPress={() => setShowEntryPicker(false)}
-          >
-            <View style={fixedStyles.pickerContainer}>
-              <View style={fixedStyles.pickerHeader}>
-                <TouchableOpacity onPress={() => setShowEntryPicker(false)}>
-                  <Text style={fixedStyles.pickerCancel}>Cancel</Text>
-                </TouchableOpacity>
-                <Text style={fixedStyles.pickerTitle}>Entry Time</Text>
-                <TouchableOpacity onPress={confirmEntryTime}>
-                  <Text style={fixedStyles.pickerDone}>Done</Text>
-                </TouchableOpacity>
-              </View>
-              <DateTimePicker
-                value={tempEntryTime}
-                mode="time"
-                display="spinner"
-                onChange={(e, time) => time && setTempEntryTime(time)}
-                style={fixedStyles.iosTimePicker}
-              />
-            </View>
-          </TouchableOpacity>
-        </Modal>
-      ) : (
-        showEntryPicker && (
-          <DateTimePicker
-            value={tempEntryTime}
-            mode="time"
-            display="default"
-            onChange={onEntryTimeChange}
-          />
-        )
-      )}
-
-      {/* Exit Time Picker */}
-      {Platform.OS === 'ios' ? (
-        <Modal
-          visible={showExitPicker}
-          transparent
-          animationType="slide"
-          onRequestClose={() => setShowExitPicker(false)}
-        >
-          <TouchableOpacity
-            style={fixedStyles.pickerOverlay}
-            activeOpacity={1}
-            onPress={() => setShowExitPicker(false)}
-          >
-            <View style={fixedStyles.pickerContainer}>
-              <View style={fixedStyles.pickerHeader}>
-                <TouchableOpacity onPress={() => setShowExitPicker(false)}>
-                  <Text style={fixedStyles.pickerCancel}>Cancel</Text>
-                </TouchableOpacity>
-                <Text style={fixedStyles.pickerTitle}>Exit Time</Text>
-                <TouchableOpacity onPress={confirmExitTime}>
-                  <Text style={fixedStyles.pickerDone}>Done</Text>
-                </TouchableOpacity>
-              </View>
-              <DateTimePicker
-                value={tempExitTime}
-                mode="time"
-                display="spinner"
-                onChange={(e, time) => time && setTempExitTime(time)}
-                style={fixedStyles.iosTimePicker}
-              />
-            </View>
-          </TouchableOpacity>
-        </Modal>
-      ) : (
-        showExitPicker && (
-          <DateTimePicker
-            value={tempExitTime}
-            mode="time"
-            display="default"
-            onChange={onExitTimeChange}
-          />
-        )
-      )}
-
-      {/* Date Picker */}
+      {/* Date Picker (keep this - only for date selection) */}
       {showDatePicker && (
         <DateTimePicker
-          value={selectedDate}
+          value={manualDate}
           mode="date"
           display={Platform.OS === 'ios' ? 'inline' : 'default'}
           onChange={onDateChange}
@@ -752,6 +810,146 @@ export default function HomeScreen() {
         />
       )}
       </ScrollView>
+
+      {/* ============================================ */}
+      {/* SUCCESS MODAL (after save) */}
+      {/* ============================================ */}
+      <Modal
+        visible={showSuccessModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowSuccessModal(false)}
+      >
+        <TouchableOpacity
+          style={homeInputStyles.successModalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowSuccessModal(false)}
+        >
+          <View style={homeInputStyles.successModalContent}>
+            <View style={homeInputStyles.successIcon}>
+              <Ionicons name="checkmark-circle" size={48} color={colors.success || '#22C55E'} />
+            </View>
+            <Text style={homeInputStyles.successTitle}>Hours Saved!</Text>
+            <Text style={homeInputStyles.successSubtitle}>
+              {selectedLocation?.name} • {totalHours}
+            </Text>
+
+            {/* Send to WhatsApp option */}
+            <TouchableOpacity
+              style={homeInputStyles.successSendBtn}
+              onPress={() => {
+                setShowSuccessModal(false);
+                setShowSendToModal(true);
+              }}
+            >
+              <Ionicons name="logo-whatsapp" size={20} color={colors.white} />
+              <Text style={homeInputStyles.successSendBtnText}>Send to WhatsApp</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={homeInputStyles.successCloseBtn}
+              onPress={() => setShowSuccessModal(false)}
+            >
+              <Text style={homeInputStyles.successCloseBtnText}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ============================================ */}
+      {/* SEND TO MODAL */}
+      {/* ============================================ */}
+      <Modal
+        visible={showSendToModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowSendToModal(false)}
+      >
+        <TouchableOpacity
+          style={fixedStyles.sendToModalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowSendToModal(false)}
+        >
+          <View style={fixedStyles.sendToModalContainer}>
+            {/* Header */}
+            <View style={fixedStyles.sendToModalHeader}>
+              <Ionicons name="paper-plane" size={20} color={colors.accent} />
+              <Text style={fixedStyles.sendToModalTitle}>Send Report</Text>
+              <TouchableOpacity
+                style={fixedStyles.sendToModalCloseButton}
+                onPress={() => setShowSendToModal(false)}
+              >
+                <Ionicons name="close" size={16} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Phone Input */}
+            <View style={fixedStyles.phoneInputContainer}>
+              <Text style={fixedStyles.phoneInputLabel}>Phone Number</Text>
+              <View style={fixedStyles.phoneInputRow}>
+                <TextInput
+                  style={fixedStyles.phoneInput}
+                  placeholder="+55 11 99999-9999"
+                  placeholderTextColor={colors.textMuted}
+                  value={phoneNumber}
+                  onChangeText={setPhoneNumber}
+                  keyboardType="phone-pad"
+                  autoFocus
+                />
+                <TouchableOpacity style={fixedStyles.contactsButton}>
+                  <Ionicons name="person-add" size={18} color={colors.white} />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Recent Contacts */}
+            <View style={fixedStyles.recentContactsContainer}>
+              <Text style={fixedStyles.recentContactsTitle}>Recent</Text>
+              {recentContacts.length > 0 ? (
+                recentContacts.map((contact, index) => (
+                  <TouchableOpacity
+                    key={index}
+                    style={fixedStyles.recentContactItem}
+                    onPress={() => handleSelectContact(contact)}
+                  >
+                    <View style={fixedStyles.recentContactInfo}>
+                      <Text style={fixedStyles.recentContactName}>{contact.name}</Text>
+                      <Text style={fixedStyles.recentContactPhone}>{contact.phone}</Text>
+                    </View>
+                    <TouchableOpacity
+                      style={fixedStyles.recentContactSelect}
+                      onPress={() => handleSelectContact(contact)}
+                    >
+                      <Ionicons name="checkmark" size={12} color={colors.white} />
+                    </TouchableOpacity>
+                  </TouchableOpacity>
+                ))
+              ) : (
+                <Text style={fixedStyles.emptyContactsText}>
+                  No recent contacts
+                </Text>
+              )}
+            </View>
+
+            {/* Actions */}
+            <View style={fixedStyles.sendToModalActions}>
+              <TouchableOpacity
+                style={fixedStyles.sendToModalCancelButton}
+                onPress={() => setShowSendToModal(false)}
+              >
+                <Text style={fixedStyles.sendToModalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={fixedStyles.sendToModalSendButton}
+                onPress={handleSendToWhatsApp}
+              >
+                <Ionicons name="logo-whatsapp" size={16} color={colors.white} />
+                <Text style={fixedStyles.sendToModalSendText}>WhatsApp</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
       {/* Toast Notification */}
       {toastMessage !== '' && (
@@ -791,5 +989,113 @@ const toastStyles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     textAlign: 'center',
+  },
+});
+
+// Time input styles (simple text inputs instead of picker)
+const homeInputStyles = StyleSheet.create({
+  timeInputGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  timeInput: {
+    width: 48,
+    height: 44,
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    textAlign: 'center',
+    fontSize: 20,
+    fontWeight: '600',
+    color: colors.text,
+    paddingHorizontal: 4,
+  },
+  timeSeparator: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  // AM/PM Toggle
+  ampmToggle: {
+    flexDirection: 'row',
+    marginLeft: 8,
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: 8,
+    padding: 2,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  ampmBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+  },
+  ampmBtnActive: {
+    backgroundColor: colors.primary,
+  },
+  ampmText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  ampmTextActive: {
+    color: colors.buttonPrimaryText,
+  },
+  // Success Modal
+  successModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 32,
+  },
+  successModalContent: {
+    width: '100%',
+    backgroundColor: colors.card,
+    borderRadius: 20,
+    padding: 24,
+    alignItems: 'center',
+  },
+  successIcon: {
+    marginBottom: 12,
+  },
+  successTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 4,
+  },
+  successSubtitle: {
+    fontSize: 15,
+    color: colors.textSecondary,
+    marginBottom: 24,
+  },
+  successSendBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    width: '100%',
+    paddingVertical: 14,
+    backgroundColor: '#25D366',
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  successSendBtnText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.white,
+  },
+  successCloseBtn: {
+    width: '100%',
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  successCloseBtnText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: colors.textSecondary,
   },
 });

@@ -1,14 +1,23 @@
 /**
- * Sync Store - OnSite Timekeeper V2
- * 
+ * Sync Store - OnSite Timekeeper V3
+ *
  * Handles synchronization between local SQLite and Supabase.
- * 
- * CHANGES FROM V1:
- * - Removed: 5-minute auto-sync (battery drain)
- * - Added: Daily sync at midnight
- * - Added: Manual sync on demand
- * - Added: Sync on significant events (create location, end session)
- * - Fixed: Table names now match Supabase (locations, records)
+ *
+ * SUPABASE TABLES (KRONOS):
+ * - app_timekeeper_geofences → local "locations" table
+ * - app_timekeeper_entries → local "records" table
+ * - app_timekeeper_projects → (not used yet)
+ *
+ * LOCAL ONLY (no Supabase table):
+ * - analytics_daily → marked synced locally
+ * - error_log → marked synced locally
+ * - location_audit → marked synced locally
+ *
+ * SYNC TRIGGERS:
+ * - On boot (initial sync)
+ * - At midnight (daily sync)
+ * - After create/edit/delete location
+ * - After entry/exit geofence events
  */
 
 import { create } from 'zustand';
@@ -408,11 +417,16 @@ async function uploadLocations(userId: string): Promise<{ count: number; errors:
 
   try {
     const locations = await getLocationsForSync(userId);
-    logger.debug('sync', `📤 ${locations.length} locations pending`);
+    logger.info('sync', `[SYNC:geofences] UPLOAD START - ${locations.length} pending`);
 
     for (const location of locations) {
       try {
-        const { error } = await supabase.from('locations').upsert({
+        // Map local fields to Supabase app_timekeeper_geofences schema
+        // status mapping: local 'deleted' → Supabase 'archived'
+        // Allowed values: 'active', 'paused', 'archived'
+        const statusMapped = location.status === 'deleted' ? 'archived' : location.status;
+
+        const payload = {
           id: location.id,
           user_id: location.user_id,
           name: location.name,
@@ -420,26 +434,44 @@ async function uploadLocations(userId: string): Promise<{ count: number; errors:
           longitude: location.longitude,
           radius: location.radius,
           color: location.color,
-          status: location.status,
+          status: statusMapped,
           deleted_at: location.deleted_at,
-          last_seen_at: location.last_seen_at,
+          last_entry_at: location.last_seen_at, // Mapped: last_seen_at → last_entry_at
           created_at: location.created_at,
           updated_at: location.updated_at,
+          synced_at: new Date().toISOString(),
+        };
+
+        logger.info('sync', `[SYNC:geofences] UPSERT ATTEMPT - ${location.name}`, { payload });
+
+        const { data, error, status, statusText } = await supabase
+          .from('app_timekeeper_geofences')
+          .upsert(payload)
+          .select();
+
+        logger.info('sync', `[SYNC:geofences] UPSERT RESPONSE - status: ${status} ${statusText}`, {
+          data,
+          error: error ? { message: error.message, code: error.code, details: error.details } : null
         });
 
         if (error) {
-          const errMsg = `Location ${location.name}: ${error.message}`;
+          const errMsg = `Geofence ${location.name}: ${error.message}`;
           errors.push(errMsg);
-          logger.error('sync', `❌ Upload location failed: ${location.name}`, { error: error.message, code: error.code });
+          logger.error('sync', `[SYNC:geofences] UPLOAD ERROR - ${location.name}: ${error.message} (code: ${error.code})`);
           await captureSyncError(new Error(error.message), { userId, action: 'uploadLocations', locationName: location.name });
+        } else if (!data || data.length === 0) {
+          // RLS might be blocking silently
+          logger.warn('sync', `[SYNC:geofences] UPLOAD WARNING - ${location.name}: No data returned (RLS blocking?)`);
+          errors.push(`Geofence ${location.name}: No data returned (possible RLS issue)`);
         } else {
           await markLocationSynced(location.id);
           count++;
+          logger.info('sync', `[SYNC:geofences] UPLOAD OK - ${location.name}`);
         }
       } catch (e) {
-        const errMsg = `Location ${location.name}: ${e}`;
+        const errMsg = `Geofence ${location.name}: ${e}`;
         errors.push(errMsg);
-        logger.error('sync', `❌ Upload location exception: ${location.name}`, { error: String(e) });
+        logger.error('sync', `❌ Upload geofence exception: ${location.name}`, { error: String(e) });
         await captureSyncError(e as Error, { userId, action: 'uploadLocations', locationName: location.name });
       }
     }
@@ -456,38 +488,69 @@ async function uploadRecords(userId: string): Promise<{ count: number; errors: s
 
   try {
     const records = await getRecordsForSync(userId);
-    logger.debug('sync', `📤 ${records.length} records pending`);
+    logger.info('sync', `[SYNC:entries] UPLOAD START - ${records.length} pending`);
 
     for (const record of records) {
       try {
-        const { error } = await supabase.from('records').upsert({
+        // Calculate duration if exit exists
+        let durationMinutes: number | null = null;
+        if (record.exit_at && record.entry_at) {
+          const entry = new Date(record.entry_at).getTime();
+          const exit = new Date(record.exit_at).getTime();
+          durationMinutes = Math.round((exit - entry) / 60000) - (record.pause_minutes || 0);
+        }
+
+        // Map local fields to Supabase app_timekeeper_entries schema
+        // entry_method mapping: local 'automatic' → Supabase 'geofence'
+        // Allowed values: 'manual', 'geofence', 'qrcode', 'nfc', 'voice'
+        const entryMethod = record.type === 'automatic' ? 'geofence' : record.type;
+
+        const payload = {
           id: record.id,
           user_id: record.user_id,
-          location_id: record.location_id,
-          location_name: record.location_name,
+          geofence_id: record.location_id,        // Mapped: location_id → geofence_id
+          geofence_name: record.location_name,    // Mapped: location_name → geofence_name
           entry_at: record.entry_at,
           exit_at: record.exit_at,
-          type: record.type,
+          entry_method: entryMethod,              // Mapped: 'automatic' → 'geofence'
+          is_manual_entry: entryMethod === 'manual',
           manually_edited: record.manually_edited === 1,
           edit_reason: record.edit_reason,
           integrity_hash: record.integrity_hash,
-          color: record.color,
           device_id: record.device_id,
           pause_minutes: record.pause_minutes || 0,
-          created_at: record.created_at,
+          duration_minutes: durationMinutes,
+          client_created_at: record.created_at,   // Mapped: created_at → client_created_at
+          synced_at: new Date().toISOString(),
+        };
+
+        logger.info('sync', `[SYNC:entries] UPSERT ATTEMPT - ${record.location_name}`, { payload });
+
+        const { data, error, status, statusText } = await supabase
+          .from('app_timekeeper_entries')
+          .upsert(payload)
+          .select();
+
+        logger.info('sync', `[SYNC:entries] UPSERT RESPONSE - status: ${status} ${statusText}`, {
+          data,
+          error: error ? { message: error.message, code: error.code, details: error.details } : null
         });
 
         if (error) {
-          errors.push(`Record: ${error.message}`);
-          logger.error('sync', `❌ Upload record failed`, { error: error.message, code: error.code, recordId: record.id });
+          errors.push(`Entry: ${error.message}`);
+          logger.error('sync', `[SYNC:entries] UPLOAD ERROR - ${record.location_name}: ${error.message}`);
           await captureSyncError(new Error(error.message), { userId, action: 'uploadRecords' });
-        }  else {
+        } else if (!data || data.length === 0) {
+          logger.warn('sync', `[SYNC:entries] UPLOAD WARNING - ${record.location_name}: No data returned (RLS blocking?)`);
+          errors.push(`Entry ${record.location_name}: No data returned (possible RLS issue)`);
+        } else {
           await markRecordSynced(record.id);
           count++;
+          logger.info('sync', `[SYNC:entries] UPLOAD OK - ${record.location_name} (${record.type})`);
         }
       } catch (e) {
-        errors.push(`Record: ${e}`);
-        logger.error('sync', `❌ Upload record exception`, { error: String(e), recordId: record.id });
+        errors.push(`Entry: ${e}`);
+        logger.error('sync', `❌ Upload entry exception`, { error: String(e), recordId: record.id });
         await captureSyncError(e as Error, { userId, action: 'uploadRecords' });
       }
     }
@@ -499,165 +562,70 @@ async function uploadRecords(userId: string): Promise<{ count: number; errors: s
 }
 
 async function uploadAnalytics(userId: string): Promise<{ count: number; errors: string[] }> {
-  let count = 0;
+  // NOTE: analytics_daily table doesn't exist in Supabase - mark as synced locally only
   const errors: string[] = [];
 
   try {
     const analytics = await getAnalyticsForSync(userId);
-    logger.debug('sync', `📤 ${analytics.length} analytics days pending`);
+
+    if (analytics.length === 0) {
+      return { count: 0, errors };
+    }
+
+    logger.debug('sync', `[SYNC:analytics] SKIP - table not in Supabase, marking ${analytics.length} days as synced locally`);
 
     for (const day of analytics) {
-      try {
-        // Parse features_used JSON
-        let featuresUsed: string[] = [];
-        try {
-          featuresUsed = JSON.parse(day.features_used || '[]');
-        } catch {}
-
-        const { error } = await supabase.from('analytics_daily').upsert({
-          date: day.date,
-          user_id: day.user_id,
-          sessions_count: day.sessions_count,
-          total_minutes: day.total_minutes,
-          manual_entries: day.manual_entries,
-          auto_entries: day.auto_entries,
-          locations_created: day.locations_created,
-          locations_deleted: day.locations_deleted,
-          app_opens: day.app_opens,
-          app_foreground_seconds: day.app_foreground_seconds,
-          notifications_shown: day.notifications_shown,
-          notifications_actioned: day.notifications_actioned,
-          features_used: featuresUsed,
-          errors_count: day.errors_count,
-          sync_attempts: day.sync_attempts,
-          sync_failures: day.sync_failures,
-          geofence_triggers: day.geofence_triggers,
-          geofence_accuracy_avg: day.geofence_accuracy_count > 0 
-            ? day.geofence_accuracy_sum / day.geofence_accuracy_count 
-            : null,
-          app_version: day.app_version,
-          os: day.os,
-          device_model: day.device_model,
-        });
-
-        if (error) {
-          errors.push(`Analytics ${day.date}: ${error.message}`);
-          // ✅ AGORA SALVA O ERRO NO SQLITE
-          await captureSyncError(new Error(error.message), { userId, action: 'uploadAnalytics' });
-        } else {
-          await markAnalyticsSynced(day.date, day.user_id);
-          count++;
-        }
-      } catch (e) {
-        errors.push(`Analytics: ${e}`);
-        await captureSyncError(e as Error, { userId, action: 'uploadAnalytics' });
-      }
+      await markAnalyticsSynced(day.date, day.user_id);
     }
   } catch (error) {
-    errors.push(String(error));
-    await captureSyncError(error as Error, { userId, action: 'uploadAnalytics' });
+    logger.error('sync', '[SYNC:analytics] Error marking local sync', { error: String(error) });
   }
 
-  return { count, errors };
+  return { count: 0, errors };
 }
 
 async function uploadErrors(): Promise<{ count: number; errors: string[] }> {
-  let count = 0;
+  // NOTE: log_errors table doesn't exist in Supabase - mark as synced locally only
   const errors: string[] = [];
 
   try {
     const errorLogs = await getErrorsForSync(100);
-    logger.debug('sync', `📤 ${errorLogs.length} errors pending`);
 
-    const idsToMark: string[] = [];
-
-    for (const err of errorLogs) {
-      try {
-        // Parse context JSON
-        let context = null;
-        try {
-          context = err.error_context ? JSON.parse(err.error_context) : null;
-        } catch {}
-
-        const { error } = await supabase.from('error_log').insert({
-          id: err.id,
-          user_id: err.user_id,
-          error_type: err.error_type,
-          error_message: err.error_message,
-          error_stack: err.error_stack,
-          error_context: context,
-          app_version: err.app_version,
-          os: err.os,
-          os_version: err.os_version,
-          device_model: err.device_model,
-          occurred_at: err.occurred_at,
-        });
-
-        if (error) {
-          errors.push(`Error log: ${error.message}`);
-        } else {
-          idsToMark.push(err.id);
-          count++;
-        }
-      } catch (e) {
-        errors.push(`Error log: ${e}`);
-      }
+    if (errorLogs.length === 0) {
+      return { count: 0, errors };
     }
 
-    if (idsToMark.length > 0) {
-      await markErrorsSynced(idsToMark);
-    }
+    logger.debug('sync', `[SYNC:errors] SKIP - table not in Supabase, marking ${errorLogs.length} items as synced locally`);
+
+    const idsToMark = errorLogs.map(err => err.id);
+    await markErrorsSynced(idsToMark);
   } catch (error) {
-    errors.push(String(error));
+    logger.error('sync', '[SYNC:errors] Error marking local sync', { error: String(error) });
   }
 
-  return { count, errors };
+  return { count: 0, errors };
 }
 
 async function uploadAudit(userId: string): Promise<{ count: number; errors: string[] }> {
-  let count = 0;
+  // NOTE: log_locations table doesn't exist in Supabase - mark as synced locally only
   const errors: string[] = [];
 
   try {
     const audits = await getAuditForSync(userId, 100);
-    logger.debug('sync', `📤 ${audits.length} audits pending`);
 
-    const idsToMark: string[] = [];
-
-    for (const audit of audits) {
-      try {
-        const { error } = await supabase.from('location_audit').insert({
-          id: audit.id,
-          user_id: audit.user_id,
-          session_id: audit.session_id,
-          event_type: audit.event_type,
-          location_id: audit.location_id,
-          location_name: audit.location_name,
-          latitude: audit.latitude,
-          longitude: audit.longitude,
-          accuracy: audit.accuracy,
-          occurred_at: audit.occurred_at,
-        });
-
-        if (error) {
-          errors.push(`Audit: ${error.message}`);
-        } else {
-          idsToMark.push(audit.id);
-          count++;
-        }
-      } catch (e) {
-        errors.push(`Audit: ${e}`);
-      }
+    if (audits.length === 0) {
+      return { count: 0, errors };
     }
 
-    if (idsToMark.length > 0) {
-      await markAuditSynced(idsToMark);
-    }
+    logger.debug('sync', `[SYNC:audit] SKIP - table not in Supabase, marking ${audits.length} items as synced locally`);
+
+    const idsToMark = audits.map(audit => audit.id);
+    await markAuditSynced(idsToMark);
   } catch (error) {
-    errors.push(String(error));
+    logger.error('sync', '[SYNC:audit] Error marking local sync', { error: String(error) });
   }
 
-  return { count, errors };
+  return { count: 0, errors };
 }
 
 // ============================================
@@ -670,42 +638,54 @@ async function downloadLocations(userId: string): Promise<{ count: number; error
 
   try {
     const { data, error } = await supabase
-      .from('locations')
+      .from('app_timekeeper_geofences')
       .select('*')
       .eq('user_id', userId);
 
     if (error) {
       errors.push(error.message);
-      logger.error('sync', `❌ Download locations failed`, { error: error.message, code: error.code });
+      logger.error('sync', `❌ Download geofences failed`, { error: error.message, code: error.code });
       return { count, errors };
     }
 
-    logger.debug('sync', `📥 ${data?.length || 0} locations from Supabase`);
+    logger.debug('sync', `📥 ${data?.length || 0} geofences from Supabase`);
 
     for (const remote of data || []) {
       try {
+        // Map Supabase app_timekeeper_geofences to local schema
         await upsertLocationFromSync({
-          ...remote,
+          id: remote.id,
+          user_id: remote.user_id,
+          name: remote.name,
+          latitude: remote.latitude,
+          longitude: remote.longitude,
+          radius: remote.radius,
+          color: remote.color,
+          status: remote.status,
+          deleted_at: remote.deleted_at,
+          last_seen_at: remote.last_entry_at,  // Mapped: last_entry_at → last_seen_at
+          created_at: remote.created_at,
+          updated_at: remote.updated_at,
           synced_at: new Date().toISOString(),
         });
         count++;
       } catch (e) {
-        errors.push(`Location ${remote.name}: ${e}`);
-        logger.error('sync', `❌ Upsert location failed: ${remote.name}`, { error: String(e) });
+        errors.push(`Geofence ${remote.name}: ${e}`);
+        logger.error('sync', `❌ Upsert geofence failed: ${remote.name}`, { error: String(e) });
       }
     }
 
     // After downloading locations, ensure monitoring is started if needed
     if (count > 0) {
       const { useLocationStore } = require('./locationStore');
-await useLocationStore.getState().reloadLocations(); // Reload from SQLite first!
-const { locations, isMonitoring, startMonitoring } = useLocationStore.getState();
-      
+      await useLocationStore.getState().reloadLocations(); // Reload from SQLite first!
+      const { locations, isMonitoring, startMonitoring } = useLocationStore.getState();
+
       if (locations.length > 0 && !isMonitoring) {
         logger.info('sync', '🚀 Starting monitoring after download...');
         setReconfiguring(true); // Abre janela
         await startMonitoring();
-        
+
         // Fecha janela após 1s para permitir eventos iniciais serem queued
         setTimeout(() => {
           setReconfiguring(false);
@@ -715,7 +695,7 @@ const { locations, isMonitoring, startMonitoring } = useLocationStore.getState()
     }
   } catch (error) {
     errors.push(String(error));
-    logger.error('sync', `❌ Download locations exception`, { error: String(error) });
+    logger.error('sync', `❌ Download geofences exception`, { error: String(error) });
   }
 
   return { count, errors };
@@ -726,34 +706,47 @@ async function downloadRecords(userId: string): Promise<{ count: number; errors:
 
   try {
     const { data, error } = await supabase
-      .from('records')
+      .from('app_timekeeper_entries')
       .select('*')
       .eq('user_id', userId);
 
     if (error) {
       errors.push(error.message);
-      logger.error('sync', `❌ Download records failed`, { error: error.message, code: error.code });
+      logger.error('sync', `❌ Download entries failed`, { error: error.message, code: error.code });
       return { count, errors };
     }
 
-    logger.debug('sync', `📥 ${data?.length || 0} records from Supabase`);
+    logger.debug('sync', `📥 ${data?.length || 0} entries from Supabase`);
 
     for (const remote of data || []) {
       try {
+        // Map Supabase app_timekeeper_entries to local schema
         await upsertRecordFromSync({
-          ...remote,
+          id: remote.id,
+          user_id: remote.user_id,
+          location_id: remote.geofence_id,        // Mapped: geofence_id → location_id
+          location_name: remote.geofence_name,    // Mapped: geofence_name → location_name
+          entry_at: remote.entry_at,
+          exit_at: remote.exit_at,
+          type: remote.entry_method || (remote.is_manual_entry ? 'manual' : 'automatic'),  // Mapped: entry_method → type
           manually_edited: remote.manually_edited ? 1 : 0,
+          edit_reason: remote.edit_reason,
+          integrity_hash: remote.integrity_hash,
+          device_id: remote.device_id,
+          pause_minutes: remote.pause_minutes || 0,
+          color: null,  // Not in new schema
+          created_at: remote.client_created_at || remote.created_at,  // Mapped: client_created_at → created_at
           synced_at: new Date().toISOString(),
         });
         count++;
       } catch (e) {
-        errors.push(`Record: ${e}`);
-        logger.error('sync', `❌ Upsert record failed`, { error: String(e), recordId: remote.id });
+        errors.push(`Entry: ${e}`);
+        logger.error('sync', `❌ Upsert entry failed`, { error: String(e), recordId: remote.id });
       }
     }
   } catch (error) {
     errors.push(String(error));
-    logger.error('sync', `❌ Download records exception`, { error: String(error) });
+    logger.error('sync', `❌ Download entries exception`, { error: String(error) });
   }
 
   return { count, errors };

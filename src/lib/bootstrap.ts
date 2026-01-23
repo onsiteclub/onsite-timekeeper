@@ -136,14 +136,10 @@ export async function onUserLogin(userId: string): Promise<void> {
 export async function onUserLogout(): Promise<void> {
   logger.info('boot', '👤 User logging out...');
   await clearBackgroundUserId();
-  
-  const workSession = useWorkSessionStore.getState();
-  if (workSession.clearPending) {
-    await workSession.clearPending();
-  }
-  if (workSession.clearPause) {
-    workSession.clearPause();
-  }
+
+  // Clear any pending session state
+  const { clearAllPendingExitNotifications } = await import('./exitHandler');
+  clearAllPendingExitNotifications();
 }
 
 // ============================================

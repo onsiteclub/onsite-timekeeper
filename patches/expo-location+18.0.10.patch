@@ -1,0 +1,18 @@
+diff --git a/node_modules/expo-location/android/src/main/java/expo/modules/location/services/LocationTaskService.kt b/node_modules/expo-location/android/src/main/java/expo/modules/location/services/LocationTaskService.kt
+index 80647ab..4d4f841 100644
+--- a/node_modules/expo-location/android/src/main/java/expo/modules/location/services/LocationTaskService.kt
++++ b/node_modules/expo-location/android/src/main/java/expo/modules/location/services/LocationTaskService.kt
+@@ -88,8 +88,12 @@ class LocationTaskService : Service() {
+       builder.setContentIntent(contentIntent)
+     }
+ 
++    // Use notification_icon if available, otherwise fallback to app icon
++    val notificationIconId = resources.getIdentifier("notification_icon", "drawable", packageName)
++    val smallIconId = if (notificationIconId != 0) notificationIconId else applicationInfo.icon
++
+     return builder.setCategory(Notification.CATEGORY_SERVICE)
+-      .setSmallIcon(applicationInfo.icon)
++      .setSmallIcon(smallIconId)
+       .build()
+   }
+ 

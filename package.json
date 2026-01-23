@@ -8,7 +8,9 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
-    "doctor": "npx expo-doctor"
+    "doctor": "npx expo-doctor",
+    "lint": "eslint .",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "@expo/vector-icons": "^14.0.0",
@@ -30,7 +32,6 @@
     "expo-notifications": "~0.29.11",
     "expo-router": "~4.0.0",
     "expo-sharing": "~13.0.1",
-    "expo-splash-screen": "~0.29.18",
     "expo-sqlite": "~15.1.2",
     "expo-status-bar": "~2.0.0",
     "expo-task-manager": "~12.0.3",
@@ -48,6 +49,9 @@
   "devDependencies": {
     "@babel/core": "^7.25.2",
     "@types/react": "~18.3.12",
+    "eslint": "^8.57.0",
+    "eslint-config-expo": "~8.0.1",
+    "patch-package": "^8.0.1",
     "typescript": "~5.3.3"
   },
   "private": true

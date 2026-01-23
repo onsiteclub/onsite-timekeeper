@@ -13,7 +13,6 @@ import {
   addToSkippedToday,
   checkInsideFence,
 } from '../lib/backgroundTasks';
-import { clearPendingAction as clearPersistedPending } from '../lib/pendingTTL';
 import { useRecordStore } from './recordStore';
 import { useSettingsStore } from './settingsStore';
 import { useAuthStore } from './authStore';
@@ -70,7 +69,6 @@ export async function actionStartLogic(
     pendingAction.coords
   );
 
-  await clearPersistedPending();
   set({ pendingAction: null });
 }
 
@@ -97,8 +95,7 @@ export async function actionSkipTodayLogic(
   }
   
   addToSkippedToday(pendingAction.locationId);
-  
-  await clearPersistedPending();
+
   set({
     pendingAction: null,
     skippedToday: [...skippedToday, pendingAction.locationId],

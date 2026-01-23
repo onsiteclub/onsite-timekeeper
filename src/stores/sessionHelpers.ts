@@ -7,7 +7,7 @@
 
 import { logger } from '../lib/logger';
 import { cancelNotification } from '../lib/notifications';
-import { clearPendingAction as clearPersistedPending } from '../lib/pendingTTL';
+// NOTE: Removed pendingTTL dependency
 import type { Coordinates } from '../lib/location';
 
 // ============================================
@@ -261,8 +261,7 @@ export async function clearPendingAction(pendingAction: PendingAction | null): P
     await cancelNotification(pendingAction.notificationId);
   }
   
-  // Also clear from AsyncStorage (TTL persistence)
-  await clearPersistedPending();
+  // NOTE: TTL persistence removed in simplified system
 }
 
 export function createPendingAction(

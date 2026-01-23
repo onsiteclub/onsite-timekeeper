@@ -35,6 +35,7 @@ export async function createLocation(params: CreateLocationParams): Promise<stri
   const timestamp = now();
 
   try {
+    logger.info('database', `[DB:locations] INSERT - name: ${params.name}, radius: ${params.radius || 100}`);
     db.runSync(
       `INSERT INTO locations (id, user_id, name, latitude, longitude, radius, color, status, last_seen_at, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -61,7 +62,7 @@ export async function createLocation(params: CreateLocationParams): Promise<stri
       // Ignore tracking errors
     }
 
-    logger.info('database', `📍 Location created: ${params.name}`, { id });
+    logger.info('database', `[DB:locations] INSERT OK - id: ${id}, name: ${params.name}`);
     return id;
   } catch (error) {
     logger.error('database', 'Error creating location', { error: String(error) });
@@ -71,12 +72,15 @@ export async function createLocation(params: CreateLocationParams): Promise<stri
 
 export async function getLocations(userId: string): Promise<LocationDB[]> {
   try {
-    return db.getAllSync<LocationDB>(
+    logger.info('database', `[DB:locations] SELECT ALL - userId: ${userId.substring(0, 8)}...`);
+    const results = db.getAllSync<LocationDB>(
       `SELECT * FROM locations WHERE user_id = ? AND status = 'active' ORDER BY name ASC`,
       [userId]
     );
+    logger.info('database', `[DB:locations] SELECT ALL OK - count: ${results.length}`);
+    return results;
   } catch (error) {
-    logger.error('database', 'Error fetching locations', { error: String(error) });
+    logger.error('database', '[DB:locations] SELECT ALL ERROR', { error: String(error) });
     return [];
   }
 }
@@ -99,6 +103,7 @@ export async function updateLocation(
   updates: Partial<Pick<LocationDB, 'name' | 'latitude' | 'longitude' | 'radius' | 'color'>>
 ): Promise<void> {
   try {
+    logger.info('database', `[DB:locations] UPDATE - id: ${id}`, { updates });
     const setClauses: string[] = [];
     const values: (string | number | null)[] = [];
 
@@ -137,7 +142,7 @@ export async function updateLocation(
       values
     );
 
-    logger.info('database', `📍 Location updated: ${id}`, { updates });
+    logger.info('database', `[DB:locations] UPDATE OK - id: ${id}`);
   } catch (error) {
     logger.error('database', 'Error updating location', { error: String(error) });
     throw error;
@@ -146,6 +151,7 @@ export async function updateLocation(
 
 export async function removeLocation(userId: string, id: string): Promise<void> {
   try {
+    logger.info('database', `[DB:locations] DELETE (soft) - id: ${id}`);
     // Soft delete
     db.runSync(
       `UPDATE locations SET status = 'deleted', deleted_at = ?, updated_at = ?, synced_at = NULL WHERE id = ? AND user_id = ?`,
@@ -160,7 +166,7 @@ export async function removeLocation(userId: string, id: string): Promise<void> 
       // Ignore tracking errors
     }
 
-    logger.info('database', `🗑️ Location removed (soft): ${id}`);
+    logger.info('database', `[DB:locations] DELETE OK - id: ${id}`);
   } catch (error) {
     logger.error('database', 'Error removing location', { error: String(error) });
     throw error;

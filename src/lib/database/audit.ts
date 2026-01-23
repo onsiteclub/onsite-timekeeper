@@ -39,11 +39,12 @@ export async function recordLocationAudit(
 ): Promise<string> {
   const id = generateUUID();
   const timestamp = now();
-  
+
   try {
+    logger.info('database', `[DB:location_audit] INSERT - type: ${eventType}, location: ${locationName || 'N/A'}, accuracy: ${accuracy || 'N/A'}m`);
     db.runSync(
-      `INSERT INTO location_audit 
-       (id, user_id, session_id, event_type, location_id, location_name, 
+      `INSERT INTO location_audit
+       (id, user_id, session_id, event_type, location_id, location_name,
         latitude, longitude, accuracy, occurred_at, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
@@ -60,13 +61,9 @@ export async function recordLocationAudit(
         timestamp,
       ]
     );
-    
-    logger.debug('database', `📍 Location audit: ${eventType}`, { 
-      locationName, 
-      lat: latitude.toFixed(6),
-      lng: longitude.toFixed(6),
-    });
-    
+
+    logger.info('database', `[DB:location_audit] INSERT OK - id: ${id}, type: ${eventType}`);
+
     return id;
   } catch (error) {
     logger.error('database', 'Error recording location audit', { error: String(error) });
