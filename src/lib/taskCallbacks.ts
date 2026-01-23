@@ -53,13 +53,13 @@ export function clearCallbacks(): void {
 }
 
 // ============================================
-// CALLBACK SETTERS (internal - not exported)
+// CALLBACK SETTERS (location - exported for bootstrap.ts)
 // ============================================
 
 /**
- * Set location callback (internal use only)
+ * Set location callback (used by bootstrap.ts for GPS-based exit detection)
  */
-function setLocationCallback(callback: LocationCallback): void {
+export function setLocationCallback(callback: LocationCallback): void {
   locationCallback = callback;
   logger.debug('gps', 'Location callback registered');
 }

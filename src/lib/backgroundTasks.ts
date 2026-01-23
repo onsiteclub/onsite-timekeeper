@@ -59,6 +59,7 @@ export {
 export {
   setGeofenceCallback,
   setReconcileCallback,
+  setLocationCallback,
   clearCallbacks,
 } from './taskCallbacks';
 

@@ -15,12 +15,15 @@ import {
   stopHeartbeat,
   setGeofenceCallback,
   setReconcileCallback,
+  setLocationCallback,
   clearCallbacks,
   updateHeartbeatInterval,
   setBackgroundUserId,
   clearBackgroundUserId,
 } from './backgroundTasks';
+import { getBackgroundUserId, checkInsideFence } from './backgroundHelpers';
 import { useWorkSessionStore } from '../stores/workSessionStore';
+import type * as Location from 'expo-location';
 
 // ============================================
 // SINGLETON STATE
@@ -62,10 +65,71 @@ function handleGeofenceEvent(event: { type: 'enter' | 'exit'; regionIdentifier: 
 
 async function handleReconcile(): Promise<void> {
   logger.info('geofence', '🔄 Reconcile triggered');
-  
+
   // FIX: Call locationStore.reconcileState() which handles currentFenceId
   const locationStore = useLocationStore.getState();
   await locationStore.reconcileState();
+}
+
+// ============================================
+// LOCATION UPDATE CALLBACK (GPS-based exit detection)
+// ============================================
+
+/**
+ * Handle continuous GPS updates to detect exit from geofence.
+ * Called every 50m or 60s by LOCATION_TASK.
+ * This provides reliable exit detection even with screen off.
+ */
+async function handleLocationUpdate(location: Location.LocationObject): Promise<void> {
+  try {
+    const { coords } = location;
+    const locationStore = useLocationStore.getState();
+    const currentFenceId = locationStore.currentFenceId;
+
+    // If not inside any fence, nothing to check
+    if (!currentFenceId) {
+      return;
+    }
+
+    // Get user ID for fence check
+    const userId = await getBackgroundUserId();
+    if (!userId) {
+      logger.debug('gps', 'No userId for location update, skipping');
+      return;
+    }
+
+    // Check if still inside the fence using hysteresis
+    const result = await checkInsideFence(
+      coords.latitude,
+      coords.longitude,
+      userId,
+      true, // useHysteresis for exit
+      'heartbeat', // source
+      coords.accuracy ?? undefined
+    );
+
+    // If outside the fence, trigger exit event
+    if (!result.isInside) {
+      logger.info('gps', `📍 GPS detected exit from fence: ${currentFenceId}`, {
+        lat: coords.latitude.toFixed(6),
+        lng: coords.longitude.toFixed(6),
+        accuracy: coords.accuracy?.toFixed(0) ?? 'N/A',
+      });
+
+      // Trigger exit via locationStore (same path as native geofence)
+      locationStore.handleGeofenceEvent({
+        type: 'exit',
+        regionIdentifier: currentFenceId,
+        timestamp: Date.now(),
+      });
+    } else {
+      logger.debug('gps', `📍 Still inside fence: ${currentFenceId}`, {
+        distance: result.distance?.toFixed(0) ?? 'N/A',
+      });
+    }
+  } catch (error) {
+    logger.error('gps', 'Error in location update handler', { error: String(error) });
+  }
 }
 
 // ============================================
@@ -84,7 +148,8 @@ export async function initializeListeners(): Promise<void> {
     // Register callbacks (ONCE!)
     setGeofenceCallback(handleGeofenceEvent);
     setReconcileCallback(handleReconcile);
-    
+    setLocationCallback(handleLocationUpdate); // GPS-based exit detection
+
     // AppState listener (ONCE!)
     if (appStateSubscription) {
       appStateSubscription.remove();
