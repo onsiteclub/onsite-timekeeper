@@ -26,7 +26,7 @@ import {
   type ComputedSession,
   type DayStats,
 } from '../lib/database';
-import { generateSessionReport, generateCompleteReport } from '../lib/reports';
+import { generateCompleteReport } from '../lib/reports';
 import { useAuthStore } from './authStore';
 import type { Coordinates } from '../lib/location';
 
@@ -319,10 +319,12 @@ export const useRecordStore = create<RecordState>((set, get) => ({
     const { lastFinishedSession } = get();
     if (!lastFinishedSession) return;
 
+    const userId = useAuthStore.getState().getUserId();
+    const userName = useAuthStore.getState().getUserName();
+
     try {
-      const userName = useAuthStore.getState().getUserName();
-      const report = generateSessionReport(lastFinishedSession, userName ?? undefined);
-      
+      const report = generateCompleteReport([lastFinishedSession], userName || undefined, userId || undefined);
+
       await Share.share({
         message: report,
         title: 'Work Record',
@@ -336,16 +338,16 @@ export const useRecordStore = create<RecordState>((set, get) => ({
 
   shareReport: async (startDate, endDate) => {
     const userId = useAuthStore.getState().getUserId();
+    const userName = useAuthStore.getState().getUserName();
     if (!userId) return;
 
     try {
       const sessions = await getSessionsByPeriod(userId, startDate, endDate);
-      const userName = useAuthStore.getState().getUserName();
-      const report = generateCompleteReport(sessions, userName ?? undefined);
+      const report = generateCompleteReport(sessions, userName || undefined, userId || undefined);
 
       await Share.share({
         message: report,
-        title: 'Hours Report',
+        title: 'Work Report',
       });
 
       logger.info('database', 'Complete report shared');

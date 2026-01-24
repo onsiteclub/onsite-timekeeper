@@ -30,11 +30,12 @@ import DateTimePicker from '@react-native-community/datetimepicker'; // Keep for
 import { Card } from '../../src/components/ui/Button';
 import { colors } from '../../src/constants/colors';
 import type { WorkLocation } from '../../src/stores/locationStore';
+import type { ComputedSession } from '../../src/lib/database';
 
 import { useHomeScreen } from '../../src/screens/home/hooks';
+import { ShareModal } from '../../src/components/ShareModal';
 import { styles, fixedStyles } from '../../src/screens/home/styles';
 import { HomePermissionBanner } from '../../src/components/PermissionBanner';
-import { useSettingsStore } from '../../src/stores/settingsStore';
 
 // Helper to format date
 function formatDate(date: Date): string {
@@ -89,7 +90,6 @@ function calculateTotalHours(entryH: string, entryM: string, exitH: string, exit
 export default function HomeScreen() {
   const router = useRouter();
   const [showLogoTooltip, setShowLogoTooltip] = useState(false);
-  const [showLocationDropdown, setShowLocationDropdown] = useState(false);
 
   // Date picker state (use hook's state for unified handling)
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -104,20 +104,17 @@ export default function HomeScreen() {
   const [entryPeriod, setEntryPeriod] = useState<'AM' | 'PM'>('AM');
   const [exitPeriod, setExitPeriod] = useState<'PM' | 'AM'>('PM');
 
-  // Success modal state (after save)
-  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  // Share modal state (after save)
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [sessionsToShare, setSessionsToShare] = useState<ComputedSession[]>([]);
 
   // Toast notification for future dates
   const [toastMessage, setToastMessage] = useState('');
   const toastOpacity = useRef(new Animated.Value(0)).current;
 
-  // Send to modal state
-  const [showSendToModal, setShowSendToModal] = useState(false);
-  const [phoneNumber, setPhoneNumber] = useState('');
-  const [recentContacts] = useState<{ name: string; phone: string }[]>([]);
-
   const {
     userName,
+    userId,
     locations,
     currentSession,
     activeLocation,
@@ -148,11 +145,7 @@ export default function HomeScreen() {
     handleRestart,
     handleSaveManual,
     getSuggestedTimes,
-    sendToFavorite,
   } = useHomeScreen();
-
-  // Get favorite contact from settings store
-  const { favoriteContact } = useSettingsStore();
 
   // Helper to set time with AM/PM from 24h format
   const setTimeWithAmPm = (
@@ -193,7 +186,6 @@ export default function HomeScreen() {
 
   const handleLocationChange = (locationId: string) => {
     setManualLocationId(locationId);
-    setShowLocationDropdown(false);
     const suggested = getSuggestedTimes?.(locationId);
     if (suggested) {
       setTimeWithAmPm(suggested.entryH, setManualEntryH, setEntryPeriod);
@@ -326,70 +318,61 @@ export default function HomeScreen() {
   );
 
   // Save with AM/PM conversion to 24h format
+  // FIX: Pass 24h values directly to avoid stale closure issues
   const handleSaveManualWithAmPm = async () => {
-    // Convert to 24h format before saving
     const entry24 = get24Hour(manualEntryH, entryPeriod);
     const exit24 = get24Hour(manualExitH, exitPeriod);
 
-    // Temporarily set 24h values for the save function
-    setManualEntryH(String(entry24).padStart(2, '0'));
-    setManualExitH(String(exit24).padStart(2, '0'));
-
-    // Small delay to ensure state is updated
-    await new Promise(resolve => setTimeout(resolve, 50));
-
-    // Call the original save function
-    await handleSaveManual();
-
-    // Reset to 12h display values
-    const displayEntryH = entry24 > 12 ? entry24 - 12 : (entry24 === 0 ? 12 : entry24);
-    const displayExitH = exit24 > 12 ? exit24 - 12 : (exit24 === 0 ? 12 : exit24);
-    setManualEntryH(String(displayEntryH).padStart(2, '0'));
-    setManualExitH(String(displayExitH).padStart(2, '0'));
+    // Pass 24h values directly - no setState race condition!
+    await handleSaveManual({ entryH: entry24, exitH: exit24 });
   };
 
-  // Send to modal handlers
-  const handleSelectContact = (contact: { name: string; phone: string }) => {
-    setPhoneNumber(contact.phone);
+  // Helper to format time for share modal
+  const formatTimeForShare = (hour: string, minute: string, period: 'AM' | 'PM'): string => {
+    return `${hour.padStart(2, '0')}:${minute.padStart(2, '0')} ${period}`;
   };
 
-  const handleSendToWhatsApp = async () => {
-    if (!phoneNumber.trim()) {
-      showToast('⚠️ Please enter a phone number');
-      return;
-    }
+  // Handle save and open share modal
+  const handleSaveAndShare = async () => {
+    if (locations.length === 0) return;
 
-    try {
-      // Format report message
-      const reportText = `📊 OnSite Work Report
+    await handleSaveManualWithAmPm();
 
-📍 Location: ${selectedLocation?.name || 'Unknown Location'}
-📅 Date: ${formatDate(manualDate)}
+    // Create temporary session from form data for sharing
+    const entry24 = get24Hour(manualEntryH, entryPeriod);
+    const exit24 = get24Hour(manualExitH, exitPeriod);
+    const pauseMin = parseInt(manualPause) || 0;
 
-⏰ Entry: ${manualEntryH.padStart(2, '0')}:${manualEntryM.padStart(2, '0')}
-⏰ Exit: ${manualExitH.padStart(2, '0')}:${manualExitM.padStart(2, '0')}
-☕ Break: ${manualPause ? `${manualPause} min` : 'None'}
+    const entryDate = new Date(manualDate);
+    entryDate.setHours(entry24, parseInt(manualEntryM) || 0, 0, 0);
 
-⏱️ Total: ${totalHours}
+    const exitDate = new Date(manualDate);
+    exitDate.setHours(exit24, parseInt(manualExitM) || 0, 0, 0);
 
-Sent via OnSite Timekeeper 📱`;
+    const durationMinutes = Math.round((exitDate.getTime() - entryDate.getTime()) / 60000);
 
-      // Clean phone number (remove all non-digits)
-      const cleanPhone = phoneNumber.replace(/\D/g, '');
-      
-      // Add country code if not present (assuming Canada)
-      const formattedPhone = cleanPhone.startsWith('1') ? cleanPhone : `1${cleanPhone}`;
+    const tempSession: ComputedSession = {
+      id: 'temp-' + Date.now(),
+      user_id: userId || '',
+      location_id: manualLocationId || '',
+      location_name: selectedLocation?.name || 'Unknown Location',
+      entry_at: entryDate.toISOString(),
+      exit_at: exitDate.toISOString(),
+      type: 'manual',
+      manually_edited: 1,
+      edit_reason: 'Manual entry by user',
+      pause_minutes: pauseMin,
+      duration_minutes: durationMinutes,
+      status: 'finished',
+      integrity_hash: null,
+      color: selectedLocation?.color || '#4A90D9',
+      device_id: null,
+      created_at: new Date().toISOString(),
+      synced_at: null,
+    };
 
-      // Open WhatsApp
-      const whatsappUrl = `whatsapp://send?phone=${formattedPhone}&text=${encodeURIComponent(reportText)}`;
-      
-      await Linking.openURL(whatsappUrl);
-      setShowSendToModal(false);
-      showToast('✅ Opening WhatsApp...');
-    } catch (error) {
-      showToast('❌ Could not open WhatsApp');
-      console.error('Error opening WhatsApp:', error);
-    }
+    setSessionsToShare([tempSession]);
+    setShowShareModal(true);
   };
 
   return (
@@ -463,13 +446,18 @@ Sent via OnSite Timekeeper 📱`;
       {/* ============================================ */}
       <View style={fixedStyles.locationsSection}>
         {activeLocations.length === 0 ? (
-          <TouchableOpacity
-            style={fixedStyles.emptyLocations}
-            onPress={() => router.push('/(tabs)/map')}
-          >
-            <Ionicons name="location-outline" size={18} color={colors.textMuted} />
-            <Text style={fixedStyles.emptyLocationsText}>Add location</Text>
-          </TouchableOpacity>
+          <View>
+            <TouchableOpacity
+              style={fixedStyles.emptyLocations}
+              onPress={() => router.push('/(tabs)/map')}
+            >
+              <Ionicons name="location-outline" size={18} color={colors.textMuted} />
+              <Text style={fixedStyles.emptyLocationsText}>Add location</Text>
+            </TouchableOpacity>
+            <Text style={onboardingStyles.onboardingHint}>
+              To start logging hours, first add a work location in the Locations tab
+            </Text>
+          </View>
         ) : (
           <ScrollView
             horizontal
@@ -514,7 +502,7 @@ Sent via OnSite Timekeeper 📱`;
       {/* ============================================ */}
       {/* LOG HOURS FORM - Enhanced */}
       {/* ============================================ */}
-      <Card style={fixedStyles.formSection}>
+      <Card style={[fixedStyles.formSection, locations.length === 0 && onboardingStyles.formDisabled].filter(Boolean) as ViewStyle[]}>
         {/* Date Selector */}
         <TouchableOpacity
           style={fixedStyles.dateSelector}
@@ -722,14 +710,12 @@ Sent via OnSite Timekeeper 📱`;
 
         {/* Save Button */}
         <TouchableOpacity
-          style={fixedStyles.saveButton}
-          onPress={async () => {
-            await handleSaveManualWithAmPm();
-            setShowSuccessModal(true);
-          }}
+          style={[fixedStyles.saveButton, locations.length === 0 && onboardingStyles.saveButtonDisabled]}
+          onPress={handleSaveAndShare}
+          disabled={locations.length === 0}
         >
-          <Ionicons name="checkmark-circle" size={20} color={colors.buttonPrimaryText} />
-          <Text style={fixedStyles.saveButtonText}>Save Hours</Text>
+          <Ionicons name="checkmark-circle" size={20} color={locations.length === 0 ? colors.textMuted : colors.buttonPrimaryText} />
+          <Text style={[fixedStyles.saveButtonText, locations.length === 0 && onboardingStyles.saveButtonTextDisabled]}>Save Hours</Text>
         </TouchableOpacity>
       </Card>
 
@@ -812,144 +798,17 @@ Sent via OnSite Timekeeper 📱`;
       </ScrollView>
 
       {/* ============================================ */}
-      {/* SUCCESS MODAL (after save) */}
+      {/* SHARE MODAL (after save) */}
       {/* ============================================ */}
-      <Modal
-        visible={showSuccessModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowSuccessModal(false)}
-      >
-        <TouchableOpacity
-          style={homeInputStyles.successModalOverlay}
-          activeOpacity={1}
-          onPress={() => setShowSuccessModal(false)}
-        >
-          <View style={homeInputStyles.successModalContent}>
-            <View style={homeInputStyles.successIcon}>
-              <Ionicons name="checkmark-circle" size={48} color={colors.success || '#22C55E'} />
-            </View>
-            <Text style={homeInputStyles.successTitle}>Hours Saved!</Text>
-            <Text style={homeInputStyles.successSubtitle}>
-              {selectedLocation?.name} • {totalHours}
-            </Text>
-
-            {/* Send to WhatsApp option */}
-            <TouchableOpacity
-              style={homeInputStyles.successSendBtn}
-              onPress={() => {
-                setShowSuccessModal(false);
-                setShowSendToModal(true);
-              }}
-            >
-              <Ionicons name="logo-whatsapp" size={20} color={colors.white} />
-              <Text style={homeInputStyles.successSendBtnText}>Send to WhatsApp</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={homeInputStyles.successCloseBtn}
-              onPress={() => setShowSuccessModal(false)}
-            >
-              <Text style={homeInputStyles.successCloseBtnText}>Done</Text>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      </Modal>
-
-      {/* ============================================ */}
-      {/* SEND TO MODAL */}
-      {/* ============================================ */}
-      <Modal
-        visible={showSendToModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowSendToModal(false)}
-      >
-        <TouchableOpacity
-          style={fixedStyles.sendToModalOverlay}
-          activeOpacity={1}
-          onPress={() => setShowSendToModal(false)}
-        >
-          <View style={fixedStyles.sendToModalContainer}>
-            {/* Header */}
-            <View style={fixedStyles.sendToModalHeader}>
-              <Ionicons name="paper-plane" size={20} color={colors.accent} />
-              <Text style={fixedStyles.sendToModalTitle}>Send Report</Text>
-              <TouchableOpacity
-                style={fixedStyles.sendToModalCloseButton}
-                onPress={() => setShowSendToModal(false)}
-              >
-                <Ionicons name="close" size={16} color={colors.textSecondary} />
-              </TouchableOpacity>
-            </View>
-
-            {/* Phone Input */}
-            <View style={fixedStyles.phoneInputContainer}>
-              <Text style={fixedStyles.phoneInputLabel}>Phone Number</Text>
-              <View style={fixedStyles.phoneInputRow}>
-                <TextInput
-                  style={fixedStyles.phoneInput}
-                  placeholder="+55 11 99999-9999"
-                  placeholderTextColor={colors.textMuted}
-                  value={phoneNumber}
-                  onChangeText={setPhoneNumber}
-                  keyboardType="phone-pad"
-                  autoFocus
-                />
-                <TouchableOpacity style={fixedStyles.contactsButton}>
-                  <Ionicons name="person-add" size={18} color={colors.white} />
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {/* Recent Contacts */}
-            <View style={fixedStyles.recentContactsContainer}>
-              <Text style={fixedStyles.recentContactsTitle}>Recent</Text>
-              {recentContacts.length > 0 ? (
-                recentContacts.map((contact, index) => (
-                  <TouchableOpacity
-                    key={index}
-                    style={fixedStyles.recentContactItem}
-                    onPress={() => handleSelectContact(contact)}
-                  >
-                    <View style={fixedStyles.recentContactInfo}>
-                      <Text style={fixedStyles.recentContactName}>{contact.name}</Text>
-                      <Text style={fixedStyles.recentContactPhone}>{contact.phone}</Text>
-                    </View>
-                    <TouchableOpacity
-                      style={fixedStyles.recentContactSelect}
-                      onPress={() => handleSelectContact(contact)}
-                    >
-                      <Ionicons name="checkmark" size={12} color={colors.white} />
-                    </TouchableOpacity>
-                  </TouchableOpacity>
-                ))
-              ) : (
-                <Text style={fixedStyles.emptyContactsText}>
-                  No recent contacts
-                </Text>
-              )}
-            </View>
-
-            {/* Actions */}
-            <View style={fixedStyles.sendToModalActions}>
-              <TouchableOpacity
-                style={fixedStyles.sendToModalCancelButton}
-                onPress={() => setShowSendToModal(false)}
-              >
-                <Text style={fixedStyles.sendToModalCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={fixedStyles.sendToModalSendButton}
-                onPress={handleSendToWhatsApp}
-              >
-                <Ionicons name="logo-whatsapp" size={16} color={colors.white} />
-                <Text style={fixedStyles.sendToModalSendText}>WhatsApp</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </TouchableOpacity>
-      </Modal>
+      <ShareModal
+        visible={showShareModal}
+        onClose={() => setShowShareModal(false)}
+        sessions={sessionsToShare}
+        userName={userName || undefined}
+        userId={userId || undefined}
+        onGoToReports={() => router.push('/(tabs)/reports')}
+        title="Hours Saved!"
+      />
 
       {/* Toast Notification */}
       {toastMessage !== '' && (
@@ -1043,59 +902,25 @@ const homeInputStyles = StyleSheet.create({
   ampmTextActive: {
     color: colors.buttonPrimaryText,
   },
-  // Success Modal
-  successModalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 32,
-  },
-  successModalContent: {
-    width: '100%',
-    backgroundColor: colors.card,
-    borderRadius: 20,
-    padding: 24,
-    alignItems: 'center',
-  },
-  successIcon: {
-    marginBottom: 12,
-  },
-  successTitle: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: colors.text,
-    marginBottom: 4,
-  },
-  successSubtitle: {
-    fontSize: 15,
+});
+
+// Onboarding styles for first-time users
+const onboardingStyles = StyleSheet.create({
+  onboardingHint: {
+    fontSize: 13,
     color: colors.textSecondary,
-    marginBottom: 24,
+    textAlign: 'center',
+    marginTop: 8,
+    paddingHorizontal: 16,
+    lineHeight: 18,
   },
-  successSendBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    width: '100%',
-    paddingVertical: 14,
-    backgroundColor: '#25D366',
-    borderRadius: 12,
-    marginBottom: 12,
+  formDisabled: {
+    opacity: 0.5,
   },
-  successSendBtnText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.white,
+  saveButtonDisabled: {
+    backgroundColor: colors.border,
   },
-  successCloseBtn: {
-    width: '100%',
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  successCloseBtnText: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: colors.textSecondary,
+  saveButtonTextDisabled: {
+    color: colors.textMuted,
   },
 });

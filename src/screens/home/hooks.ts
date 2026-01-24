@@ -928,26 +928,30 @@ const handleDayPress = (dayKey: string, hasSessions: boolean) => {
     setShowDayModal(false);
   };
 
-  const handleSaveManual = async () => {
+  /**
+   * Save manual entry
+   * @param overrides - Optional 24h format overrides to avoid stale closure issues with AM/PM conversion
+   */
+  const handleSaveManual = async (overrides?: { entryH?: number; exitH?: number }) => {
     // Handle absence mode
     if (manualEntryMode === 'absence') {
       if (!manualAbsenceType) {
         Alert.alert('Error', 'Select an absence reason');
         return;
       }
-      
+
       // For absence, we don't need location but use first one as placeholder
       const location = locations[0];
       if (!location) {
         Alert.alert('Error', 'No location configured');
         return;
       }
-      
+
       // Create a record with entry = exit (0 duration)
       const absenceDate = new Date(manualDate);
       absenceDate.setHours(0, 0, 0, 0);
       const isoDate = absenceDate.toISOString();
-      
+
       try {
         await createManualRecord({
           locationId: location.id,
@@ -957,7 +961,7 @@ const handleDayPress = (dayKey: string, hasSessions: boolean) => {
           pauseMinutes: 0,
           absenceType: manualAbsenceType,
         });
-        
+
         const absenceLabels: Record<string, string> = {
           rain: 'Rain Day',
           snow: 'Snow Day',
@@ -966,11 +970,11 @@ const handleDayPress = (dayKey: string, hasSessions: boolean) => {
           holiday: 'Holiday',
         };
         Alert.alert('✅ Success', `${absenceLabels[manualAbsenceType]} recorded!`);
-        
+
         setShowManualModal(false);
         setManualAbsenceType(null);
         setManualEntryMode('hours');
-        
+
         // Reload week/month sessions to show the new record
         if (viewMode === 'week') {
           await loadWeekSessions();
@@ -982,7 +986,7 @@ const handleDayPress = (dayKey: string, hasSessions: boolean) => {
       }
       return;
     }
-    
+
     // Handle hours mode (original logic)
     if (!manualLocationId) {
       Alert.alert('Error', 'Select a location');
@@ -993,9 +997,10 @@ const handleDayPress = (dayKey: string, hasSessions: boolean) => {
       return;
     }
 
-    const entryH = parseInt(manualEntryH, 10);
+    // Use overrides if provided (from AM/PM conversion), otherwise parse from state
+    const entryH = overrides?.entryH ?? parseInt(manualEntryH, 10);
     const entryM = parseInt(manualEntryM, 10);
-    const exitH = parseInt(manualExitH, 10);
+    const exitH = overrides?.exitH ?? parseInt(manualExitH, 10);
     const exitM = parseInt(manualExitM, 10);
 
     if (isNaN(entryH) || isNaN(entryM) || isNaN(exitH) || isNaN(exitM)) {
@@ -1287,9 +1292,9 @@ const handleDayPress = (dayKey: string, hasSessions: boolean) => {
 
   const exportAsText = async (sessionsToExport: ComputedSession[]) => {
     const txt = generateCompleteReport(sessionsToExport, userName || undefined, userId || undefined);
-    
+
     try {
-      await Share.share({ message: txt, title: 'Time Report' });
+      await Share.share({ message: txt, title: 'Work Report' });
       cancelSelection();
       closeDayModal();
     } catch (error) {
@@ -1299,7 +1304,7 @@ const handleDayPress = (dayKey: string, hasSessions: boolean) => {
 
   const exportAsFile = async (sessionsToExport: ComputedSession[]) => {
     const txt = generateCompleteReport(sessionsToExport, userName || undefined, userId || undefined);
-    
+
     try {
       const now = new Date();
       const fileName = `report_${now.toISOString().split('T')[0]}.txt`;
@@ -1566,6 +1571,7 @@ const getSuggestedTimes = useCallback((locationId: string) => {
   return {
     // Data
     userName,
+    userId,
     locations,
     currentSession,
     activeLocation,

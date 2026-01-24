@@ -4,7 +4,7 @@
  * Accordion-style settings with timer configurations.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -16,7 +16,6 @@ import {
   Linking,
   TextInput,
   Modal,
-  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -407,28 +406,6 @@ export default function SettingsScreen() {
             </TouchableOpacity>
           )}
         </View>
-      </AccordionSection>
-
-      {/* ============================================ */}
-      {/* DEBUG SECTION */}
-      {/* ============================================ */}
-      <AccordionSection title="Developer" icon="code-outline">
-        <SwitchRow
-          label="Debug monitor"
-          value={settings.devMonitorEnabled}
-          onChange={(v) => settings.updateSetting('devMonitorEnabled', v)}
-          hint="Show debug panel with GPS and geofence info"
-        />
-
-        <View style={styles.divider} />
-
-        <TouchableOpacity
-          style={styles.linkRow}
-          onPress={() => router.push('/')}
-        >
-          <Text style={styles.linkText}>View logs</Text>
-          <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
-        </TouchableOpacity>
       </AccordionSection>
 
       {/* ============================================ */}
@@ -1003,4 +980,5 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#fff',
   },
+
 });

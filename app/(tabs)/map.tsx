@@ -1,17 +1,18 @@
 /**
  * Map Screen - OnSite Timekeeper
- * 
+ *
  * Screen to manage work locations:
  * - Search address at top
- * - Long press on map = pin + name modal
+ * - Pulsing blue circle for onboarding (tap to add location)
  * - Long press on circle = delete
  * - Click on circle = adjust radius
- * 
+ *
  * REFACTORED: Using EN property names (name, radius, color)
  * UPDATED: Added permission banner for foreground service warnings
+ * v2.2: Pulsing circle onboarding - tap circle to add location
  */
 
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -19,6 +20,8 @@ import {
   Modal,
   Animated,
   TextInput,
+  StyleSheet,
+  Easing,
 } from 'react-native';
 import MapView, { Marker, Circle, PROVIDER_DEFAULT } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
@@ -30,11 +33,23 @@ import { styles } from '../../src/screens/map/styles';
 import { RADIUS_OPTIONS } from '../../src/screens/map/constants';
 import { MapPermissionBanner } from '../../src/components/PermissionBanner';
 
+// Circle size in pixels (represents ~100m radius visually at typical zoom)
+const CIRCLE_SIZE = 120;
+
 // ============================================
 // COMPONENT
 // ============================================
 
 export default function MapScreen() {
+  // Pulsing animation for onboarding circle
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const opacityAnim = useRef(new Animated.Value(0.3)).current;
+
+  // Success toast
+  const [showSuccessToast, setShowSuccessToast] = useState(false);
+  const successToastAnim = useRef(new Animated.Value(0)).current;
+  const prevLocationsCount = useRef(0);
+
   const {
     // Refs
     mapRef,
@@ -51,6 +66,7 @@ export default function MapScreen() {
     isAdding,
     showRadiusModal,
     selectedLocation,
+    mapCenter,
 
     // Store data
     locations,
@@ -66,6 +82,8 @@ export default function MapScreen() {
     handleMapReady,
     handleMapPress,
     handleMapLongPress,
+    handleRegionChange,
+    handleOnboardingCirclePress,
     handleSelectSearchResult,
     handleGoToMyLocation,
     handleConfirmAddLocation,
@@ -77,6 +95,70 @@ export default function MapScreen() {
     cancelAndClearPin,
   } = useMapScreen();
 
+  // Pulsing animation loop (always visible for adding new locations)
+  useEffect(() => {
+    if (!showNameModal) {
+      const animation = Animated.loop(
+        Animated.sequence([
+          // Pulse out
+          Animated.parallel([
+            Animated.timing(pulseAnim, {
+              toValue: 1.15,
+              duration: 1000,
+              easing: Easing.out(Easing.ease),
+              useNativeDriver: true,
+            }),
+            Animated.timing(opacityAnim, {
+              toValue: 0.5,
+              duration: 1000,
+              easing: Easing.out(Easing.ease),
+              useNativeDriver: true,
+            }),
+          ]),
+          // Pulse in
+          Animated.parallel([
+            Animated.timing(pulseAnim, {
+              toValue: 1,
+              duration: 1000,
+              easing: Easing.in(Easing.ease),
+              useNativeDriver: true,
+            }),
+            Animated.timing(opacityAnim, {
+              toValue: 0.3,
+              duration: 1000,
+              easing: Easing.in(Easing.ease),
+              useNativeDriver: true,
+            }),
+          ]),
+        ])
+      );
+      animation.start();
+      return () => animation.stop();
+    }
+  }, [showNameModal, pulseAnim, opacityAnim]);
+
+  // Detect first location added → show success toast
+  useEffect(() => {
+    if (prevLocationsCount.current === 0 && locations.length === 1) {
+      setShowSuccessToast(true);
+      Animated.sequence([
+        Animated.timing(successToastAnim, {
+          toValue: 1,
+          duration: 300,
+          easing: Easing.out(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.delay(5000),
+        Animated.timing(successToastAnim, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+      ]).start(() => setShowSuccessToast(false));
+    }
+    prevLocationsCount.current = locations.length;
+  }, [locations.length, successToastAnim]);
+
   return (
     <View style={styles.container}>
       {/* MAP */}
@@ -87,7 +169,8 @@ export default function MapScreen() {
         initialRegion={region}
         onMapReady={handleMapReady}
         onPress={handleMapPress}
-        onLongPress={handleMapLongPress}
+        onLongPress={locations.length > 0 ? handleMapLongPress : undefined}
+        onRegionChangeComplete={handleRegionChange}
         showsUserLocation={true}
         showsMyLocationButton={false}
         showsCompass={true}
@@ -132,7 +215,7 @@ export default function MapScreen() {
               strokeWidth={2}
               lineDashPattern={[5, 5]}
             />
-            <Marker 
+            <Marker
               coordinate={{ latitude: tempPin.lat, longitude: tempPin.lng }}
               tracksViewChanges={false}
             >
@@ -169,13 +252,61 @@ export default function MapScreen() {
         </Text>
       </TouchableOpacity>
 
-      {/* INITIAL HINT */}
-      {locations.length === 0 && !showNameModal && (
-        <View style={styles.hintContainer}>
-          <Text style={styles.hintText}>
-            🗺️ Long press on the map to add a work location
-          </Text>
+      {/* PULSING CIRCLE OVERLAY - Always visible for adding new locations */}
+      {!showNameModal && (
+        <View style={onboardingStyles.circleOverlayContainer} pointerEvents="box-none">
+          {/* Pulsing circle - touchable */}
+          <TouchableOpacity
+            style={onboardingStyles.circleHitArea}
+            onPress={handleOnboardingCirclePress}
+            activeOpacity={0.8}
+          >
+            <Animated.View
+              style={[
+                onboardingStyles.pulsingCircle,
+                {
+                  transform: [{ scale: pulseAnim }],
+                  opacity: opacityAnim,
+                }
+              ]}
+            />
+            {/* Center dot */}
+            <View style={onboardingStyles.centerDot} />
+            {/* Plus icon */}
+            <View style={onboardingStyles.plusIconContainer}>
+              <Ionicons name="add" size={32} color={colors.primary} />
+            </View>
+          </TouchableOpacity>
+
+          {/* Instruction text */}
+          <View style={onboardingStyles.instructionContainer}>
+            <Text style={onboardingStyles.instructionText}>
+              {locations.length === 0
+                ? 'Position your workplace in the circle, then tap to add'
+                : 'Tap to add a new location'}
+            </Text>
+          </View>
         </View>
+      )}
+
+      {/* SUCCESS TOAST (after first location added) */}
+      {showSuccessToast && (
+        <Animated.View
+          style={[
+            onboardingStyles.successToast,
+            { opacity: successToastAnim }
+          ]}
+        >
+          <View style={onboardingStyles.successToastIcon}>
+            <Ionicons name="checkmark-circle" size={24} color={colors.success} />
+          </View>
+          <View style={onboardingStyles.successToastContent}>
+            <Text style={onboardingStyles.successToastTitle}>Location Added!</Text>
+            <Text style={onboardingStyles.successToastText}>
+              Now you can log hours manually in Home, or enter this area to start tracking automatically.
+            </Text>
+          </View>
+        </Animated.View>
       )}
 
       {/* NAME MODAL */}
@@ -322,7 +453,7 @@ export default function MapScreen() {
               {/* Actions List */}
               <View style={styles.optionsActionsList}>
                 {/* Edit Name */}
-                <TouchableOpacity 
+                <TouchableOpacity
                   style={styles.optionsActionItem}
                   onPress={() => {
                     handleCloseRadiusModal();
@@ -335,7 +466,7 @@ export default function MapScreen() {
                 </TouchableOpacity>
 
                 {/* Change Color */}
-                <TouchableOpacity 
+                <TouchableOpacity
                   style={styles.optionsActionItem}
                   onPress={() => {
                     handleCloseRadiusModal();
@@ -348,7 +479,7 @@ export default function MapScreen() {
                 </TouchableOpacity>
 
                 {/* Pause Tracking */}
-                <TouchableOpacity 
+                <TouchableOpacity
                   style={styles.optionsActionItem}
                   onPress={() => {
                     handleCloseRadiusModal();
@@ -361,7 +492,7 @@ export default function MapScreen() {
                 </TouchableOpacity>
 
                 {/* Open in Maps */}
-                <TouchableOpacity 
+                <TouchableOpacity
                   style={styles.optionsActionItem}
                   onPress={() => {
                     if (selectedLocation) {
@@ -398,3 +529,115 @@ export default function MapScreen() {
     </View>
   );
 }
+
+// ============================================
+// ONBOARDING STYLES
+// ============================================
+const onboardingStyles = StyleSheet.create({
+  // Container for the pulsing circle overlay
+  circleOverlayContainer: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  // Touchable hit area
+  circleHitArea: {
+    width: CIRCLE_SIZE,
+    height: CIRCLE_SIZE,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  // The pulsing blue circle
+  pulsingCircle: {
+    position: 'absolute',
+    width: CIRCLE_SIZE,
+    height: CIRCLE_SIZE,
+    borderRadius: CIRCLE_SIZE / 2,
+    backgroundColor: colors.primary,
+    borderWidth: 3,
+    borderColor: colors.primary,
+  },
+  // Center dot
+  centerDot: {
+    position: 'absolute',
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: colors.primary,
+  },
+  // Plus icon container
+  plusIconContainer: {
+    position: 'absolute',
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  // Instruction container
+  instructionContainer: {
+    position: 'absolute',
+    bottom: -80,
+    left: 20,
+    right: 20,
+  },
+  instructionText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.text,
+    textAlign: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 20,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  // Success toast
+  successToast: {
+    position: 'absolute',
+    bottom: 100,
+    left: 16,
+    right: 16,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: colors.card,
+    padding: 16,
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 6,
+    borderLeftWidth: 4,
+    borderLeftColor: colors.success,
+  },
+  successToastIcon: {
+    marginRight: 12,
+    marginTop: 2,
+  },
+  successToastContent: {
+    flex: 1,
+  },
+  successToastTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 4,
+  },
+  successToastText: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    lineHeight: 20,
+  },
+});

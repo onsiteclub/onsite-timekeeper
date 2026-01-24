@@ -29,6 +29,7 @@ import { colors, withOpacity, shadows } from '../../src/constants/colors';
 import type { ComputedSession } from '../../src/lib/database';
 
 import { useHomeScreen } from '../../src/screens/home/hooks';
+import { ShareModal } from '../../src/components/ShareModal';
 import { styles } from '../../src/screens/home/styles';
 import { WEEKDAYS_SHORT, type CalendarDay, getDayKey, isSameDay } from '../../src/screens/home/helpers';
 
@@ -208,6 +209,8 @@ export default function ReportsScreen() {
   const router = useRouter();
 
   const {
+    userName,
+    userId,
     viewMode,
     setViewMode,
     currentMonth,
@@ -346,19 +349,13 @@ export default function ReportsScreen() {
   };
 
   // Wrapper for save that converts to 24h format
+  // FIX: Pass 24h values directly to avoid stale closure issues
   const handleSaveManualWithAmPm = async () => {
-    // Convert to 24h and update the state temporarily
     const entryH24 = get24Hour(manualEntryH, entryPeriod);
     const exitH24 = get24Hour(manualExitH, exitPeriod);
 
-    // Temporarily set 24h values for save
-    setManualEntryH(String(entryH24).padStart(2, '0'));
-    setManualExitH(String(exitH24).padStart(2, '0'));
-
-    // Small delay to ensure state updates
-    setTimeout(async () => {
-      await handleSaveManual();
-    }, 50);
+    // Pass 24h values directly - no setState race condition!
+    await handleSaveManual({ entryH: entryH24, exitH: exitH24 });
   };
 
   // ============================================
@@ -426,6 +423,54 @@ export default function ReportsScreen() {
   const modalScale = useRef(new Animated.Value(0)).current;
   const modalOpacity = useRef(new Animated.Value(0)).current;
   const [pressedDayKey, setPressedDayKey] = useState<string | null>(null);
+
+  // Share modal state
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [sessionsToShare, setSessionsToShare] = useState<ComputedSession[]>([]);
+
+  // Handle share/export from day modal
+  const handleShareFromModal = () => {
+    if (selectedSessions.size === 0 || aggregatedLocations.length === 0) return;
+
+    // Collect selected sessions
+    const selected: ComputedSession[] = [];
+    for (const agg of aggregatedLocations) {
+      for (const s of agg.sessions) {
+        if (selectedSessions.has(s.id)) {
+          selected.push(s);
+        }
+      }
+    }
+
+    setSessionsToShare(selected);
+    setShowShareModal(true);
+  };
+
+  // Handle batch export from selected days
+  const handleBatchExport = () => {
+    if (selectedDays.size === 0) return;
+
+    // Get all sessions from selected days
+    const sessions = viewMode === 'week' ? weekSessions : monthSessions;
+    const selected: ComputedSession[] = [];
+
+    // Parse selected day keys back to dates and collect sessions
+    for (const dayKey of selectedDays) {
+      const [year, month, day] = dayKey.split('-').map(Number);
+      const date = new Date(year, month - 1, day);
+
+      // Filter sessions for this day
+      const daySessions = sessions.filter((s: ComputedSession) => {
+        const sessionDate = new Date(s.entry_at);
+        return isSameDay(sessionDate, date) && s.exit_at;
+      });
+
+      selected.push(...daySessions);
+    }
+
+    setSessionsToShare(selected);
+    setShowShareModal(true);
+  };
 
   // Animate modal open with morph effect
   useEffect(() => {
@@ -644,27 +689,6 @@ export default function ReportsScreen() {
             </View>
           )}
 
-        {/* BATCH ACTION BAR - Between calendar and chart */}
-        {selectionMode && (
-          <View style={reportStyles.batchBar}>
-            <Text style={reportStyles.batchText}>{selectedDays.size} day(s) selected</Text>
-            <View style={reportStyles.batchActions}>
-              <TouchableOpacity style={reportStyles.batchBtn} onPress={handleDeleteSelectedDays}>
-                <Ionicons name="trash-outline" size={22} color={colors.white} />
-                <Text style={reportStyles.batchBtnText}>Delete</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={reportStyles.batchBtn} onPress={handleExport}>
-                <Ionicons name="share-outline" size={22} color={colors.white} />
-                <Text style={reportStyles.batchBtnText}>Export</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={reportStyles.batchBtnCancel} onPress={cancelSelection}>
-                <Ionicons name="close" size={22} color={colors.white} />
-                <Text style={reportStyles.batchBtnText}>Cancel</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
-
         {/* WEEKLY BAR CHART - Sticky footer */}
         <View style={reportStyles.chartArea}>
           <WeeklyBarChart sessions={allSessions} currentDate={currentMonth} />
@@ -731,7 +755,7 @@ export default function ReportsScreen() {
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[reportStyles.dayModalActionBtn, selectedSessions.size === 0 && reportStyles.dayModalActionBtnDisabled]}
-                  onPress={handleExportFromModal}
+                  onPress={handleShareFromModal}
                   disabled={selectedSessions.size === 0}
                 >
                   <Ionicons name="share-outline" size={26} color={selectedSessions.size === 0 ? colors.textMuted : colors.primary} />
@@ -1106,6 +1130,41 @@ export default function ReportsScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* ============================================ */}
+      {/* SHARE MODAL */}
+      {/* ============================================ */}
+      <ShareModal
+        visible={showShareModal}
+        onClose={() => setShowShareModal(false)}
+        sessions={sessionsToShare}
+        userName={userName || undefined}
+        userId={userId || undefined}
+        title="Share Report"
+      />
+
+      {/* ============================================ */}
+      {/* BATCH ACTION BAR - Fixed at bottom */}
+      {/* ============================================ */}
+      {selectionMode && (
+        <View style={reportStyles.batchBarFixed}>
+          <Text style={reportStyles.batchText}>{selectedDays.size} day(s) selected</Text>
+          <View style={reportStyles.batchActions}>
+            <TouchableOpacity style={reportStyles.batchBtn} onPress={handleDeleteSelectedDays}>
+              <Ionicons name="trash-outline" size={22} color={colors.white} />
+              <Text style={reportStyles.batchBtnText}>Delete</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={reportStyles.batchBtn} onPress={handleBatchExport}>
+              <Ionicons name="share-outline" size={22} color={colors.white} />
+              <Text style={reportStyles.batchBtnText}>Export</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={reportStyles.batchBtnCancel} onPress={cancelSelection}>
+              <Ionicons name="close" size={22} color={colors.white} />
+              <Text style={reportStyles.batchBtnText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -1375,16 +1434,21 @@ const reportStyles = StyleSheet.create({
     backgroundColor: colors.error || '#EF4444',
   },
 
-  // Batch Action Bar - Between calendar and chart
-  batchBar: {
+  // Batch Action Bar - Fixed at bottom of screen
+  batchBarFixed: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
     flexDirection: 'column',
     gap: 12,
     backgroundColor: colors.accent,
     paddingVertical: 16,
     paddingHorizontal: 16,
-    borderRadius: 12,
-    marginVertical: 12,
-    ...shadows.md,
+    paddingBottom: 24, // Extra padding for safe area
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    ...shadows.lg,
   },
   batchText: {
     fontSize: 14,
