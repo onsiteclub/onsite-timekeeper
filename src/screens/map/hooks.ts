@@ -92,6 +92,14 @@ export function useMapScreen() {
   // Loading
   const [isAdding, setIsAdding] = useState(false);
 
+  // Track current map center for onboarding circle (when no locations yet)
+  const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number } | null>(() => {
+    if (currentLocation?.latitude && currentLocation?.longitude) {
+      return { lat: currentLocation.latitude, lng: currentLocation.longitude };
+    }
+    return null;
+  });
+
   // ============================================
   // EFFECTS
   // ============================================
@@ -220,6 +228,28 @@ export function useMapScreen() {
     Keyboard.dismiss();
   }, []);
 
+  // Track map center as user pans (for onboarding circle)
+  const handleRegionChange = useCallback((newRegion: Region) => {
+    setMapCenter({ lat: newRegion.latitude, lng: newRegion.longitude });
+  }, []);
+
+  // Handler for clicking the onboarding circle (creates location at map center)
+  const handleOnboardingCirclePress = useCallback(() => {
+    if (!mapCenter) return;
+
+    Keyboard.dismiss();
+    logger.debug('ui', '🔵 Onboarding circle pressed - creating temp pin at map center', {
+      lat: mapCenter.lat.toFixed(5),
+      lng: mapCenter.lng.toFixed(5)
+    });
+
+    setTempPin({ lat: mapCenter.lat, lng: mapCenter.lng });
+    setNewLocationName('');
+    setNewLocationRadius(DEFAULT_RADIUS);
+    setNameInputError(false);
+    setShowNameModal(true);
+  }, [mapCenter]);
+
   const handleMapLongPress = useCallback((e: any) => {
     Keyboard.dismiss();
 
@@ -235,20 +265,23 @@ export function useMapScreen() {
   }, []);
 
   const handleSelectSearchResult = useCallback((result: SearchResult) => {
-    // Create temporary pin
-    setTempPin({ lat: result.latitude, lng: result.longitude });
-
-    // Move map
+    // Move map to center on search result
+    // The onboarding circle will be positioned over this location
     animateToLocation(result.latitude, result.longitude, 'close');
 
-    // Open name modal after short delay (to see map)
-    setTimeout(() => {
-      setNewLocationName('');
-      setNewLocationRadius(DEFAULT_RADIUS);
-      setNameInputError(false);
-      setShowNameModal(true);
-    }, 600);
-  }, [animateToLocation]);
+    // If user already has locations, open the modal directly
+    // Otherwise, they'll click the onboarding circle
+    if (locations.length > 0) {
+      setTempPin({ lat: result.latitude, lng: result.longitude });
+      setTimeout(() => {
+        setNewLocationName('');
+        setNewLocationRadius(DEFAULT_RADIUS);
+        setNameInputError(false);
+        setShowNameModal(true);
+      }, 600);
+    }
+    // For new users (no locations), the pulsing circle guides them to tap
+  }, [animateToLocation, locations.length]);
 
   const handleGoToMyLocation = useCallback(() => {
     if (currentLocation) {
@@ -411,6 +444,7 @@ export function useMapScreen() {
     isAdding,
     showRadiusModal,
     selectedLocation,
+    mapCenter,
 
     // Store data
     locations,
@@ -426,6 +460,8 @@ export function useMapScreen() {
     handleMapReady,
     handleMapPress,
     handleMapLongPress,
+    handleRegionChange,
+    handleOnboardingCirclePress,
     handleSelectSearchResult,
     handleGoToMyLocation,
     handleConfirmAddLocation,
