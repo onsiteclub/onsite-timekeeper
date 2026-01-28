@@ -19,7 +19,7 @@ import { colors, borderRadius, spacing } from '../../constants/colors';
 import { parseQRPayload, redeemToken } from '../../lib/accessGrants';
 
 interface QRCodeScannerProps {
-  onSuccess?: (ownerName?: string) => void;
+  onSuccess?: (ownerId: string, ownerName?: string) => void;
   onCancel?: () => void;
 }
 
@@ -47,8 +47,8 @@ export function QRCodeScanner({ onSuccess, onCancel }: QRCodeScannerProps) {
 
       if (!payload) {
         Alert.alert(
-          'QR Code Inválido',
-          'Este QR code não é do OnSite Timekeeper.',
+          'Invalid QR Code',
+          'This QR code is not from OnSite Timekeeper.',
           [{ text: 'OK', onPress: () => setScanned(false) }]
         );
         setProcessing(false);
@@ -58,23 +58,23 @@ export function QRCodeScanner({ onSuccess, onCancel }: QRCodeScannerProps) {
       // Redeem the token
       const result = await redeemToken(payload.token);
 
-      if (result.success) {
+      if (result.success && result.ownerId) {
         Alert.alert(
-          'Acesso Liberado!',
+          'Access Granted!',
           result.message,
-          [{ text: 'OK', onPress: () => onSuccess?.(result.ownerName) }]
+          [{ text: 'OK', onPress: () => onSuccess?.(result.ownerId!, result.ownerName) }]
         );
       } else {
         Alert.alert(
-          'Erro',
+          'Error',
           result.message,
           [{ text: 'OK', onPress: () => setScanned(false) }]
         );
       }
     } catch (error) {
       Alert.alert(
-        'Erro',
-        'Erro ao processar QR code. Tente novamente.',
+        'Error',
+        'Failed to process QR code. Please try again.',
         [{ text: 'OK', onPress: () => setScanned(false) }]
       );
     } finally {
@@ -87,7 +87,7 @@ export function QRCodeScanner({ onSuccess, onCancel }: QRCodeScannerProps) {
     return (
       <View style={styles.container}>
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Carregando câmera...</Text>
+        <Text style={styles.loadingText}>Loading camera...</Text>
       </View>
     );
   }
@@ -96,16 +96,16 @@ export function QRCodeScanner({ onSuccess, onCancel }: QRCodeScannerProps) {
   if (!permission.granted) {
     return (
       <View style={styles.container}>
-        <Text style={styles.permissionTitle}>Permissão Necessária</Text>
+        <Text style={styles.permissionTitle}>Permission Required</Text>
         <Text style={styles.permissionText}>
-          Para escanear o QR code, precisamos de acesso à câmera.
+          To scan the QR code, we need camera access.
         </Text>
         <TouchableOpacity style={styles.permissionButton} onPress={requestPermission}>
-          <Text style={styles.permissionButtonText}>Permitir Câmera</Text>
+          <Text style={styles.permissionButtonText}>Allow Camera</Text>
         </TouchableOpacity>
         {onCancel && (
           <TouchableOpacity style={styles.cancelButton} onPress={onCancel}>
-            <Text style={styles.cancelButtonText}>Cancelar</Text>
+            <Text style={styles.cancelButtonText}>Cancel</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -139,7 +139,7 @@ export function QRCodeScanner({ onSuccess, onCancel }: QRCodeScannerProps) {
           </View>
           <View style={styles.overlayBottom}>
             <Text style={styles.instructionText}>
-              Aponte a câmera para o QR code
+              Point the camera at the QR code
             </Text>
           </View>
         </View>
@@ -147,14 +147,14 @@ export function QRCodeScanner({ onSuccess, onCancel }: QRCodeScannerProps) {
         {processing && (
           <View style={styles.processingOverlay}>
             <ActivityIndicator size="large" color={colors.white} />
-            <Text style={styles.processingText}>Processando...</Text>
+            <Text style={styles.processingText}>Processing...</Text>
           </View>
         )}
       </View>
 
       {onCancel && (
         <TouchableOpacity style={styles.cancelButtonCamera} onPress={onCancel}>
-          <Text style={styles.cancelButtonCameraText}>Cancelar</Text>
+          <Text style={styles.cancelButtonCameraText}>Cancel</Text>
         </TouchableOpacity>
       )}
     </View>

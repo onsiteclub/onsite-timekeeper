@@ -3,8 +3,11 @@
  *
  * QR Code device linking system for sharing work records
  * between workers (owners) and managers (viewers).
+ *
+ * Flow: Worker generates QR → Manager scans → Immediate access (no approval step).
  */
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, type AccessGrant as AccessGrantType, type PendingToken, type RecordRow } from './supabase';
 import { logger } from './logger';
 
@@ -39,7 +42,7 @@ function generateToken(): string {
 // ============================================
 
 /**
- * Create a new pending token for QR code generation.
+ * Create a new token for QR code generation.
  * Token expires after 5 minutes.
  */
 export async function createAccessToken(ownerName?: string): Promise<{
@@ -80,7 +83,6 @@ export async function createAccessToken(ownerName?: string): Promise<{
 
 /**
  * Get all access grants where current user is the owner.
- * Includes pending requests from viewers.
  */
 export async function getMyGrants(): Promise<AccessGrant[]> {
   try {
@@ -102,65 +104,6 @@ export async function getMyGrants(): Promise<AccessGrant[]> {
   } catch (error) {
     logger.error('grants', 'Error fetching my grants', { error: String(error) });
     return [];
-  }
-}
-
-/**
- * Accept a pending access grant request.
- */
-export async function acceptGrant(grantId: string): Promise<boolean> {
-  try {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return false;
-
-    const { error } = await supabase
-      .from('access_grants')
-      .update({
-        status: 'active',
-        accepted_at: new Date().toISOString(),
-      })
-      .eq('id', grantId)
-      .eq('owner_id', user.id)
-      .eq('status', 'pending');
-
-    if (error) {
-      logger.error('grants', 'Failed to accept grant', { error: error.message });
-      return false;
-    }
-
-    logger.info('grants', `Grant accepted: ${grantId.substring(0, 8)}...`);
-    return true;
-  } catch (error) {
-    logger.error('grants', 'Error accepting grant', { error: String(error) });
-    return false;
-  }
-}
-
-/**
- * Reject a pending access grant request.
- */
-export async function rejectGrant(grantId: string): Promise<boolean> {
-  try {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return false;
-
-    const { error } = await supabase
-      .from('access_grants')
-      .delete()
-      .eq('id', grantId)
-      .eq('owner_id', user.id)
-      .eq('status', 'pending');
-
-    if (error) {
-      logger.error('grants', 'Failed to reject grant', { error: error.message });
-      return false;
-    }
-
-    logger.info('grants', `Grant rejected: ${grantId.substring(0, 8)}...`);
-    return true;
-  } catch (error) {
-    logger.error('grants', 'Error rejecting grant', { error: String(error) });
-    return false;
   }
 }
 
@@ -199,17 +142,18 @@ export async function revokeGrant(grantId: string): Promise<boolean> {
 // ============================================
 
 /**
- * Redeem a token from QR code to create a pending grant.
+ * Redeem a token from QR code to create an active grant (immediate access).
  */
 export async function redeemToken(token: string): Promise<{
   success: boolean;
   message: string;
   ownerName?: string;
+  ownerId?: string;
 }> {
   try {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
-      return { success: false, message: 'Você precisa estar logado' };
+      return { success: false, message: 'You must be logged in' };
     }
 
     // Find the pending token
@@ -220,19 +164,19 @@ export async function redeemToken(token: string): Promise<{
       .single();
 
     if (fetchError || !pendingToken) {
-      return { success: false, message: 'Token inválido ou não encontrado' };
+      return { success: false, message: 'Invalid or expired token' };
     }
 
     const tokenData = pendingToken as PendingToken;
 
     // Check if expired
     if (new Date(tokenData.expires_at) < new Date()) {
-      return { success: false, message: 'Token expirado' };
+      return { success: false, message: 'Token expired' };
     }
 
     // Check if trying to link to self
     if (tokenData.owner_id === user.id) {
-      return { success: false, message: 'Você não pode vincular a si mesmo' };
+      return { success: false, message: 'You cannot link to yourself' };
     }
 
     // Check if grant already exists
@@ -246,25 +190,42 @@ export async function redeemToken(token: string): Promise<{
     if (existingGrant) {
       const grant = existingGrant as { id: string; status: string };
       if (grant.status === 'active') {
-        return { success: false, message: 'Você já tem acesso a este trabalhador' };
+        return { success: false, message: 'You already have access to this worker' };
       }
-    }
 
-    // Create the grant (IMMEDIATE ACCESS - no approval needed)
-    const { error: insertError } = await supabase
-      .from('access_grants')
-      .insert({
-        owner_id: tokenData.owner_id,
-        viewer_id: user.id,
-        token: token,
-        status: 'active',
-        accepted_at: new Date().toISOString(),
-        label: tokenData.owner_name,
-      });
+      // Re-activate previously revoked grant
+      const { error: updateError } = await supabase
+        .from('access_grants')
+        .update({
+          token: token,
+          status: 'active',
+          accepted_at: new Date().toISOString(),
+          revoked_at: null,
+          label: tokenData.owner_name,
+        })
+        .eq('id', grant.id);
 
-    if (insertError) {
-      logger.error('grants', 'Failed to create grant', { error: insertError.message });
-      return { success: false, message: 'Erro ao criar vínculo' };
+      if (updateError) {
+        logger.error('grants', 'Failed to reactivate grant', { error: updateError.message });
+        return { success: false, message: 'Failed to create link' };
+      }
+    } else {
+      // Create new grant (IMMEDIATE ACCESS - no approval needed)
+      const { error: insertError } = await supabase
+        .from('access_grants')
+        .insert({
+          owner_id: tokenData.owner_id,
+          viewer_id: user.id,
+          token: token,
+          status: 'active',
+          accepted_at: new Date().toISOString(),
+          label: tokenData.owner_name,
+        });
+
+      if (insertError) {
+        logger.error('grants', 'Failed to create grant', { error: insertError.message });
+        return { success: false, message: 'Failed to create link' };
+      }
     }
 
     // Delete the used token
@@ -276,12 +237,71 @@ export async function redeemToken(token: string): Promise<{
     logger.info('grants', `Token redeemed, access granted for owner: ${tokenData.owner_id.substring(0, 8)}...`);
     return {
       success: true,
-      message: 'Acesso liberado! Você já pode ver as horas deste trabalhador.',
+      message: 'Access granted! You can now view this worker\'s hours.',
       ownerName: tokenData.owner_name ?? undefined,
+      ownerId: tokenData.owner_id,
     };
   } catch (error) {
     logger.error('grants', 'Error redeeming token', { error: String(error) });
-    return { success: false, message: 'Erro inesperado' };
+    return { success: false, message: 'Unexpected error' };
+  }
+}
+
+/**
+ * Unlink a worker (viewer removes their own access to an owner's records).
+ */
+export async function unlinkWorker(grantId: string): Promise<boolean> {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return false;
+
+    const { error } = await supabase
+      .from('access_grants')
+      .update({
+        status: 'revoked',
+        revoked_at: new Date().toISOString(),
+      })
+      .eq('id', grantId)
+      .eq('viewer_id', user.id);
+
+    if (error) {
+      logger.error('grants', 'Failed to unlink worker', { error: error.message });
+      return false;
+    }
+
+    logger.info('grants', `Worker unlinked: ${grantId.substring(0, 8)}...`);
+    return true;
+  } catch (error) {
+    logger.error('grants', 'Error unlinking worker', { error: String(error) });
+    return false;
+  }
+}
+
+/**
+ * Update the display label for a linked worker (viewer-only, local to this grant).
+ */
+export async function updateGrantLabel(ownerId: string, label: string): Promise<boolean> {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return false;
+
+    const { error } = await supabase
+      .from('access_grants')
+      .update({ label })
+      .eq('owner_id', ownerId)
+      .eq('viewer_id', user.id)
+      .eq('status', 'active');
+
+    if (error) {
+      logger.error('grants', 'Failed to update grant label', { error: error.message });
+      return false;
+    }
+
+    logger.info('grants', `Label updated for owner ${ownerId.substring(0, 8)}...`);
+    return true;
+  } catch (error) {
+    logger.error('grants', 'Error updating grant label', { error: String(error) });
+    return false;
   }
 }
 
@@ -384,6 +404,69 @@ export async function getAllSharedRecords(): Promise<{
   } catch (error) {
     logger.error('grants', 'Error fetching all shared records', { error: String(error) });
     return [];
+  }
+}
+
+// ============================================
+// ARCHIVE FUNCTIONS (Local-only, per viewer)
+// ============================================
+
+interface ArchivedRecord {
+  recordId: string;
+  archivedAt: string;
+}
+
+const ARCHIVE_MAX_DAYS = 60;
+
+function getArchiveKey(ownerId: string): string {
+  return `archived_records_${ownerId}`;
+}
+
+async function loadArchiveData(ownerId: string): Promise<ArchivedRecord[]> {
+  try {
+    const raw = await AsyncStorage.getItem(getArchiveKey(ownerId));
+    if (!raw) return [];
+    return JSON.parse(raw) as ArchivedRecord[];
+  } catch {
+    return [];
+  }
+}
+
+async function saveArchiveData(ownerId: string, data: ArchivedRecord[]): Promise<void> {
+  await AsyncStorage.setItem(getArchiveKey(ownerId), JSON.stringify(data));
+}
+
+/**
+ * Get set of archived record IDs for a specific owner.
+ * Automatically cleans up entries older than 60 days.
+ */
+export async function getArchivedIds(ownerId: string): Promise<Set<string>> {
+  const data = await loadArchiveData(ownerId);
+  const cutoff = Date.now() - ARCHIVE_MAX_DAYS * 24 * 60 * 60 * 1000;
+  const valid = data.filter(r => new Date(r.archivedAt).getTime() > cutoff);
+
+  if (valid.length !== data.length) {
+    await saveArchiveData(ownerId, valid);
+  }
+
+  return new Set(valid.map(r => r.recordId));
+}
+
+/**
+ * Archive a list of record IDs for a specific owner.
+ */
+export async function archiveRecords(ownerId: string, recordIds: string[]): Promise<void> {
+  const data = await loadArchiveData(ownerId);
+  const existingIds = new Set(data.map(r => r.recordId));
+  const now = new Date().toISOString();
+
+  const newEntries = recordIds
+    .filter(id => !existingIds.has(id))
+    .map(recordId => ({ recordId, archivedAt: now }));
+
+  if (newEntries.length > 0) {
+    await saveArchiveData(ownerId, [...data, ...newEntries]);
+    logger.info('grants', `Archived ${newEntries.length} records for owner ${ownerId.substring(0, 8)}...`);
   }
 }
 

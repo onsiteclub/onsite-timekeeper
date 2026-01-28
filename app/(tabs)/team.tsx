@@ -2,10 +2,10 @@
  * Team Dashboard Screen - OnSite Timekeeper
  *
  * Shows work hours from linked workers (for managers).
- * Uses access grants system to fetch shared records.
+ * Compact bar layout with archive system for paid/viewed hours.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -16,6 +16,9 @@ import {
   ActivityIndicator,
   Modal,
   Alert,
+  TextInput,
+  Platform,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, borderRadius, spacing } from '../../src/constants/colors';
@@ -24,6 +27,10 @@ import {
   getMyGrants,
   getAllSharedRecords,
   revokeGrant,
+  unlinkWorker,
+  updateGrantLabel,
+  getArchivedIds,
+  archiveRecords,
   type AccessGrant,
 } from '../../src/lib/accessGrants';
 import { QRCodeGenerator, QRCodeScanner } from '../../src/components/sharing';
@@ -50,121 +57,206 @@ function calculateTotalMinutes(records: RecordRow[]): number {
   }, 0);
 }
 
-function getRecordsForPeriod(records: RecordRow[], days: number): RecordRow[] {
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - days);
-  cutoff.setHours(0, 0, 0, 0);
-
-  return records.filter((r) => {
-    const date = new Date(r.entry_at);
-    return date >= cutoff;
-  });
-}
-
-function getTodayRecords(records: RecordRow[]): RecordRow[] {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  return records.filter((r) => {
-    const date = new Date(r.entry_at);
-    date.setHours(0, 0, 0, 0);
-    return date.getTime() === today.getTime();
-  });
-}
-
 // ============================================
-// WORKER CARD
+// WORKER BAR (Compact)
 // ============================================
 
-interface WorkerCardProps {
+interface WorkerBarProps {
   name: string;
   records: RecordRow[];
+  archivedIds: Set<string>;
   expanded: boolean;
   onToggle: () => void;
+  onRemove: () => void;
+  onArchive: (recordIds: string[]) => void;
+  onEditName: () => void;
 }
 
-function WorkerCard({ name, records, expanded, onToggle }: WorkerCardProps) {
-  const todayRecords = getTodayRecords(records);
-  const weekRecords = getRecordsForPeriod(records, 7);
+function WorkerBar({
+  name,
+  records,
+  archivedIds,
+  expanded,
+  onToggle,
+  onRemove,
+  onArchive,
+  onEditName,
+}: WorkerBarProps) {
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showArchived, setShowArchived] = useState(false);
 
-  const todayMinutes = calculateTotalMinutes(todayRecords);
-  const weekMinutes = calculateTotalMinutes(weekRecords);
+  const pendingRecords = records.filter(r => !archivedIds.has(r.id));
+  const archivedRecords = records.filter(r => archivedIds.has(r.id));
+  const pendingMinutes = calculateTotalMinutes(pendingRecords);
 
-  const isWorking = todayRecords.some((r) => !r.exit_at);
+  const isWorking = pendingRecords.some(r => !r.exit_at);
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleArchiveSelected = () => {
+    if (selectedIds.size === 0) return;
+    onArchive(Array.from(selectedIds));
+    setSelectedIds(new Set());
+  };
+
+  const handleArchiveAll = () => {
+    const ids = pendingRecords.filter(r => r.exit_at).map(r => r.id);
+    if (ids.length === 0) return;
+    onArchive(ids);
+    setSelectedIds(new Set());
+  };
+
+  const formatRecordDate = (dateStr: string) => {
+    return new Date(dateStr).toLocaleDateString('en-US', {
+      day: '2-digit',
+      month: 'short',
+    });
+  };
+
+  const formatRecordTime = (dateStr: string) => {
+    return new Date(dateStr).toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
+  };
 
   return (
     <View style={styles.workerCard}>
-      <TouchableOpacity style={styles.workerHeader} onPress={onToggle}>
-        <View style={styles.workerInfo}>
+      {/* Compact Bar */}
+      <TouchableOpacity style={styles.compactBar} onPress={onToggle}>
+        <View style={styles.barLeft}>
           <View style={[styles.avatar, isWorking && styles.avatarActive]}>
             <Text style={styles.avatarText}>{name[0]?.toUpperCase() || '?'}</Text>
           </View>
-          <View>
-            <Text style={styles.workerName}>{name}</Text>
-            {isWorking && (
-              <View style={styles.workingBadge}>
-                <View style={styles.workingDot} />
-                <Text style={styles.workingText}>Working</Text>
-              </View>
-            )}
-          </View>
+          <Text style={styles.barName} numberOfLines={1}>{name}</Text>
+          <TouchableOpacity
+            style={styles.editNameBtn}
+            onPress={(e) => { e.stopPropagation(); onEditName(); }}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="pencil-outline" size={14} color={colors.textMuted} />
+          </TouchableOpacity>
         </View>
-        <Ionicons
-          name={expanded ? 'chevron-up' : 'chevron-down'}
-          size={20}
-          color={colors.textSecondary}
-        />
+        <View style={styles.barRight}>
+          <Text style={styles.barHours}>{formatDuration(pendingMinutes)}</Text>
+          <Ionicons
+            name={expanded ? 'chevron-up' : 'chevron-down'}
+            size={18}
+            color={colors.textSecondary}
+          />
+        </View>
       </TouchableOpacity>
 
-      <View style={styles.statsRow}>
-        <View style={styles.statItem}>
-          <Text style={styles.statLabel}>Today</Text>
-          <Text style={styles.statValue}>{formatDuration(todayMinutes)}</Text>
-        </View>
-        <View style={styles.statDivider} />
-        <View style={styles.statItem}>
-          <Text style={styles.statLabel}>This Week</Text>
-          <Text style={styles.statValue}>{formatDuration(weekMinutes)}</Text>
-        </View>
-      </View>
-
+      {/* Expanded Content */}
       {expanded && (
         <View style={styles.expandedContent}>
-          <Text style={styles.recentTitle}>Recent Activity</Text>
-          {records.slice(0, 5).map((record, index) => (
-            <View key={record.id || index} style={styles.recordRow}>
-              <View style={styles.recordDate}>
-                <Text style={styles.recordDateText}>
-                  {new Date(record.entry_at).toLocaleDateString('pt-BR', {
-                    weekday: 'short',
-                    day: '2-digit',
-                    month: 'short',
-                  })}
-                </Text>
+          {/* Pending Records */}
+          {pendingRecords.length > 0 && (
+            <>
+              <Text style={styles.sectionLabel}>Pending Hours</Text>
+              {pendingRecords.map(record => (
+                <TouchableOpacity
+                  key={record.id}
+                  style={styles.recordRow}
+                  onPress={() => record.exit_at && toggleSelect(record.id)}
+                  activeOpacity={record.exit_at ? 0.6 : 1}
+                >
+                  <View style={styles.checkboxArea}>
+                    {record.exit_at ? (
+                      <Ionicons
+                        name={selectedIds.has(record.id) ? 'checkbox' : 'square-outline'}
+                        size={20}
+                        color={selectedIds.has(record.id) ? colors.primary : colors.textMuted}
+                      />
+                    ) : (
+                      <View style={styles.activeDot} />
+                    )}
+                  </View>
+                  <Text style={styles.recordDate}>{formatRecordDate(record.entry_at)}</Text>
+                  <Text style={styles.recordTime}>
+                    {formatRecordTime(record.entry_at)}
+                    {' - '}
+                    {record.exit_at ? formatRecordTime(record.exit_at) : 'Now'}
+                  </Text>
+                  <Text style={styles.recordLocation} numberOfLines={1}>
+                    {record.location_name || 'Unknown'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+
+              {/* Archive Buttons */}
+              <View style={styles.archiveActions}>
+                <TouchableOpacity
+                  style={[styles.archiveBtn, selectedIds.size === 0 && styles.archiveBtnDisabled]}
+                  onPress={handleArchiveSelected}
+                  disabled={selectedIds.size === 0}
+                >
+                  <Text style={[styles.archiveBtnText, selectedIds.size === 0 && styles.archiveBtnTextDisabled]}>
+                    Archive ({selectedIds.size})
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.archiveBtn} onPress={handleArchiveAll}>
+                  <Text style={styles.archiveBtnText}>Archive All</Text>
+                </TouchableOpacity>
               </View>
-              <View style={styles.recordTime}>
-                <Text style={styles.recordTimeText}>
-                  {new Date(record.entry_at).toLocaleTimeString('pt-BR', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
-                  {' - '}
-                  {record.exit_at
-                    ? new Date(record.exit_at).toLocaleTimeString('pt-BR', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })
-                    : 'In progress'}
-                </Text>
-              </View>
-              <Text style={styles.recordLocation}>
-                {record.location_name || 'Unknown'}
-              </Text>
-            </View>
-          ))}
-          {records.length === 0 && (
+            </>
+          )}
+
+          {pendingRecords.length === 0 && archivedRecords.length === 0 && (
             <Text style={styles.noRecordsText}>No records yet</Text>
           )}
+
+          {pendingRecords.length === 0 && archivedRecords.length > 0 && (
+            <Text style={styles.allArchivedText}>All hours archived</Text>
+          )}
+
+          {/* Archived Section */}
+          {archivedRecords.length > 0 && (
+            <>
+              <TouchableOpacity
+                style={styles.archivedToggle}
+                onPress={() => setShowArchived(!showArchived)}
+              >
+                <Ionicons
+                  name={showArchived ? 'chevron-down' : 'chevron-forward'}
+                  size={16}
+                  color={colors.textMuted}
+                />
+                <Text style={styles.archivedToggleText}>
+                  Archived ({archivedRecords.length})
+                </Text>
+              </TouchableOpacity>
+
+              {showArchived && archivedRecords.map(record => (
+                <View key={record.id} style={styles.archivedRow}>
+                  <Ionicons name="archive-outline" size={14} color={colors.textMuted} />
+                  <Text style={styles.archivedDate}>{formatRecordDate(record.entry_at)}</Text>
+                  <Text style={styles.archivedTime}>
+                    {formatRecordTime(record.entry_at)}
+                    {' - '}
+                    {record.exit_at ? formatRecordTime(record.exit_at) : 'Now'}
+                  </Text>
+                  <Text style={styles.archivedLocation} numberOfLines={1}>
+                    {record.location_name || 'Unknown'}
+                  </Text>
+                </View>
+              ))}
+            </>
+          )}
+
+          {/* Remove Worker */}
+          <TouchableOpacity style={styles.removeWorkerBtn} onPress={onRemove}>
+            <Ionicons name="person-remove-outline" size={16} color={colors.error} />
+            <Text style={styles.removeWorkerBtnText}>Remove from team</Text>
+          </TouchableOpacity>
         </View>
       )}
     </View>
@@ -180,6 +272,7 @@ export default function TeamScreen() {
   const [workers, setWorkers] = useState<
     { ownerId: string; ownerName: string | null; records: RecordRow[] }[]
   >([]);
+  const [archivedMap, setArchivedMap] = useState<Record<string, Set<string>>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [expandedWorker, setExpandedWorker] = useState<string | null>(null);
@@ -190,13 +283,32 @@ export default function TeamScreen() {
   const [myGrants, setMyGrants] = useState<AccessGrant[]>([]);
   const [grantedAccess, setGrantedAccess] = useState<AccessGrant[]>([]);
 
+  // Naming modal state
+  const [namingModal, setNamingModal] = useState<{
+    visible: boolean;
+    ownerId: string;
+    currentName: string;
+  }>({ visible: false, ownerId: '', currentName: '' });
+  const [nameInput, setNameInput] = useState('');
+  const nameInputRef = useRef<TextInput>(null);
+
   const loadData = useCallback(async () => {
     const [data, my, granted] = await Promise.all([
       getAllSharedRecords(),
       getMyGrants(),
       getGrantedAccess(),
     ]);
+
+    // Load archived IDs for each worker
+    const archMap: Record<string, Set<string>> = {};
+    await Promise.all(
+      data.map(async (w) => {
+        archMap[w.ownerId] = await getArchivedIds(w.ownerId);
+      })
+    );
+
     setWorkers(data);
+    setArchivedMap(archMap);
     setMyGrants(my);
     setGrantedAccess(granted);
     setLoading(false);
@@ -218,12 +330,12 @@ export default function TeamScreen() {
 
   const handleRevokeGrant = async (grantId: string) => {
     Alert.alert(
-      'Revogar Acesso',
-      'Tem certeza que deseja revogar este acesso? O gerente não poderá mais ver suas horas.',
+      'Revoke Access',
+      'Are you sure? The manager will no longer be able to see your hours.',
       [
-        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Revogar',
+          text: 'Revoke',
           style: 'destructive',
           onPress: async () => {
             const success = await revokeGrant(grantId);
@@ -234,8 +346,61 @@ export default function TeamScreen() {
     );
   };
 
-  const handleQRScanSuccess = () => {
+  const handleUnlinkWorker = async (ownerId: string, ownerName: string) => {
+    const grant = grantedAccess.find(g => g.owner_id === ownerId);
+    if (!grant) return;
+
+    Alert.alert(
+      'Remove Worker',
+      `Remove "${ownerName}" from your team? You will no longer see their hours.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            const success = await unlinkWorker(grant.id);
+            if (success) loadData();
+          },
+        },
+      ]
+    );
+  };
+
+  const handleArchive = async (ownerId: string, recordIds: string[]) => {
+    await archiveRecords(ownerId, recordIds);
+    // Update local state immediately
+    setArchivedMap(prev => {
+      const next = { ...prev };
+      const existing = new Set(prev[ownerId] || []);
+      recordIds.forEach(id => existing.add(id));
+      next[ownerId] = existing;
+      return next;
+    });
+  };
+
+  const handleQRScanSuccess = (ownerId: string, ownerName?: string) => {
     setShowQRScanner(false);
+    loadData();
+    // Show naming modal so manager can set a recognizable name
+    const defaultName = ownerName || '';
+    setNameInput(defaultName);
+    setNamingModal({ visible: true, ownerId, currentName: defaultName });
+  };
+
+  const openEditName = (ownerId: string, currentName: string) => {
+    setNameInput(currentName);
+    setNamingModal({ visible: true, ownerId, currentName });
+  };
+
+  const handleSaveName = async () => {
+    const trimmed = nameInput.trim();
+    if (!trimmed || !namingModal.ownerId) {
+      setNamingModal({ visible: false, ownerId: '', currentName: '' });
+      return;
+    }
+    await updateGrantLabel(namingModal.ownerId, trimmed);
+    setNamingModal({ visible: false, ownerId: '', currentName: '' });
     loadData();
   };
 
@@ -321,12 +486,16 @@ export default function TeamScreen() {
           <Text style={styles.sectionTitle}>Workers I Follow</Text>
           <View style={styles.workersList}>
             {workers.map((worker) => (
-              <WorkerCard
+              <WorkerBar
                 key={worker.ownerId}
                 name={worker.ownerName || 'Worker'}
                 records={worker.records}
+                archivedIds={archivedMap[worker.ownerId] || new Set()}
                 expanded={expandedWorker === worker.ownerId}
                 onToggle={() => toggleWorker(worker.ownerId)}
+                onRemove={() => handleUnlinkWorker(worker.ownerId, worker.ownerName || 'Worker')}
+                onArchive={(ids) => handleArchive(worker.ownerId, ids)}
+                onEditName={() => openEditName(worker.ownerId, worker.ownerName || '')}
               />
             ))}
           </View>
@@ -359,6 +528,53 @@ export default function TeamScreen() {
           onSuccess={handleQRScanSuccess}
           onCancel={() => setShowQRScanner(false)}
         />
+      </Modal>
+
+      {/* Naming Modal */}
+      <Modal
+        visible={namingModal.visible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setNamingModal({ visible: false, ownerId: '', currentName: '' })}
+      >
+        <KeyboardAvoidingView
+          style={styles.namingOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <View style={styles.namingContainer}>
+            <Text style={styles.namingTitle}>Worker Name</Text>
+            <Text style={styles.namingSubtitle}>
+              Enter a name to identify this worker
+            </Text>
+            <TextInput
+              ref={nameInputRef}
+              style={styles.namingInput}
+              value={nameInput}
+              onChangeText={setNameInput}
+              placeholder="e.g. John, Maria..."
+              placeholderTextColor={colors.textMuted}
+              autoFocus
+              returnKeyType="done"
+              onSubmitEditing={handleSaveName}
+              maxLength={50}
+            />
+            <View style={styles.namingActions}>
+              <TouchableOpacity
+                style={styles.namingCancelBtn}
+                onPress={() => setNamingModal({ visible: false, ownerId: '', currentName: '' })}
+              >
+                <Text style={styles.namingCancelText}>Skip</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.namingSaveBtn, !nameInput.trim() && styles.namingSaveBtnDisabled]}
+                onPress={handleSaveName}
+                disabled={!nameInput.trim()}
+              >
+                <Text style={styles.namingSaveText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
     </ScrollView>
   );
@@ -420,30 +636,34 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   workersList: {
-    gap: spacing.md,
+    gap: spacing.sm,
   },
+
+  // Compact Bar
   workerCard: {
     backgroundColor: colors.card,
-    borderRadius: borderRadius.lg,
+    borderRadius: borderRadius.md,
     borderWidth: 1,
     borderColor: colors.cardBorder,
     overflow: 'hidden',
   },
-  workerHeader: {
+  compactBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: spacing.md,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
   },
-  workerInfo: {
+  barLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
+    gap: spacing.sm,
+    flex: 1,
   },
   avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
@@ -453,98 +673,168 @@ const styles = StyleSheet.create({
     borderColor: colors.success,
   },
   avatarText: {
-    fontSize: 18,
+    fontSize: 14,
     fontWeight: '700',
     color: colors.black,
   },
-  workerName: {
-    fontSize: 16,
+  barName: {
+    fontSize: 15,
     fontWeight: '600',
     color: colors.text,
+    flexShrink: 1,
   },
-  workingBadge: {
+  editNameBtn: {
+    padding: 2,
+    marginLeft: 4,
+  },
+  barRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    marginTop: 2,
+    gap: spacing.sm,
   },
-  workingDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.success,
-  },
-  workingText: {
-    fontSize: 12,
-    color: colors.success,
-    fontWeight: '500',
-  },
-  statsRow: {
-    flexDirection: 'row',
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  statItem: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: spacing.md,
-  },
-  statDivider: {
-    width: 1,
-    backgroundColor: colors.border,
-  },
-  statLabel: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    marginBottom: 4,
-  },
-  statValue: {
-    fontSize: 18,
+  barHours: {
+    fontSize: 15,
     fontWeight: '700',
-    color: colors.text,
+    color: colors.primary,
   },
+
+  // Expanded Content
   expandedContent: {
     borderTopWidth: 1,
     borderTopColor: colors.border,
     padding: spacing.md,
   },
-  recentTitle: {
-    fontSize: 14,
+  sectionLabel: {
+    fontSize: 12,
     fontWeight: '600',
     color: colors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
     marginBottom: spacing.sm,
   },
   recordRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: spacing.sm,
-    gap: spacing.sm,
+    paddingVertical: 6,
+    gap: 6,
+  },
+  checkboxArea: {
+    width: 24,
+    alignItems: 'center',
+  },
+  activeDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.success,
   },
   recordDate: {
-    width: 80,
-  },
-  recordDateText: {
     fontSize: 13,
     color: colors.textSecondary,
+    width: 52,
   },
   recordTime: {
-    flex: 1,
-  },
-  recordTimeText: {
     fontSize: 13,
     color: colors.text,
+    flex: 1,
   },
   recordLocation: {
     fontSize: 12,
     color: colors.textTertiary,
-    maxWidth: 100,
+    maxWidth: 80,
   },
+
+  // Archive Actions
+  archiveActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  archiveBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: borderRadius.sm,
+    backgroundColor: colors.surfaceMuted,
+    alignItems: 'center',
+  },
+  archiveBtnDisabled: {
+    opacity: 0.4,
+  },
+  archiveBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.primary,
+  },
+  archiveBtnTextDisabled: {
+    color: colors.textMuted,
+  },
+
+  // Archived Section
+  archivedToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: spacing.md,
+    paddingVertical: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  archivedToggleText: {
+    fontSize: 13,
+    color: colors.textMuted,
+    fontWeight: '500',
+  },
+  archivedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 4,
+    gap: 6,
+    opacity: 0.5,
+  },
+  archivedDate: {
+    fontSize: 12,
+    color: colors.textMuted,
+    width: 52,
+  },
+  archivedTime: {
+    fontSize: 12,
+    color: colors.textMuted,
+    flex: 1,
+  },
+  archivedLocation: {
+    fontSize: 11,
+    color: colors.textMuted,
+    maxWidth: 80,
+  },
+
   noRecordsText: {
     fontSize: 13,
     color: colors.textSecondary,
     fontStyle: 'italic',
     textAlign: 'center',
     paddingVertical: spacing.md,
+  },
+  allArchivedText: {
+    fontSize: 13,
+    color: colors.success,
+    textAlign: 'center',
+    paddingVertical: spacing.sm,
+    fontWeight: '500',
+  },
+  removeWorkerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    marginTop: spacing.md,
+    paddingVertical: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  removeWorkerBtnText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: colors.error,
   },
 
   // QR Actions
@@ -624,5 +914,74 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
     justifyContent: 'center',
     padding: 20,
+  },
+
+  // Naming Modal
+  namingOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  namingContainer: {
+    width: '100%',
+    maxWidth: 340,
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.lg,
+    padding: spacing.lg,
+  },
+  namingTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 4,
+  },
+  namingSubtitle: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    marginBottom: spacing.md,
+  },
+  namingInput: {
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: borderRadius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: colors.text,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  namingActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  namingCancelBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: borderRadius.md,
+    backgroundColor: colors.surfaceMuted,
+    alignItems: 'center',
+  },
+  namingCancelText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  namingSaveBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: borderRadius.md,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+  },
+  namingSaveBtnDisabled: {
+    opacity: 0.4,
+  },
+  namingSaveText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.black,
   },
 });
