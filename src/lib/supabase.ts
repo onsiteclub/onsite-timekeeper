@@ -323,3 +323,30 @@ export type ErrorLogRow = Tables['log_errors']['Row'];
 export type AuditRow = Tables['log_locations']['Row'];
 export type ProfileRow = Tables['profiles']['Row'];
 export type AdminUserRow = Tables['admin_users']['Row'];
+
+// ============================================
+// ACCESS GRANTS TYPES
+// ============================================
+
+export type GrantStatus = 'pending' | 'active' | 'revoked' | 'expired';
+
+export interface PendingToken {
+  id: string;
+  owner_id: string;
+  token: string;
+  owner_name: string | null;
+  expires_at: string;
+  created_at: string;
+}
+
+export interface AccessGrant {
+  id: string;
+  owner_id: string;
+  viewer_id: string;
+  token: string;
+  status: GrantStatus;
+  label: string | null;
+  created_at: string;
+  accepted_at: string | null;
+  revoked_at: string | null;
+}
