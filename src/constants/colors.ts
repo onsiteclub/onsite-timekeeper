@@ -1,140 +1,171 @@
 /**
- * OnSite Club - Color Tokens (Light Minimal Theme)
- * 
- * Design direction: Light minimal / neutral-first / card-based dashboard
- * Principles: soft elevation, thin borders, subtle accent, high whitespace
- * 
- * Ratio: 90% neutrals / 9% slate-forest / 1% yellow
+ * OnSite Club - Color Tokens (Enterprise Theme v3.0)
+ *
+ * Design direction: Professional, enterprise-grade, modern
+ * Principles: Clean neutrals, utility green, muted amber accents
+ *
+ * Ratio: 85-90% neutrals / 8-12% green / 2-5% amber
+ *
+ * Timer states: idle = neutral, running = green, paused = amber
+ * Tab bar: active = amber, inactive = iconMuted
+ * Primary buttons = green filled, secondary = neutral outline
  */
 
 export const colors = {
   // ============================================
-  // NEUTRALS (Structure - 90%)
+  // NEUTRALS (Structure - 85-90%)
   // ============================================
-  
+
   // Backgrounds
-  background: '#F8FAFC',           // App canvas (slate-50)
-  backgroundSecondary: '#FFFFFF',  // Cards, modals, elevated surfaces
-  backgroundTertiary: '#F1F5F9',   // Inputs, muted sections (slate-100)
+  background: '#F6F7F9',           // App canvas (bg)
+  backgroundSecondary: '#FFFFFF',  // Cards, modals (surface)
+  backgroundTertiary: '#F2F4F7',   // Inputs, muted sections (surface2)
   backgroundElevated: '#FFFFFF',   // Elevated elements
-  
+
   // Surfaces
   surface: '#FFFFFF',              // Card background
-  surfaceMuted: '#F1F5F9',         // Input fields, placeholders
-  
+  surface2: '#F2F4F7',             // Secondary surface
+  surfaceMuted: '#F6F7F9',         // Input fields, placeholders
+
   // Text
-  text: '#0F172A',                 // Primary text (slate-900)
-  textSecondary: '#475569',        // Labels, descriptions (slate-600)
-  textTertiary: '#64748B',         // Subtle text (slate-500)
-  textMuted: '#94A3B8',            // Very subtle (slate-400)
-  
+  text: '#101828',                 // Primary text (near black)
+  textSecondary: '#667085',        // Labels, descriptions
+  textTertiary: '#667085',         // Subtle text (alias)
+  textMuted: '#667085',            // Muted text
+
+  // Icons
+  iconMuted: '#98A2B3',            // Inactive icons, placeholders
+
   // Borders
-  border: '#E2E8F0',               // Dividers, card borders (slate-200)
-  borderLight: '#F1F5F9',          // Subtle borders
-  borderFocus: '#F6C343',          // Focus state (yellow)
-  
+  border: '#E3E7EE',               // Dividers, card borders
+  borderLight: '#F2F4F7',          // Subtle borders
+  borderFocus: '#0F766E',          // Focus state (green for inputs)
+
   // Base colors
-  black: '#0F172A',                // For text on yellow buttons
+  black: '#101828',                // For text
   white: '#FFFFFF',
-  
+
   // ============================================
-  // ACCENT COLORS (Brand - 9% + 1%)
+  // BRAND ACCENT - MUTED AMBER (2-5%)
   // ============================================
-  
-  // Yellow (use sparingly - 1%)
-  primary: '#F6C343',              // Accent yellow subtle
-  primaryStrong: '#F2B705',        // CTA, important actions (rare)
-  primaryPressed: '#E5A600',       // Pressed state
-  primarySoft: 'rgba(246, 195, 67, 0.12)',  // Subtle background
-  primaryLight: '#F6C343',         // Alias
-  primaryDark: '#E5A600',          // Alias
-  
-  // Slate/Forest (state indicator - 9%)
-  accent: '#0F3D3E',               // ACTIVE badge, state icons
-  accentLight: '#1A5456',          // Hover state
-  
+
+  // Amber (use sparingly - tab active, paused state, warnings)
+  primary: '#C58B1B',              // Muted amber
+  primaryStrong: '#A67516',        // Darker amber
+  primaryPressed: '#8F6513',       // Pressed state
+  primarySoft: '#FFF3D6',          // Soft amber background (amberSoft)
+  primaryLight: '#FFF3D6',         // Light amber tint
+  primaryLine: '#F2D28B',          // Amber line/border (amberLine)
+  primaryDark: '#A67516',          // Alias
+
+  // Amber semantic aliases
+  amber: '#C58B1B',
+  amberSoft: '#FFF3D6',
+  amberLine: '#F2D28B',
+
+  // ============================================
+  // UTILITY GREEN (8-12%)
+  // ============================================
+
+  // Green (primary actions, active states, success)
+  accent: '#0F766E',               // Deep teal/green - ACTIVE state
+  accentLight: '#14B8A6',          // Lighter green
+  accentSoft: '#D1FAE5',           // Soft green background (greenSoft)
+
+  // Green semantic aliases
+  green: '#0F766E',
+  greenSoft: '#D1FAE5',
+
   // ============================================
   // FEEDBACK / STATES
   // ============================================
-  success: '#16A34A',              // Green (green-600)
-  successLight: '#22C55E',
-  successSoft: 'rgba(22, 163, 74, 0.12)',
-  
-  warning: '#F6C343',              // Uses brand yellow
-  warningDark: '#E5A600',
-  
+  success: '#0F766E',              // Green for success
+  successLight: '#14B8A6',
+  successSoft: '#D1FAE5',
+
+  warning: '#C58B1B',              // Amber for warnings
+  warningDark: '#A67516',
+  warningSoft: '#FFF3D6',
+
   error: '#DC2626',                // Danger (red-600)
   errorLight: '#EF4444',
   errorSoft: 'rgba(220, 38, 38, 0.12)',
-  
+
   info: '#3B82F6',                 // Blue (rare, links)
   infoDark: '#2563EB',
-  
+
+  // ============================================
+  // TIMER STATES
+  // ============================================
+
+  // Timer (idle = neutral, running = green, paused = amber)
+  timerIdle: '#98A2B3',            // Neutral gray (iconMuted)
+  timerActive: '#0F766E',          // Green for running
+  timerPaused: '#C58B1B',          // Amber for paused
+  timerBackground: '#FFFFFF',
+  timerRing: 'rgba(15, 118, 110, 0.15)',  // Green ring (subtle)
+  timerRingTrack: '#E3E7EE',       // Neutral gray track
+
   // ============================================
   // COMPONENT-SPECIFIC
   // ============================================
-  
-  // Timer
-  timerActive: '#0F3D3E',          // Forest for active state
-  timerIdle: '#94A3B8',            // Muted gray
-  timerBackground: '#FFFFFF',
-  timerRing: 'rgba(246, 195, 67, 0.15)',  // Yellow ring (subtle)
-  timerRingTrack: '#E2E8F0',       // Ring background
-  
+
   // Cards
   card: '#FFFFFF',
-  cardBorder: '#E2E8F0',
-  cardPressed: '#F8FAFC',
-  cardAccent: '#F6C343',           // Left accent bar
-  
+  cardBorder: '#E3E7EE',
+  cardPressed: '#F6F7F9',
+  cardAccent: '#0F766E',           // Left accent bar (green)
+
   // Tab Bar
   tabBar: '#FFFFFF',
-  tabBarBorder: '#E2E8F0',
-  tabActive: '#0F3D3E',            // Forest for active
-  tabInactive: '#94A3B8',
-  
+  tabBarBorder: '#E3E7EE',
+  tabActive: '#C58B1B',            // Amber for active tab
+  tabInactive: '#98A2B3',          // iconMuted for inactive
+
   // Header
-  header: '#F8FAFC',
-  headerText: '#0F172A',
-  
+  header: '#F6F7F9',
+  headerText: '#101828',
+
   // Inputs
-  input: '#F1F5F9',
-  inputBorder: '#E2E8F0',
-  inputPlaceholder: '#94A3B8',
-  inputFocus: '#F6C343',
-  
-  // Buttons
-  buttonPrimary: '#F6C343',
-  buttonPrimaryText: '#0F172A',    // Dark text on yellow
-  buttonSecondary: '#F1F5F9',
-  buttonSecondaryText: '#0F172A',
-  buttonDisabled: '#E2E8F0',
-  buttonDisabledText: '#94A3B8',
-  
+  input: '#F2F4F7',                // surface2
+  inputBorder: '#E3E7EE',
+  inputPlaceholder: '#98A2B3',     // iconMuted
+  inputFocus: '#0F766E',           // Green focus ring
+
+  // Buttons (primary = green, secondary = neutral outline)
+  buttonPrimary: '#0F766E',        // Green filled
+  buttonPrimaryText: '#FFFFFF',    // White text
+  buttonSecondary: '#FFFFFF',      // Neutral surface
+  buttonSecondaryBorder: '#E3E7EE', // Border
+  buttonSecondaryText: '#101828',  // Dark text
+  buttonDisabled: '#F2F4F7',       // surface2
+  buttonDisabledText: '#98A2B3',   // iconMuted
+
   // Danger button
   buttonDanger: '#DC2626',
   buttonDangerPressed: '#B91C1C',
   buttonDangerText: '#FFFFFF',
-  
-  // Map (keep similar for visibility)
-  mapCircle: 'rgba(246, 195, 67, 0.2)',
-  mapCircleBorder: '#F6C343',
-  
+
+  // Map
+  mapCircle: 'rgba(15, 118, 110, 0.2)',
+  mapCircleBorder: '#0F766E',
+
   // Badges
-  badgeActive: '#0F3D3E',          // Forest green for ACTIVE
+  badgeActive: '#0F766E',          // Green for ACTIVE
   badgeActiveText: '#FFFFFF',
-  badgeSuccess: '#16A34A',
-  badgeWarning: '#F6C343',
+  badgeSuccess: '#0F766E',
+  badgeWarning: '#C58B1B',
   badgeError: '#DC2626',
   badgeInfo: '#3B82F6',
-  
+
   // Overlay
-  overlay: 'rgba(15, 23, 42, 0.6)',      // slate-900 with opacity
-  overlayLight: 'rgba(15, 23, 42, 0.4)',
-  
+  overlay: 'rgba(16, 24, 40, 0.6)',      // Near black with opacity
+  overlayLight: 'rgba(16, 24, 40, 0.4)',
+
   // Graph styles
-  graphite: '#F1F5F9',             // Background for graphs
-  steel: '#E2E8F0',                // Grid lines
+  graphite: '#F6F7F9',             // Background for graphs
+  steel: '#E3E7EE',                // Grid lines
+  graphBar: '#0F766E',             // Bar chart color (green)
 };
 
 /**
@@ -200,27 +231,27 @@ export const borderRadius = {
 };
 
 /**
- * Shadow tokens (soft elevation - yellow tinted)
+ * Shadow tokens (soft elevation - neutral)
  */
 export const shadows = {
   sm: {
-    shadowColor: '#F6C343',
+    shadowColor: '#111827',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12,
+    shadowOpacity: 0.06,
     shadowRadius: 6,
     elevation: 2,
   },
   md: {
-    shadowColor: '#F6C343',
+    shadowColor: '#111827',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
+    shadowOpacity: 0.08,
     shadowRadius: 10,
     elevation: 3,
   },
   lg: {
-    shadowColor: '#F6C343',
+    shadowColor: '#111827',
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.18,
+    shadowOpacity: 0.10,
     shadowRadius: 14,
     elevation: 4,
   },

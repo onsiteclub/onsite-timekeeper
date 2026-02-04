@@ -33,17 +33,27 @@ export const homeStyles = StyleSheet.create({
     height: 28,
   },
 
+  // Main Content Wrapper - distributes timer and form to fill screen
+  mainContentWrapper: {
+    flex: 1,
+    minHeight: 460,  // Increased to fill screen
+    justifyContent: 'flex-start',
+  },
+
   // ============================================
   // LOG HOURS FORM - Enhanced prominence with darker gray background
   // ============================================
   formSection: {
-    padding: 20,  // Increased from 18
-    backgroundColor: withOpacity(colors.border, 0.4),  // Darker gray
+    // No flex - uses natural height
+    minHeight: 168,  // +20% (was 140)
+    padding: 18,
+    backgroundColor: withOpacity(colors.border, 0.2),
     borderRadius: 14,
-    borderWidth: 2,  // Thicker border (was 1)
-    borderColor: withOpacity(colors.border, 1.2),  // Slightly stronger border
-    marginBottom: 12,  // Increased from 8
-    ...shadows.md,  // More pronounced shadow (was shadows.sm)
+    borderWidth: 1,
+    borderColor: withOpacity(colors.border, 0.5),
+    marginBottom: 12,
+    justifyContent: 'center',
+    ...shadows.sm,
   },
   formHeader: {
     flexDirection: 'row',
@@ -523,18 +533,20 @@ export const homeStyles = StyleSheet.create({
   },
 
   // ============================================
-  // TIMER - Much more reduced height to give maximum space to form
+  // TIMER - Larger to accommodate animated ring
   // ============================================
   timerSection: {
-    flex: 1,
-    minHeight: 90,  // Much smaller - reduced from 120
-    padding: 12,    // Reduced padding
+    flex: 2,  // Takes 2 parts of available space
+    minHeight: 280,
+    maxHeight: 380,
+    padding: 16,
     backgroundColor: colors.card,
-    borderRadius: 12,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: colors.border,
     justifyContent: 'center',
-    marginBottom: 8,
+    alignItems: 'center',
+    marginBottom: 12,
     ...shadows.sm,
   },
   timerSectionActive: {
@@ -610,9 +622,9 @@ export const homeStyles = StyleSheet.create({
     marginTop: 4,
   },
   pauseBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 48,  // Increased 20% (was 40)
+    height: 48,
+    borderRadius: 24,
     backgroundColor: colors.surfaceMuted,
     borderWidth: 1,
     borderColor: colors.border,
@@ -620,17 +632,17 @@ export const homeStyles = StyleSheet.create({
     alignItems: 'center',
   },
   resumeBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 48,  // Increased 20% (was 40)
+    height: 48,
+    borderRadius: 24,
     backgroundColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
   },
   stopBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 48,  // Increased 20% (was 40)
+    height: 48,
+    borderRadius: 24,
     backgroundColor: colors.textSecondary,
     justifyContent: 'center',
     alignItems: 'center',
