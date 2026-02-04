@@ -292,6 +292,45 @@ export default function SettingsScreen() {
       </AccordionSection>
 
       {/* ============================================ */}
+      {/* LEGAL SECTION */}
+      {/* ============================================ */}
+      <AccordionSection title="Legal" icon="document-text-outline">
+        <TouchableOpacity
+          style={styles.legalButton}
+          onPress={() => router.push('/legal')}
+        >
+          <View style={styles.legalButtonContent}>
+            <Ionicons name="shield-checkmark-outline" size={20} color={colors.primary} />
+            <View style={styles.legalButtonText}>
+              <Text style={styles.legalButtonTitle}>Privacy & Terms</Text>
+              <Text style={styles.legalButtonSubtitle}>View our policies in the app</Text>
+            </View>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+        </TouchableOpacity>
+
+        <View style={styles.divider} />
+
+        <TouchableOpacity
+          style={styles.linkRow}
+          onPress={() => Linking.openURL('https://onsiteclub.ca/legal/timekeeper/privacy.html')}
+        >
+          <Text style={styles.linkText}>Privacy Policy (Web)</Text>
+          <Ionicons name="open-outline" size={18} color={colors.textSecondary} />
+        </TouchableOpacity>
+
+        <View style={styles.divider} />
+
+        <TouchableOpacity
+          style={styles.linkRow}
+          onPress={() => Linking.openURL('https://onsiteclub.ca/legal/timekeeper/terms.html')}
+        >
+          <Text style={styles.linkText}>Terms of Service (Web)</Text>
+          <Ionicons name="open-outline" size={18} color={colors.textSecondary} />
+        </TouchableOpacity>
+      </AccordionSection>
+
+      {/* ============================================ */}
       {/* ABOUT SECTION */}
       {/* ============================================ */}
       <AccordionSection title="About" icon="information-circle-outline">
@@ -300,26 +339,6 @@ export default function SettingsScreen() {
           onPress={() => Linking.openURL('https://onsiteclub.ca')}
         >
           <Text style={styles.linkText}>Website</Text>
-          <Ionicons name="open-outline" size={18} color={colors.textSecondary} />
-        </TouchableOpacity>
-
-        <View style={styles.divider} />
-
-        <TouchableOpacity
-          style={styles.linkRow}
-          onPress={() => Linking.openURL('https://onsiteclub.ca/privacy')}
-        >
-          <Text style={styles.linkText}>Privacy Policy</Text>
-          <Ionicons name="open-outline" size={18} color={colors.textSecondary} />
-        </TouchableOpacity>
-
-        <View style={styles.divider} />
-
-        <TouchableOpacity
-          style={styles.linkRow}
-          onPress={() => Linking.openURL('https://onsiteclub.ca/terms')}
-        >
-          <Text style={styles.linkText}>Terms of Service</Text>
           <Ionicons name="open-outline" size={18} color={colors.textSecondary} />
         </TouchableOpacity>
 
@@ -559,6 +578,35 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: colors.border,
     marginVertical: 4,
+  },
+
+  // Legal button
+  legalButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    backgroundColor: colors.primarySoft,
+    borderRadius: 10,
+    marginBottom: 8,
+  },
+  legalButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  legalButtonText: {
+    gap: 2,
+  },
+  legalButtonTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  legalButtonSubtitle: {
+    fontSize: 13,
+    color: colors.textSecondary,
   },
 
   footer: {
