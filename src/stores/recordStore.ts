@@ -516,8 +516,9 @@ export const useRecordStore = create<RecordState>((set, get) => ({
       if (!dbOk) throw new Error('Database not available');
 
       // Generate unique ID
-      const { generateUUID } = await import('../lib/database');
-const id = generateUUID();
+      const { generateUUID, calculateDuration } = await import('../lib/database');
+      const { upsertDailyHours, getDailyHours, formatTimeHHMM, getDateString } = await import('../lib/database/daily');
+      const id = generateUUID();
 
       // Determine edit_reason based on absence type
       let editReason = 'Manual entry by user';
@@ -535,7 +536,7 @@ const id = generateUUID();
       // Insert complete record (with entry and exit)
       const result = db.runSync(
         `INSERT INTO records (
-          id, user_id, location_id, location_name, entry_at, exit_at, 
+          id, user_id, location_id, location_name, entry_at, exit_at,
           type, manually_edited, edit_reason, pause_minutes, synced_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
         [
@@ -556,6 +557,50 @@ const id = generateUUID();
       if (result.changes === 0) {
         logger.error('record', '❌ Manual record INSERT failed - no rows affected', { id, locationName });
         throw new Error('Failed to insert record');
+      }
+
+      // UPDATE daily_hours for manual entries
+      // Manual entries are marked as NOT verified (source: 'manual')
+      const entryDate = new Date(entry);
+      const exitDate = new Date(exit);
+      const dateStr = getDateString(entryDate);
+      const duration = calculateDuration(entry, exit);
+      const netDuration = Math.max(0, duration - (pauseMinutes || 0));
+
+      const existingDaily = getDailyHours(userId, dateStr);
+      if (existingDaily) {
+        // Add to existing total (manual entries add to GPS data if exists)
+        upsertDailyHours({
+          userId,
+          date: dateStr,
+          totalMinutes: existingDaily.total_minutes + netDuration,
+          breakMinutes: (existingDaily.break_minutes || 0) + (pauseMinutes || 0),
+          // Only update location if not already set
+          locationName: existingDaily.location_name || locationName,
+          locationId: existingDaily.location_id || locationId,
+          // If GPS data exists, keep verified; otherwise mark as manual
+          verified: existingDaily.verified,
+          source: existingDaily.source === 'gps' ? 'edited' : 'manual',
+          // Only update times if not set by GPS
+          firstEntry: existingDaily.first_entry || formatTimeHHMM(entryDate),
+          lastExit: formatTimeHHMM(exitDate),
+        });
+        logger.info('record', `📅 daily_hours updated (manual): +${netDuration}min`);
+      } else {
+        // Create new daily_hours record (manual, NOT verified)
+        upsertDailyHours({
+          userId,
+          date: dateStr,
+          totalMinutes: netDuration,
+          breakMinutes: pauseMinutes || 0,
+          locationName,
+          locationId,
+          verified: false, // Manual entries are NOT verified
+          source: 'manual',
+          firstEntry: formatTimeHHMM(entryDate),
+          lastExit: formatTimeHHMM(exitDate),
+        });
+        logger.info('record', `📅 daily_hours created (manual): ${netDuration}min, verified=false`);
       }
 
       logger.info('record', `✏️ Manual record created: ${id}`, { locationName, entry, exit, pauseMinutes, absenceType });

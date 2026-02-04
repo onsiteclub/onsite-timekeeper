@@ -16,7 +16,7 @@ import '../src/lib/backgroundTasks';
 
 import { colors } from '../src/constants/colors';
 import { logger } from '../src/lib/logger';
-import { initDatabase } from '../src/lib/database';
+import { initDatabase, migrateRecordsToDailyHours } from '../src/lib/database';
 import { ErrorBoundary } from '../src/components/ErrorBoundary';
 import { useAuthStore } from '../src/stores/authStore';
 import { useLocationStore } from '../src/stores/locationStore';
@@ -24,9 +24,7 @@ import { useRecordStore } from '../src/stores/recordStore';
 import { useWorkSessionStore } from '../src/stores/workSessionStore';
 import { useSyncStore } from '../src/stores/syncStore';
 import { useSettingsStore } from '../src/stores/settingsStore';
-import { 
-  scheduleReportReminder, 
-  scheduleRemindLater,
+import {
   configureNotificationCategories,
 } from '../src/lib/notifications';
 import {
@@ -78,7 +76,17 @@ export default function RootLayout() {
       logger.info('boot', '📝 Initializing record store...');
       await useRecordStore.getState().initialize();
       logger.info('boot', '✅ Record store initialized');
-      
+
+      // Migrate records to daily_hours (one-time, skips if already done)
+      const currentUser = useAuthStore.getState().user;
+      if (currentUser) {
+        logger.info('boot', '🔄 Running daily_hours migration...');
+        const migrated = migrateRecordsToDailyHours(currentUser.id);
+        if (migrated > 0) {
+          logger.info('boot', `✅ Migrated ${migrated} days to daily_hours`);
+        }
+      }
+
       // Location store (permissions + geofencing)
       await useLocationStore.getState().initialize();
       
@@ -119,15 +127,6 @@ export default function RootLayout() {
           });
         }
         router.push('/');
-
-        const { reportReminder } = useSettingsStore.getState();
-        if (reportReminder.enabled) {
-          await scheduleReportReminder(reportReminder);
-        }
-
-      } else if (actionIdentifier === 'remind_later') {
-        logger.info('notification', '⏰ Report reminder: Later');
-        await scheduleRemindLater();
       }
     }
   };
@@ -170,12 +169,6 @@ export default function RootLayout() {
           if (currentUser) {
             await onUserLogin(currentUser.id);
             userSessionRef.current = currentUser.id;
-          }
-          
-          // Schedule report reminder if enabled
-          const { reportReminder } = useSettingsStore.getState();
-          if (reportReminder.enabled) {
-            await scheduleReportReminder(reportReminder);
           }
         }
 

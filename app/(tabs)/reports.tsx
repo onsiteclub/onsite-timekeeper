@@ -6,32 +6,34 @@
  * - WeeklyBarChart at bottom (scrollable horizontally)
  */
 
-import React, { useMemo, useRef, useEffect, useState } from 'react';
+import React, { useMemo, useRef, useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   Modal,
   ScrollView,
-  Platform,
   StatusBar,
   Dimensions,
   StyleSheet,
   TextInput,
   Animated,
+  PanResponder,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
+import Constants from 'expo-constants';
 
 import { Card } from '../../src/components/ui/Button';
 import { colors, withOpacity, shadows } from '../../src/constants/colors';
 import type { ComputedSession } from '../../src/lib/database';
 
 import { useHomeScreen } from '../../src/screens/home/hooks';
-import { ShareModal } from '../../src/components/ShareModal';
 import { styles } from '../../src/screens/home/styles';
-import { WEEKDAYS_SHORT, type CalendarDay, getDayKey, isSameDay } from '../../src/screens/home/helpers';
+import { WEEKDAYS_SHORT, getDayKey, isSameDay } from '../../src/screens/home/helpers';
+import { generateAndShareTimesheetPDF } from '../../src/lib/timesheetPdf';
+import { Alert } from 'react-native';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CALENDAR_PADDING = 32;
@@ -192,11 +194,15 @@ function WeeklyBarChart({
             </View>
             
             <Text style={chartStyles.weekTotal}>
-              {formatHours(week.totalMinutes)} total
+              {formatHours(week.totalMinutes)}
             </Text>
           </View>
         ))}
       </ScrollView>
+
+      <View style={chartStyles.footer}>
+        <Text style={chartStyles.footerText}>Weekly Activity Log</Text>
+      </View>
     </View>
   );
 }
@@ -211,21 +217,10 @@ export default function ReportsScreen() {
   const {
     userName,
     userId,
-    viewMode,
-    setViewMode,
     currentMonth,
-    weekStart,
-    weekEnd,
-    weekCalendarDays,
     monthCalendarDays,
-    weekTotalMinutes,
     monthTotalMinutes,
-    weekSessions,
     monthSessions,
-
-    selectionMode,
-    selectedDays,
-    cancelSelection,
 
     showDayModal,
     selectedDayForModal,
@@ -244,22 +239,17 @@ export default function ReportsScreen() {
     refreshing,
     onRefresh,
 
-    goToPreviousWeek,
-    goToNextWeek,
-    goToCurrentWeek,
     goToPreviousMonth,
     goToNextMonth,
     goToCurrentMonth,
 
     handleDayPress,
-    handleDayLongPress,
     getSessionsForDay,
     getTotalMinutesForDay,
 
     openManualEntry,
     handleDeleteFromModal,
     handleExport,
-    handleDeleteSelectedDays,
     handleExportFromModal,
 
     // Manual entry modal state
@@ -290,10 +280,22 @@ export default function ReportsScreen() {
     formatTimeAMPM,
     formatDuration,
     isToday,
+    getSessionsByPeriod,
   } = useHomeScreen();
 
-  // Sessions for chart - use appropriate data based on view mode
-  const allSessions = viewMode === 'week' ? (weekSessions || []) : (monthSessions || []);
+  // ============================================
+  // RELOAD DATA ON TAB FOCUS
+  // ============================================
+  // FIX: When navigating from Home to Reports, reload data to show new records
+  useFocusEffect(
+    useCallback(() => {
+      // Reload data when this screen gains focus
+      onRefresh();
+    }, []) // Empty deps - onRefresh handles its own dependencies
+  );
+
+  // Sessions for chart - always use month sessions
+  const allSessions = monthSessions || [];
 
   // ============================================
   // AM/PM STATE FOR MANUAL ENTRY MODAL
@@ -424,52 +426,193 @@ export default function ReportsScreen() {
   const modalOpacity = useRef(new Animated.Value(0)).current;
   const [pressedDayKey, setPressedDayKey] = useState<string | null>(null);
 
-  // Share modal state
-  const [showShareModal, setShowShareModal] = useState(false);
-  const [sessionsToShare, setSessionsToShare] = useState<ComputedSession[]>([]);
+  // PDF export loading state
+  const [isExporting, setIsExporting] = useState(false);
 
-  // Handle share/export from day modal
-  const handleShareFromModal = () => {
-    if (selectedSessions.size === 0 || aggregatedLocations.length === 0) return;
+  // Date range selection state (Airbnb style)
+  const [dateRangeMode, setDateRangeMode] = useState(false);
+  const [rangeStartDate, setRangeStartDate] = useState<Date | null>(null);
+  const [rangeEndDate, setRangeEndDate] = useState<Date | null>(null);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [rangeSessions, setRangeSessions] = useState<ComputedSession[]>([]);
 
-    // Collect selected sessions
-    const selected: ComputedSession[] = [];
-    for (const agg of aggregatedLocations) {
-      for (const s of agg.sessions) {
-        if (selectedSessions.has(s.id)) {
-          selected.push(s);
-        }
+  // Handle date range selection (Airbnb style)
+  const handleDateRangeSelect = async (date: Date) => {
+    console.log('[Reports] handleDateRangeSelect called:', {
+      date: date.toISOString(),
+      dateRangeMode,
+      rangeStartDate: rangeStartDate?.toISOString(),
+      rangeEndDate: rangeEndDate?.toISOString()
+    });
+
+    if (!dateRangeMode) {
+      console.log('[Reports] Not in date range mode, returning');
+      return;
+    }
+
+    if (!rangeStartDate || (rangeStartDate && rangeEndDate)) {
+      // First selection or reset
+      console.log('[Reports] Setting start date:', date.toDateString());
+      setRangeStartDate(date);
+      setRangeEndDate(null);
+      setRangeSessions([]);
+    } else {
+      // Second selection
+      console.log('[Reports] Setting end date:', date.toDateString());
+      let startDate = rangeStartDate;
+      let endDate = date;
+
+      if (date < rangeStartDate) {
+        // If selected date is before start, swap
+        startDate = date;
+        endDate = rangeStartDate;
+      }
+
+      setRangeStartDate(startDate);
+      setRangeEndDate(endDate);
+
+      // Fetch sessions for the entire range (may span multiple months)
+      const startTime = new Date(startDate);
+      startTime.setHours(0, 0, 0, 0);
+      const endTime = new Date(endDate);
+      endTime.setHours(23, 59, 59, 999);
+
+      try {
+        console.log('[Reports] Fetching sessions from', startTime.toISOString(), 'to', endTime.toISOString());
+        const sessions = await getSessionsByPeriod(startTime.toISOString(), endTime.toISOString());
+        console.log('[Reports] Got sessions:', sessions?.length || 0);
+        const completedSessions = sessions.filter((s: ComputedSession) => s.exit_at);
+        console.log('[Reports] Completed sessions:', completedSessions.length);
+        setRangeSessions(completedSessions);
+
+        // Open export modal after selecting range
+        setTimeout(() => setShowExportModal(true), 300);
+      } catch (err) {
+        console.log('[Reports] Error fetching sessions:', err);
       }
     }
-
-    setSessionsToShare(selected);
-    setShowShareModal(true);
   };
 
-  // Handle batch export from selected days
-  const handleBatchExport = () => {
-    if (selectedDays.size === 0) return;
+  // Check if date is in selected range
+  const isInDateRange = (date: Date): 'start' | 'end' | 'middle' | 'single' | null => {
+    if (!rangeStartDate) return null;
 
-    // Get all sessions from selected days
-    const sessions = viewMode === 'week' ? weekSessions : monthSessions;
-    const selected: ComputedSession[] = [];
+    const dateTime = date.setHours(0, 0, 0, 0);
+    const startTime = new Date(rangeStartDate).setHours(0, 0, 0, 0);
 
-    // Parse selected day keys back to dates and collect sessions
-    for (const dayKey of selectedDays) {
-      const [year, month, day] = dayKey.split('-').map(Number);
-      const date = new Date(year, month - 1, day);
-
-      // Filter sessions for this day
-      const daySessions = sessions.filter((s: ComputedSession) => {
-        const sessionDate = new Date(s.entry_at);
-        return isSameDay(sessionDate, date) && s.exit_at;
-      });
-
-      selected.push(...daySessions);
+    if (!rangeEndDate) {
+      // Only start date selected
+      if (dateTime === startTime) return 'single';
+      return null;
     }
 
-    setSessionsToShare(selected);
-    setShowShareModal(true);
+    const endTime = new Date(rangeEndDate).setHours(0, 0, 0, 0);
+
+    if (dateTime === startTime && dateTime === endTime) return 'single';
+    if (dateTime === startTime) return 'start';
+    if (dateTime === endTime) return 'end';
+    if (dateTime > startTime && dateTime < endTime) return 'middle';
+
+    return null;
+  };
+
+  // Get sessions in date range for export (uses pre-fetched rangeSessions)
+  const getSessionsInRange = (): ComputedSession[] => {
+    if (!rangeStartDate || !rangeEndDate) return [];
+    return rangeSessions;
+  };
+
+  // Calculate total hours in range
+  const rangeTotalMinutes = useMemo(() => {
+    return rangeSessions.reduce((total, s) => {
+      const pause = s.pause_minutes || 0;
+      return total + Math.max(0, s.duration_minutes - pause);
+    }, 0);
+  }, [rangeSessions]);
+
+  // Count days worked in range
+  const rangeDaysWorked = useMemo(() => {
+    const uniqueDays = new Set(rangeSessions.map(s => getDayKey(new Date(s.entry_at))));
+    return uniqueDays.size;
+  }, [rangeSessions]);
+
+  // Cancel date range mode
+  const cancelDateRange = () => {
+    setDateRangeMode(false);
+    setRangeStartDate(null);
+    setRangeEndDate(null);
+    setRangeSessions([]);
+  };
+
+  // ============================================
+  // SWIPE GESTURE FOR MONTH NAVIGATION
+  // ============================================
+  // Use refs to avoid stale closures in PanResponder
+  const goToNextMonthRef = useRef(goToNextMonth);
+  const goToPreviousMonthRef = useRef(goToPreviousMonth);
+
+  // Keep refs updated when functions change
+  useEffect(() => {
+    goToNextMonthRef.current = goToNextMonth;
+    goToPreviousMonthRef.current = goToPreviousMonth;
+  }, [goToNextMonth, goToPreviousMonth]);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        // Only respond to horizontal swipes (dx > dy)
+        const { dx, dy } = gestureState;
+        return Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 20;
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        const { dx } = gestureState;
+        const SWIPE_THRESHOLD = 50;
+
+        if (dx < -SWIPE_THRESHOLD) {
+          // Swipe left → next month
+          goToNextMonthRef.current();
+        } else if (dx > SWIPE_THRESHOLD) {
+          // Swipe right → previous month
+          goToPreviousMonthRef.current();
+        }
+      },
+    })
+  ).current;
+
+  // Export to PDF - Professional Timesheet
+  const handleExportPDF = async () => {
+    const sessions = getSessionsInRange();
+    if (sessions.length === 0) {
+      Alert.alert('No Sessions', 'No completed sessions in the selected period.');
+      return;
+    }
+
+    if (!rangeStartDate || !rangeEndDate) {
+      Alert.alert('Error', 'Please select a date range first.');
+      return;
+    }
+
+    try {
+      // Show loading state
+      setIsExporting(true);
+      setShowExportModal(false);
+
+      // Generate and share professional PDF timesheet
+      await generateAndShareTimesheetPDF(sessions, {
+        employeeName: userName || 'Employee',
+        employeeId: userId || undefined,
+        periodStart: rangeStartDate,
+        periodEnd: rangeEndDate,
+      });
+
+      // Clear selection after successful export
+      cancelDateRange();
+    } catch (error: any) {
+      Alert.alert('Export Error', error.message || 'Failed to generate PDF');
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   // Animate modal open with morph effect
@@ -498,130 +641,120 @@ export default function ReportsScreen() {
   }, [showDayModal, modalScale, modalOpacity]);
 
   return (
-    <View style={reportStyles.container}>
-      {/* HEADER */}
-      <View style={reportStyles.header}>
-        <Text style={reportStyles.headerTitle}>Reports</Text>
-      </View>
+    <View style={{ flex: 1, backgroundColor: '#F3F4F6' }}>
+      {/* Status bar strip - gray background behind system status bar */}
+      <StatusBar barStyle="dark-content" backgroundColor="#F3F4F6" />
+      <View style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        height: Constants.statusBarHeight || 28,
+        backgroundColor: '#F3F4F6',
+        zIndex: 1,
+      }} />
 
-      {/* CALENDAR CARD */}
-      <Card style={reportStyles.calendarCard}>
-        <View style={styles.calendarHeader}>
-          <TouchableOpacity
-            style={reportStyles.navBtn}
-            onPress={viewMode === 'week' ? goToPreviousWeek : goToPreviousMonth}
-          >
-            <Ionicons name="chevron-back" size={22} color={colors.textSecondary} />
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            onPress={viewMode === 'week' ? goToCurrentWeek : goToCurrentMonth} 
-            style={styles.calendarCenter}
-          >
-            <Text style={reportStyles.calendarTitle}>
-              {viewMode === 'week' 
-                ? formatDateRange(weekStart, weekEnd)
-                : formatMonthYear(currentMonth)
-              }
-            </Text>
-            <Text style={reportStyles.calendarTotal}>
-              {formatDuration(viewMode === 'week' ? weekTotalMinutes : monthTotalMinutes)}
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={reportStyles.navBtn}
-            onPress={viewMode === 'week' ? goToNextWeek : goToNextMonth}
-          >
-            <Ionicons name="chevron-forward" size={22} color={colors.textSecondary} />
-          </TouchableOpacity>
+      <View style={reportStyles.container}>
+        {/* HEADER */}
+        <View style={reportStyles.header}>
+          <Text style={reportStyles.headerTitle}>Reports</Text>
         </View>
 
-        {/* View mode toggle */}
-        <View style={reportStyles.viewToggle}>
-          <TouchableOpacity 
-            style={[reportStyles.viewToggleBtn, viewMode === 'week' && reportStyles.viewToggleBtnActive]}
-            onPress={() => setViewMode('week')}
-          >
-            <Text style={[reportStyles.viewToggleText, viewMode === 'week' && reportStyles.viewToggleTextActive]}>Week</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[reportStyles.viewToggleBtn, viewMode === 'month' && reportStyles.viewToggleBtnActive]}
-            onPress={() => setViewMode('month')}
-          >
-            <Text style={[reportStyles.viewToggleText, viewMode === 'month' && reportStyles.viewToggleTextActive]}>Month</Text>
-          </TouchableOpacity>
-        </View>
-      </Card>
-
-      {/* CALENDAR CONTENT AREA - Contains both calendar and chart */}
-      <View style={reportStyles.contentArea}>
-          {/* WEEK VIEW - Scrollable list */}
-          {viewMode === 'week' && (
-            <ScrollView
-              style={reportStyles.calendarScroll}
-              contentContainerStyle={reportStyles.calendarScrollContent}
-              showsVerticalScrollIndicator={false}
+      {/* CALENDAR CARD - Hidden in date range mode */}
+      {!dateRangeMode && (
+        <Card style={reportStyles.calendarCard}>
+          <View style={styles.calendarHeader}>
+            <TouchableOpacity
+              style={reportStyles.navBtn}
+              onPress={goToPreviousMonth}
             >
-            <View>
-              {weekCalendarDays.map((day: CalendarDay) => {
-              const dayKey = getDayKey(day.date);
-              const hasSessions = day.sessions.length > 0;
-              const isTodayDate = isToday(day.date);
-              const hasActive = day.sessions.some((s: ComputedSession) => !s.exit_at);
-              const isSelected = selectedDays.has(dayKey);
-              const isWeekend = day.date.getDay() === 0 || day.date.getDay() === 6; // Sunday or Saturday
+              <Ionicons name="chevron-back" size={22} color={colors.textSecondary} />
+            </TouchableOpacity>
 
-              // Check if day has work but NO breaks registered
-              const completedSessions = day.sessions.filter((s: ComputedSession) => s.exit_at);
-              const hasWorkNoBreak = completedSessions.length > 0 &&
-                completedSessions.every((s: ComputedSession) => !s.pause_minutes || s.pause_minutes === 0);
+            <TouchableOpacity
+              onPress={goToCurrentMonth}
+              style={styles.calendarCenter}
+            >
+              <Text style={reportStyles.calendarTitle}>
+                {formatMonthYear(currentMonth)}
+              </Text>
+              <Text style={reportStyles.calendarTotal}>
+                {formatDuration(monthTotalMinutes)}
+              </Text>
+            </TouchableOpacity>
 
-              return (
-                <TouchableOpacity
-                  key={dayKey}
-                  style={[
-                    reportStyles.weekDay,
-                    isWeekend && reportStyles.weekDayWeekend,
-                    isTodayDate && reportStyles.weekDayToday,
-                    isSelected && reportStyles.weekDaySelected,
-                  ]}
-                  onPress={() => handleDayPress(dayKey, hasSessions)}
-                  onLongPress={() => handleDayLongPress(dayKey, hasSessions)}
-                  delayLongPress={400}
-                  activeOpacity={0.7}
-                >
-                  <View style={reportStyles.weekDayLeft}>
-                    <Text style={[reportStyles.weekDayName, isTodayDate && reportStyles.weekDayNameToday]}>
-                      {day.weekday}
-                    </Text>
-                    <View style={[reportStyles.weekDayCircle, isTodayDate && reportStyles.weekDayCircleToday]}>
-                      <Text style={[reportStyles.weekDayNum, isTodayDate && reportStyles.weekDayNumToday]}>
-                        {day.dayNumber}
-                      </Text>
-                    </View>
-                  </View>
-                  <View style={reportStyles.weekDayRight}>
-                    {hasWorkNoBreak && !hasActive && (
-                      <View style={reportStyles.noBreakDot} />
-                    )}
-                    <Text style={[
-                      reportStyles.weekDayHours,
-                      hasActive && { color: colors.success }
-                    ]}>
-                      {hasActive ? 'Active' : hasSessions ? formatDuration(day.totalMinutes) : '—'}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
-            </View>
-            </ScrollView>
-          )}
+            <TouchableOpacity
+              style={reportStyles.navBtn}
+              onPress={goToNextMonth}
+            >
+              <Ionicons name="chevron-forward" size={22} color={colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
 
-          {/* MONTH VIEW - Natural height (no scroll needed) */}
-          {viewMode === 'month' && (
-            <View>
+          {/* Export Date Range Button */}
+          <TouchableOpacity
+            style={reportStyles.exportRangeBtn}
+            activeOpacity={0.7}
+            onPress={() => {
+              console.log('[Reports] Select Dates button pressed');
+              setDateRangeMode(true);
+            }}
+          >
+            <Ionicons name="calendar-outline" size={18} color={colors.white} />
+            <Text style={reportStyles.exportRangeBtnText}>Select Dates to Export</Text>
+          </TouchableOpacity>
+        </Card>
+      )}
+
+      {/* DATE RANGE MODE HEADER */}
+      {dateRangeMode && (
+        <View style={reportStyles.dateRangeHeader}>
+          {/* Month navigation */}
+          <View style={reportStyles.dateRangeMonthNav}>
+            <TouchableOpacity
+              style={reportStyles.dateRangeNavBtn}
+              onPress={goToPreviousMonth}
+            >
+              <Ionicons name="chevron-back" size={24} color={colors.primary} />
+            </TouchableOpacity>
+
+            <Text style={reportStyles.dateRangeMonthName}>
+              {formatMonthYear(currentMonth)}
+            </Text>
+
+            <TouchableOpacity
+              style={reportStyles.dateRangeNavBtn}
+              onPress={goToNextMonth}
+            >
+              <Ionicons name="chevron-forward" size={24} color={colors.primary} />
+            </TouchableOpacity>
+          </View>
+
+          {/* Selection hint + cancel */}
+          <View style={reportStyles.dateRangeHintRow}>
+            <Ionicons name="calendar" size={16} color={colors.primary} />
+            <Text style={reportStyles.dateRangeHintText}>
+              {!rangeStartDate
+                ? 'Tap start date'
+                : !rangeEndDate
+                ? 'Now tap end date'
+                : 'Range selected!'}
+            </Text>
+            <TouchableOpacity style={reportStyles.dateRangeCancelBtn} onPress={cancelDateRange}>
+              <Text style={reportStyles.dateRangeCancelBtnText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* CALENDAR CONTENT AREA - Scrollable */}
+      <ScrollView
+        style={reportStyles.contentArea}
+        contentContainerStyle={reportStyles.contentAreaScroll}
+        showsVerticalScrollIndicator={false}
+      >
+          {/* MONTH VIEW - with swipe gesture */}
+          <View {...panResponder.panHandlers}>
               {/* Weekday headers */}
               <View style={reportStyles.monthHeader}>
                 {WEEKDAYS_SHORT.map((d: string, i: number) => (
@@ -631,20 +764,36 @@ export default function ReportsScreen() {
                 ))}
               </View>
 
-              {/* Days grid */}
+              {/* Days grid - Always 6 weeks (42 days) for consistent height */}
               <View style={reportStyles.monthGrid}>
-                {monthCalendarDays.map((date: Date | null, index: number) => {
-                  if (!date) {
-                    return <View key={`empty-${index}`} style={reportStyles.monthCell} />;
+                {monthCalendarDays.map((date: Date, index: number) => {
+                  // Check if day belongs to current month or is a "ghost" from adjacent months
+                  const isCurrentMonthDay = date.getMonth() === currentMonth.getMonth() &&
+                                            date.getFullYear() === currentMonth.getFullYear();
+
+                  // Ghost days from other months - just show faded number, no interaction
+                  if (!isCurrentMonthDay) {
+                    return (
+                      <View
+                        key={`ghost-${index}`}
+                        style={[reportStyles.monthCell, reportStyles.monthDayGhost]}
+                      >
+                        <Text style={reportStyles.monthDayNumGhost}>
+                          {date.getDate()}
+                        </Text>
+                      </View>
+                    );
                   }
 
                   const dayKey = getDayKey(date);
                   const daySessions = getSessionsForDay(date);
                   const hasSessions = daySessions.length > 0;
                   const isTodayDate = isToday(date);
-                  const isSelected = selectedDays.has(dayKey);
                   const totalMinutes = getTotalMinutesForDay(date);
-                  const isWeekend = date.getDay() === 0 || date.getDay() === 6; // Sunday or Saturday
+                  const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+
+                  // Date range mode styling
+                  const rangePosition = dateRangeMode ? isInDateRange(date) : null;
 
                   // Check if day has work but NO breaks registered
                   const completedSessions = daySessions.filter((s: ComputedSession) => s.exit_at);
@@ -654,23 +803,32 @@ export default function ReportsScreen() {
                   return (
                     <TouchableOpacity
                       key={dayKey}
+                      activeOpacity={0.6}
                       style={[
                         reportStyles.monthCell,
                         reportStyles.monthDay,
                         isWeekend && reportStyles.monthDayWeekend,
                         isTodayDate && reportStyles.monthDayToday,
-                        isSelected && reportStyles.monthDaySelected,
                         hasSessions && reportStyles.monthDayHasData,
+                        // Date range styles (Airbnb style) - applied on top of base styles
+                        rangePosition === 'start' && reportStyles.monthDayRangeStart,
+                        rangePosition === 'end' && reportStyles.monthDayRangeEnd,
+                        rangePosition === 'middle' && reportStyles.monthDayRangeMiddle,
+                        rangePosition === 'single' && reportStyles.monthDayRangeSingle,
                       ]}
-                      onPress={() => handleDayPress(dayKey, hasSessions)}
-                      onLongPress={() => handleDayLongPress(dayKey, hasSessions)}
-                      delayLongPress={400}
-                      activeOpacity={0.7}
+                      onPress={() => {
+                        console.log('[Reports] Day pressed:', dayKey, 'dateRangeMode:', dateRangeMode);
+                        if (dateRangeMode) {
+                          handleDateRangeSelect(date);
+                        } else {
+                          handleDayPress(dayKey, hasSessions);
+                        }
+                      }}
                     >
                       <Text style={[
                         reportStyles.monthDayNum,
                         isTodayDate && reportStyles.monthDayNumToday,
-                        isSelected && reportStyles.monthDayNumSelected,
+                        (rangePosition === 'start' || rangePosition === 'end' || rangePosition === 'single') && { color: colors.white, fontWeight: '700' as const },
                       ]}>
                         {date.getDate()}
                       </Text>
@@ -687,13 +845,12 @@ export default function ReportsScreen() {
                 })}
               </View>
             </View>
-          )}
 
-        {/* WEEKLY BAR CHART - Sticky footer */}
+        {/* WEEKLY BAR CHART - Follows calendar */}
         <View style={reportStyles.chartArea}>
           <WeeklyBarChart sessions={allSessions} currentDate={currentMonth} />
         </View>
-      </View>
+      </ScrollView>
 
       {/* DAY DETAIL MODAL */}
       <Modal
@@ -730,18 +887,18 @@ export default function ReportsScreen() {
                 })}
               </Text>
               <View style={reportStyles.dayModalActionsRow}>
+                {/* Add */}
                 <TouchableOpacity
-                  style={[reportStyles.dayModalActionBtn, selectedSessions.size === 0 && reportStyles.dayModalActionBtnDisabled]}
-                  onPress={handleDeleteFromModal}
-                  disabled={selectedSessions.size === 0}
+                  style={reportStyles.dayModalActionBtn}
+                  onPress={() => selectedDayForModal && openManualEntry(selectedDayForModal)}
                 >
-                  <Ionicons name="trash-outline" size={26} color={selectedSessions.size === 0 ? colors.textMuted : colors.error || '#EF4444'} />
-                  <Text style={[reportStyles.dayModalActionLabel, selectedSessions.size === 0 && reportStyles.dayModalActionLabelDisabled]}>Delete</Text>
+                  <Ionicons name="add-circle-outline" size={26} color={colors.success || '#22C55E'} />
+                  <Text style={reportStyles.dayModalActionLabel}>Add</Text>
                 </TouchableOpacity>
+                {/* Edit */}
                 <TouchableOpacity
                   style={[reportStyles.dayModalActionBtn, selectedSessions.size !== 1 && reportStyles.dayModalActionBtnDisabled]}
                   onPress={() => {
-                    // Edit only works with single selection
                     if (selectedSessions.size === 1) {
                       const sessionId = Array.from(selectedSessions)[0];
                       const session = dayModalSessions.find(s => s.id === sessionId);
@@ -753,21 +910,16 @@ export default function ReportsScreen() {
                   <Ionicons name="pencil-outline" size={26} color={selectedSessions.size !== 1 ? colors.textMuted : colors.primary} />
                   <Text style={[reportStyles.dayModalActionLabel, selectedSessions.size !== 1 && reportStyles.dayModalActionLabelDisabled]}>Edit</Text>
                 </TouchableOpacity>
+                {/* Delete */}
                 <TouchableOpacity
                   style={[reportStyles.dayModalActionBtn, selectedSessions.size === 0 && reportStyles.dayModalActionBtnDisabled]}
-                  onPress={handleShareFromModal}
+                  onPress={handleDeleteFromModal}
                   disabled={selectedSessions.size === 0}
                 >
-                  <Ionicons name="share-outline" size={26} color={selectedSessions.size === 0 ? colors.textMuted : colors.primary} />
-                  <Text style={[reportStyles.dayModalActionLabel, selectedSessions.size === 0 && reportStyles.dayModalActionLabelDisabled]}>Share</Text>
+                  <Ionicons name="trash-outline" size={26} color={selectedSessions.size === 0 ? colors.textMuted : colors.error || '#EF4444'} />
+                  <Text style={[reportStyles.dayModalActionLabel, selectedSessions.size === 0 && reportStyles.dayModalActionLabelDisabled]}>Delete</Text>
                 </TouchableOpacity>
-                <TouchableOpacity
-                  style={reportStyles.dayModalActionBtn}
-                  onPress={() => selectedDayForModal && openManualEntry(selectedDayForModal)}
-                >
-                  <Ionicons name="add-circle-outline" size={26} color={colors.success || '#22C55E'} />
-                  <Text style={reportStyles.dayModalActionLabel}>Add</Text>
-                </TouchableOpacity>
+                {/* Close */}
                 <TouchableOpacity
                   style={reportStyles.dayModalActionBtnClose}
                   onPress={closeDayModal}
@@ -1132,39 +1284,96 @@ export default function ReportsScreen() {
       </Modal>
 
       {/* ============================================ */}
-      {/* SHARE MODAL */}
+      {/* EXPORT DATE RANGE MODAL */}
       {/* ============================================ */}
-      <ShareModal
-        visible={showShareModal}
-        onClose={() => setShowShareModal(false)}
-        sessions={sessionsToShare}
-        userName={userName || undefined}
-        userId={userId || undefined}
-        title="Share Report"
-      />
+      <Modal
+        visible={showExportModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowExportModal(false)}
+      >
+        <View style={reportStyles.exportModalOverlay}>
+          <View style={reportStyles.exportModalContent}>
+            <View style={reportStyles.exportModalHandle} />
 
-      {/* ============================================ */}
-      {/* BATCH ACTION BAR - Fixed at bottom */}
-      {/* ============================================ */}
-      {selectionMode && (
-        <View style={reportStyles.batchBarFixed}>
-          <Text style={reportStyles.batchText}>{selectedDays.size} day(s) selected</Text>
-          <View style={reportStyles.batchActions}>
-            <TouchableOpacity style={reportStyles.batchBtn} onPress={handleDeleteSelectedDays}>
-              <Ionicons name="trash-outline" size={22} color={colors.white} />
-              <Text style={reportStyles.batchBtnText}>Delete</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={reportStyles.batchBtn} onPress={handleBatchExport}>
-              <Ionicons name="share-outline" size={22} color={colors.white} />
-              <Text style={reportStyles.batchBtnText}>Export</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={reportStyles.batchBtnCancel} onPress={cancelSelection}>
-              <Ionicons name="close" size={22} color={colors.white} />
-              <Text style={reportStyles.batchBtnText}>Cancel</Text>
-            </TouchableOpacity>
+            {/* Header */}
+            <View style={reportStyles.exportModalHeader}>
+              <Text style={reportStyles.exportModalTitle}>Export Timesheet</Text>
+              <TouchableOpacity
+                style={reportStyles.exportModalClose}
+                onPress={() => {
+                  setShowExportModal(false);
+                  cancelDateRange();
+                }}
+              >
+                <Ionicons name="close" size={24} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Date Range Display */}
+            <View style={reportStyles.exportModalDateRange}>
+              <View style={reportStyles.exportModalDateBox}>
+                <Text style={reportStyles.exportModalDateLabel}>FROM</Text>
+                <Text style={reportStyles.exportModalDateValue}>
+                  {rangeStartDate?.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) || '—'}
+                </Text>
+              </View>
+              <View style={reportStyles.exportModalArrow}>
+                <Ionicons name="arrow-forward" size={20} color={colors.textSecondary} />
+              </View>
+              <View style={reportStyles.exportModalDateBox}>
+                <Text style={reportStyles.exportModalDateLabel}>TO</Text>
+                <Text style={reportStyles.exportModalDateValue}>
+                  {rangeEndDate?.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) || '—'}
+                </Text>
+              </View>
+            </View>
+
+            {/* Summary */}
+            <View style={reportStyles.exportModalSummary}>
+              <View style={reportStyles.exportModalSummaryRow}>
+                <Text style={reportStyles.exportModalSummaryLabel}>Days Worked</Text>
+                <Text style={reportStyles.exportModalSummaryValue}>{rangeDaysWorked} days</Text>
+              </View>
+              <View style={reportStyles.exportModalSummaryRow}>
+                <Text style={reportStyles.exportModalSummaryLabel}>Sessions</Text>
+                <Text style={reportStyles.exportModalSummaryValue}>{getSessionsInRange().length}</Text>
+              </View>
+
+              {/* Total Hours */}
+              <View style={reportStyles.exportModalTotalRow}>
+                <Text style={reportStyles.exportModalTotalLabel}>Total Hours</Text>
+                <Text style={reportStyles.exportModalTotalValue}>{formatDuration(rangeTotalMinutes)}</Text>
+              </View>
+            </View>
+
+            {/* Actions */}
+            <View style={reportStyles.exportModalActions}>
+              <TouchableOpacity
+                style={reportStyles.exportModalBtnSecondary}
+                onPress={() => {
+                  setShowExportModal(false);
+                  cancelDateRange();
+                }}
+                disabled={isExporting}
+              >
+                <Ionicons name="close-outline" size={20} color={colors.text} />
+                <Text style={reportStyles.exportModalBtnSecondaryText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[reportStyles.exportModalBtn, isExporting && { opacity: 0.7 }]}
+                onPress={handleExportPDF}
+                disabled={isExporting}
+              >
+                <Ionicons name={isExporting ? "hourglass-outline" : "document-text-outline"} size={20} color={colors.white} />
+                <Text style={reportStyles.exportModalBtnText}>{isExporting ? 'Generating...' : 'Export PDF'}</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
-      )}
+      </Modal>
+
+      </View>
     </View>
   );
 }
@@ -1178,7 +1387,8 @@ const reportStyles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
     paddingHorizontal: 16,
-    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 24) + 12 : 56,
+    // Use same source as status bar strip for consistency
+    paddingTop: (Constants.statusBarHeight || 28) + 12,
     paddingBottom: 8,
   },
   header: {
@@ -1244,27 +1454,20 @@ const reportStyles = StyleSheet.create({
     color: colors.white,
   },
 
-  // Content Area - Holds calendar + chart
+  // Content Area - Scrollable
   contentArea: {
     flex: 1,
-    overflow: 'hidden',
   },
 
-  // Calendar Scroll - ScrollView that takes all available height above chart
-  calendarScroll: {
-    flex: 1,
+  // Content Area Scroll - padding for scroll content
+  contentAreaScroll: {
+    paddingBottom: 100, // Extra padding for tab bar
   },
 
-  // Calendar Scroll Content - Padding for ScrollView content
-  calendarScrollContent: {
-    flexGrow: 1,
-    paddingBottom: 16,
-  },
-
-  // Chart Area - Sticky footer pinned to bottom
+  // Chart Area - Follows calendar
   chartArea: {
-    marginTop: 'auto',
-    flexShrink: 0,
+    marginTop: 16,
+    paddingBottom: 16,
   },
 
   weekDay: {
@@ -1361,7 +1564,8 @@ const reportStyles = StyleSheet.create({
 
   monthHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
+    columnGap: CALENDAR_GAP,
     marginBottom: 4,
   },
   monthHeaderCell: {
@@ -1376,13 +1580,14 @@ const reportStyles = StyleSheet.create({
   monthGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
+    columnGap: CALENDAR_GAP,
     marginBottom: 0,
   },
   monthCell: {
     width: DAY_SIZE,
-    height: DAY_SIZE,
-    marginBottom: 4,
+    height: DAY_SIZE + 16, // Rectangular shape (taller for better visibility)
+    marginBottom: 8,
   },
   monthDay: {
     justifyContent: 'center',
@@ -1397,9 +1602,6 @@ const reportStyles = StyleSheet.create({
     borderWidth: 2,
     borderColor: colors.primary,
   },
-  monthDaySelected: {
-    backgroundColor: colors.accent,
-  },
   monthDayHasData: {
     backgroundColor: withOpacity(colors.primary, 0.15),
   },
@@ -1410,10 +1612,6 @@ const reportStyles = StyleSheet.create({
   },
   monthDayNumToday: {
     color: colors.accent,
-    fontWeight: '700',
-  },
-  monthDayNumSelected: {
-    color: colors.white,
     fontWeight: '700',
   },
   monthDayDots: {
@@ -1434,66 +1632,17 @@ const reportStyles = StyleSheet.create({
     backgroundColor: colors.error || '#EF4444',
   },
 
-  // Batch Action Bar - Fixed at bottom of screen
-  batchBarFixed: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    flexDirection: 'column',
-    gap: 12,
-    backgroundColor: colors.accent,
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-    paddingBottom: 24, // Extra padding for safe area
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    ...shadows.lg,
-  },
-  batchText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.white,
-    textAlign: 'center',
-  },
-  batchActions: {
-    flexDirection: 'row',
-    gap: 12,
-    justifyContent: 'center',
-  },
-  batchBtn: {
-    flex: 1,
-    flexDirection: 'column',
-    gap: 6,
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    borderRadius: 10,
-    backgroundColor: withOpacity(colors.white, 0.2),
-    borderWidth: 2,
-    borderColor: colors.white,
+  // Ghost days (from adjacent months) - faded, non-interactive
+  monthDayGhost: {
     justifyContent: 'center',
     alignItems: 'center',
-    minHeight: 70,
-  },
-  batchBtnCancel: {
-    flex: 1,
-    flexDirection: 'column',
-    gap: 6,
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    borderRadius: 10,
+    borderRadius: 6,
     backgroundColor: 'transparent',
-    borderWidth: 2,
-    borderColor: colors.white,
-    justifyContent: 'center',
-    alignItems: 'center',
-    minHeight: 70,
   },
-  batchBtnText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: colors.white,
-    textAlign: 'center',
+  monthDayNumGhost: {
+    fontSize: 11,
+    fontWeight: '400',
+    color: withOpacity(colors.textMuted, 0.4),
   },
 
   // Manual Entry Modal Styles
@@ -1807,6 +1956,289 @@ const reportStyles = StyleSheet.create({
   ampmTextActive: {
     color: colors.buttonPrimaryText,
   },
+
+  // Export Date Range Button
+  exportRangeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+  },
+  exportRangeBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.white,
+  },
+
+  // Date Range Mode Header (with month navigation)
+  dateRangeHeader: {
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    marginBottom: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    ...shadows.sm,
+  },
+  dateRangeMonthNav: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  dateRangeNavBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: withOpacity(colors.primary, 0.1),
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dateRangeMonthName: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: colors.text,
+    textAlign: 'center',
+  },
+  dateRangeHintRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  dateRangeHintText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: colors.primary,
+    flex: 1,
+  },
+  dateRangeCancelBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: 8,
+  },
+  dateRangeCancelBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+
+  // Legacy date range banner (keeping for compatibility)
+  dateRangeBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: withOpacity(colors.primary, 0.1),
+    borderRadius: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: colors.primary,
+  },
+  dateRangeBannerText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: colors.primary,
+    flex: 1,
+  },
+  dateRangeBannerBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: 8,
+  },
+  dateRangeBannerBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+
+  // Date Range Selected Styles
+  monthDayRangeStart: {
+    backgroundColor: colors.primary,
+    borderTopLeftRadius: 20,
+    borderBottomLeftRadius: 20,
+    borderTopRightRadius: 0,
+    borderBottomRightRadius: 0,
+  },
+  monthDayRangeEnd: {
+    backgroundColor: colors.primary,
+    borderTopRightRadius: 20,
+    borderBottomRightRadius: 20,
+    borderTopLeftRadius: 0,
+    borderBottomLeftRadius: 0,
+  },
+  monthDayRangeMiddle: {
+    backgroundColor: withOpacity(colors.primary, 0.3),
+    borderRadius: 0,
+  },
+  monthDayRangeSingle: {
+    backgroundColor: colors.primary,
+    borderRadius: 20,
+  },
+
+  // Export Modal
+  exportModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  exportModalContent: {
+    backgroundColor: colors.card,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 16,
+    paddingBottom: 32,
+    maxHeight: '80%',
+  },
+  exportModalHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: colors.border,
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
+  exportModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  exportModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  exportModalClose: {
+    padding: 8,
+  },
+  exportModalDateRange: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    backgroundColor: colors.surfaceMuted,
+  },
+  exportModalDateBox: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 12,
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  exportModalDateLabel: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: colors.textSecondary,
+    marginBottom: 4,
+  },
+  exportModalDateValue: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  exportModalArrow: {
+    paddingHorizontal: 4,
+  },
+  exportModalSummary: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+  },
+  exportModalSummaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  exportModalSummaryLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: colors.textSecondary,
+  },
+  exportModalSummaryValue: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  exportModalTotalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    marginTop: 8,
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+  },
+  exportModalTotalLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  exportModalTotalValue: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: colors.primary,
+  },
+  exportModalActions: {
+    flexDirection: 'row',
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+  },
+  exportModalBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: colors.primary,
+  },
+  exportModalBtnText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.white,
+  },
+  exportModalBtnSecondary: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  exportModalBtnSecondaryText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.text,
+  },
 });
 
 // ============================================
@@ -1815,16 +2247,16 @@ const reportStyles = StyleSheet.create({
 
 const chartStyles = StyleSheet.create({
   container: {
-    paddingTop: 8,
-    paddingBottom: 8,
+    paddingTop: 4,
+    paddingBottom: 4,
     borderTopWidth: 1,
     borderTopColor: colors.border,
   },
   title: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
     color: colors.text,
-    marginBottom: 8,
+    marginBottom: 4,
   },
   scrollContent: {
     paddingRight: 16,
@@ -1833,22 +2265,22 @@ const chartStyles = StyleSheet.create({
     width: SCREEN_WIDTH - 64,
     marginRight: 12,
     backgroundColor: colors.card,
-    borderRadius: 10,
-    padding: 12,
+    borderRadius: 8,
+    padding: 8,
     borderWidth: 1,
     borderColor: colors.border,
   },
   weekLabel: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '600',
     color: colors.textSecondary,
-    marginBottom: 8,
+    marginBottom: 4,
   },
   barsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-end',
-    height: 70,
+    height: 80,
   },
   barColumn: {
     flex: 1,
@@ -1856,14 +2288,14 @@ const chartStyles = StyleSheet.create({
     marginHorizontal: 1,
   },
   barValue: {
-    fontSize: 8,
+    fontSize: 7,
     color: colors.textSecondary,
-    marginBottom: 2,
-    height: 10,
+    marginBottom: 1,
+    height: 8,
   },
   barBg: {
     width: '100%',
-    height: 50,
+    height: 60,
     backgroundColor: colors.surfaceMuted,
     borderRadius: 3,
     justifyContent: 'flex-end',
@@ -1882,9 +2314,9 @@ const chartStyles = StyleSheet.create({
     backgroundColor: colors.border,
   },
   dayLabel: {
-    fontSize: 9,
+    fontSize: 8,
     color: colors.textSecondary,
-    marginTop: 4,
+    marginTop: 2,
     fontWeight: '500',
   },
   dayLabelToday: {
@@ -1893,8 +2325,23 @@ const chartStyles = StyleSheet.create({
   },
   weekTotal: {
     fontSize: 10,
-    color: colors.textMuted,
-    marginTop: 8,
+    fontWeight: '600',
+    color: colors.primary,
+    marginTop: 4,
     textAlign: 'center',
+  },
+  footer: {
+    marginTop: 12,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    alignItems: 'center',
+  },
+  footerText: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: colors.textSecondary,
+    fontStyle: 'italic',
+    letterSpacing: 0.5,
   },
 });

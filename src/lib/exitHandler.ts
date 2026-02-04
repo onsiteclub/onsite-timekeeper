@@ -15,8 +15,15 @@ import { createEntryRecord } from './database/records';
 import { useSyncStore } from '../stores/syncStore';
 import { useRecordStore } from '../stores/recordStore';
 import { showArrivalNotification, showEndOfDayNotification, showPendingEntryNotification, cancelNotification } from './notifications';
-import { db, type RecordDB, calculateDuration } from './database/core';
+import { db, type RecordDB, calculateDuration, getToday } from './database/core';
 import { useSettingsStore } from '../stores/settingsStore';
+import {
+  upsertDailyHours,
+  addMinutesToDay,
+  getDailyHours,
+  formatTimeHHMM,
+  getDateString,
+} from './database/daily';
 
 // ============================================
 // CONSTANTS
@@ -61,7 +68,8 @@ const endOfDayTimers = new Map<string, NodeJS.Timeout>();
  * Handle geofence exit
  * 1. Cancel any pending entry (user left before timeout)
  * 2. Register exit immediately (no adjustment - adjustment only on final exit)
- * 3. Schedule end-of-day check (45 min without return)
+ * 3. Update daily_hours with session duration
+ * 4. Schedule end-of-day check (45 min without return)
  */
 export async function handleExitWithDelay(
   userId: string,
@@ -77,20 +85,36 @@ export async function handleExitWithDelay(
       return;
     }
 
+    // Get session duration BEFORE registering exit
+    const session = await getOpenSession(userId, locationId);
+    let sessionDuration = 0;
+    if (session) {
+      sessionDuration = calculateDuration(session.entry_at, new Date().toISOString());
+    }
+
     // 1. REGISTER EXIT IMMEDIATELY (no adjustment - applied only on final exit)
     await registerExit(userId, locationId, 0);
+
+    // 2. UPDATE daily_hours with session duration
+    const today = getToday();
+    const exitTime = formatTimeHHMM(new Date());
+
+    if (sessionDuration > 0) {
+      addMinutesToDay(userId, today, sessionDuration, exitTime);
+      logger.info('session', `📅 daily_hours updated: +${sessionDuration}min, last_exit: ${exitTime}`);
+    }
 
     // Refresh UI state
     useRecordStore.getState().reloadData?.();
 
     logger.info('session', `📤 Exit registered: ${locationName}`);
 
-    // 2. SYNC TO SUPABASE (don't block)
+    // 3. SYNC TO SUPABASE (don't block)
     useSyncStore.getState().syncRecordsOnly().catch(e =>
       logger.warn('sync', 'Exit sync failed (will retry)', { error: String(e) })
     );
 
-    // 3. Schedule end-of-day check (45 min without return)
+    // 4. Schedule end-of-day check (45 min without return)
     scheduleEndOfDayCheck(userId, locationId, locationName);
 
     logger.info('session', `⏱️ End-of-day check scheduled (45 min): ${locationName}`);
@@ -172,14 +196,44 @@ async function createNewSession(
 
   // Check if this is the first entry of the day for this location
   const isFirstEntry = await checkFirstEntryToday(userId, locationId);
+  const today = getToday();
+  const entryTime = formatTimeHHMM(new Date());
 
-  // Create new entry record
+  // Create new entry record (records table - GPS audit trail)
   await createEntryRecord({
     userId,
     locationId,
     locationName,
     type: 'automatic'
   });
+
+  // UPDATE daily_hours: Set first_entry if this is the first entry of the day
+  const existingDaily = getDailyHours(userId, today);
+  if (!existingDaily) {
+    // First GPS entry of the day - create daily_hours record
+    upsertDailyHours({
+      userId,
+      date: today,
+      totalMinutes: 0, // Will be updated on exit
+      locationName,
+      locationId,
+      verified: true,
+      source: 'gps',
+      firstEntry: entryTime,
+    });
+    logger.info('session', `📅 daily_hours created with first_entry: ${entryTime}`);
+  } else if (!existingDaily.first_entry) {
+    // Daily record exists (manual entry?) but no first_entry - update it
+    upsertDailyHours({
+      userId,
+      date: today,
+      totalMinutes: existingDaily.total_minutes,
+      firstEntry: entryTime,
+      verified: true,
+      source: 'gps',
+    });
+    logger.info('session', `📅 daily_hours updated with GPS first_entry: ${entryTime}`);
+  }
 
   // Refresh UI state
   useRecordStore.getState().reloadData?.();
@@ -382,6 +436,7 @@ interface DailySummary {
 
 /**
  * Generate daily summary and show end-of-day notification
+ * Also finalizes the daily_hours record with exit adjustment applied
  */
 async function generateDailySummary(
   userId: string,
@@ -443,6 +498,25 @@ async function generateDailySummary(
       sessionsCount: sessions.length,
     };
 
+    // FINALIZE daily_hours with adjusted totals (applying exit adjustment)
+    const firstEntryTime = formatTimeHHMM(new Date(firstEntry));
+    const lastExitTime = formatTimeHHMM(new Date(lastExit));
+
+    upsertDailyHours({
+      userId,
+      date: todayStr,
+      totalMinutes: totalMinutes,
+      breakMinutes: totalBreakMinutes,
+      locationName,
+      locationId,
+      verified: true,
+      source: 'gps',
+      firstEntry: firstEntryTime,
+      lastExit: lastExitTime,
+    });
+
+    logger.info('session', `📅 daily_hours finalized: ${totalMinutes}min (adjusted -${exitAdjustment}min)`);
+
     // Show end-of-day notification
     const hours = Math.floor(totalMinutes / 60);
     const mins = totalMinutes % 60;
@@ -500,7 +574,7 @@ export function clearAllPendingExitNotifications(): void {
 /**
  * Get current pending notifications (for debugging)
  */
-export function getPendingExitNotifications(): Array<{ locationId: string; locationName: string; exitTime: Date }> {
+export function getPendingExitNotifications(): { locationId: string; locationName: string; exitTime: Date }[] {
   return Array.from(pendingExitNotifications.values()).map(pending => ({
     locationId: pending.locationId,
     locationName: pending.locationName,

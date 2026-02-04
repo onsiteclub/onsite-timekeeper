@@ -30,6 +30,7 @@
  */
 
 import { ComputedSession, formatDuration } from './database';
+import type { DailyHoursEntry } from './database/daily';
 
 // ============================================
 // CONSTANTS
@@ -119,7 +120,7 @@ function generateRefCode(
  */
 function getRegionCode(lat: number, lng: number): string {
   // Canada Provinces (approximate bounding boxes)
-  const canadaRegions: Array<{ code: string; minLat: number; maxLat: number; minLng: number; maxLng: number }> = [
+  const canadaRegions: { code: string; minLat: number; maxLat: number; minLng: number; maxLng: number }[] = [
     // Ontario
     { code: 'ON', minLat: 41.7, maxLat: 56.9, minLng: -95.2, maxLng: -74.3 },
     // Quebec
@@ -149,7 +150,7 @@ function getRegionCode(lat: number, lng: number): string {
   ];
 
   // US Regions (simplified - by time zone areas)
-  const usRegions: Array<{ code: string; minLat: number; maxLat: number; minLng: number; maxLng: number }> = [
+  const usRegions: { code: string; minLat: number; maxLat: number; minLng: number; maxLng: number }[] = [
     // Northeast
     { code: 'NE', minLat: 38.9, maxLat: 47.5, minLng: -80.5, maxLng: -66.9 },
     // Southeast
@@ -653,21 +654,173 @@ export function decodeRefCode(refCode: string): DecodedRefCode | null {
 export function getRefCodeSearchHint(refCode: string): string | null {
   const decoded = decodeRefCode(refCode);
   if (!decoded) return null;
-  
+
   return `
 -- Search for user by Ref # ${decoded.raw}
 -- Region: ${decoded.regionCode}
 -- Date: ${decoded.exportMonth}/${decoded.exportDay}
 -- Sessions: ${decoded.sessionCount}
 
-SELECT * FROM auth.users 
+SELECT * FROM auth.users
 WHERE id::text LIKE '%${decoded.userSuffix}';
 
 -- Then verify with records:
--- SELECT COUNT(*) FROM records 
+-- SELECT COUNT(*) FROM records
 -- WHERE user_id = '<found_user_id>'
 -- AND DATE(entry_at) = '2026-${decoded.exportMonth.toString().padStart(2,'0')}-${decoded.exportDay.toString().padStart(2,'0')}';
   `.trim();
+}
+
+// ============================================
+// DAILY HOURS REPORT (NEW!)
+// ============================================
+
+/**
+ * Report options for daily_hours based reports
+ */
+export interface DailyHoursReportOptions {
+  userName?: string;
+  userId?: string;
+}
+
+/**
+ * Generate report from daily_hours entries
+ * Shows GPS/Manual verification badges:
+ *   ✓ = GPS Verified
+ *   ⚠ = Manual Entry (not verified)
+ *
+ * Format:
+ * Cristony Bruno
+ * ────────────────────
+ * 📅  03 - fev - 26
+ * 📍 Site Avalon
+ * ✓ GPS    》09:15 → 17:45
+ * Break: 30min
+ * ▸ 8h 00min
+ *
+ * 📅  04 - fev - 26
+ * 📍 Site Norte
+ * ⚠ Manual 》--:-- → --:--
+ * ▸ 6h 30min
+ * ════════════════════
+ * TOTAL: 14h 30min
+ *
+ * ✓ = GPS Verified
+ * ⚠ = Manual Entry
+ */
+export function generateDailyHoursReport(
+  dailyHours: DailyHoursEntry[],
+  options: DailyHoursReportOptions = {}
+): string {
+  const { userName, userId } = options;
+  const lines: string[] = [];
+
+  // ════════════════════════════════════════════
+  // HEADER - User name
+  // ════════════════════════════════════════════
+  lines.push(userName || 'Time Report');
+  lines.push(SEPARATOR_SINGLE);
+
+  // Sort by date
+  const sortedDays = [...dailyHours].sort((a, b) => a.date.localeCompare(b.date));
+
+  if (sortedDays.length === 0) {
+    lines.push('No hours recorded.');
+    return lines.join('\n');
+  }
+
+  let totalMinutes = 0;
+  let isFirstDay = true;
+
+  // ════════════════════════════════════════════
+  // EACH DAY
+  // ════════════════════════════════════════════
+  for (const day of sortedDays) {
+    // Add blank line between days (except first)
+    if (!isFirstDay) {
+      lines.push('');
+    }
+    isFirstDay = false;
+
+    // 📅 Date header
+    lines.push(`📅  ${formatDate(day.date)}`);
+
+    // 📍 Location
+    lines.push(`📍 ${day.location_name || 'Unknown Location'}`);
+
+    // Time range with verification badge
+    const entryTime = day.first_entry || '--:--';
+    const exitTime = day.last_exit || '--:--';
+
+    if (day.verified) {
+      // GPS Verified
+      lines.push(`✓ GPS    》${entryTime} → ${exitTime}`);
+    } else {
+      // Manual Entry (not verified)
+      lines.push(`⚠ Manual 》${entryTime} → ${exitTime}`);
+    }
+
+    // Break (if any)
+    if (day.break_minutes && day.break_minutes > 0) {
+      lines.push(`Break: ${day.break_minutes}min`);
+    }
+
+    // Net duration
+    const netMinutes = Math.max(0, day.total_minutes - (day.break_minutes || 0));
+    lines.push(`▸ ${formatDuration(netMinutes)}`);
+
+    totalMinutes += netMinutes;
+  }
+
+  // ════════════════════════════════════════════
+  // FOOTER
+  // ════════════════════════════════════════════
+  lines.push(SEPARATOR_DOUBLE);
+  lines.push(`TOTAL: ${formatDuration(totalMinutes)}`);
+  lines.push('');
+  lines.push('✓ = GPS Verified');
+  lines.push('⚠ = Manual Entry');
+  lines.push('');
+  lines.push(APP_NAME);
+
+  // Generate ref code
+  const timestamp = new Date().toISOString();
+  const date = new Date(timestamp);
+  const userPart = userId ? userId.replace(/-/g, '').slice(-4).toUpperCase() : '0000';
+  const datePart = `${(date.getMonth()+1).toString().padStart(2,'0')}${date.getDate().toString().padStart(2,'0')}`;
+  const daysPart = Math.min(sortedDays.length, 99).toString().padStart(2, '0');
+  const refCode = `DH-${userPart}-${datePart}-${daysPart}`;
+
+  lines.push(`Ref #   ${refCode}`);
+
+  return lines.join('\n');
+}
+
+/**
+ * Generate summary from daily_hours
+ */
+export function generateDailyHoursSummary(dailyHours: DailyHoursEntry[]): string {
+  if (!dailyHours || dailyHours.length === 0) {
+    return 'No hours recorded.';
+  }
+
+  const totalMinutes = dailyHours.reduce((acc, d) => {
+    const breakMin = d.break_minutes || 0;
+    return acc + Math.max(0, d.total_minutes - breakMin);
+  }, 0);
+
+  const gpsVerified = dailyHours.filter(d => d.verified).length;
+  const manual = dailyHours.length - gpsVerified;
+
+  let summary = `${dailyHours.length} day(s) • ${formatDuration(totalMinutes)}`;
+
+  if (gpsVerified > 0 && manual > 0) {
+    summary += ` (${gpsVerified} GPS, ${manual} manual)`;
+  } else if (manual > 0) {
+    summary += ' (manual entries)';
+  }
+
+  return summary;
 }
 
 

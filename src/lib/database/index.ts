@@ -22,6 +22,7 @@ export {
   type LocationStatus,
   type RecordType,
   type AuditEventType,
+  type DailyHoursSource,
   type LocationDB,
   type RecordDB,
   type ComputedSession,
@@ -29,6 +30,7 @@ export {
   type AnalyticsDailyDB,
   type ErrorLogDB,
   type LocationAuditDB,
+  type DailyHoursDB,
 } from './core';
 
 // ============================================
@@ -143,6 +145,31 @@ export {
   type AuditStats,
   type SessionProof,
 } from './audit';
+
+// ============================================
+// DAILY HOURS (User-facing consolidated view)
+// ============================================
+
+export {
+  // Queries
+  getDailyHours,
+  getTodayHours,
+  getDailyHoursByPeriod,
+  // CRUD
+  upsertDailyHours,
+  updateDailyHours,
+  addMinutesToDay,
+  deleteDailyHours,
+  // Migration
+  migrateRecordsToDailyHours,
+  // Sync
+  getUnsyncedDailyHours,
+  markDailyHoursSynced,
+  upsertDailyHoursFromSync,
+  // Types
+  type UpsertDailyHoursParams,
+  type UpdateDailyHoursParams,
+} from './daily';
 
 // ============================================
 // DEBUG
