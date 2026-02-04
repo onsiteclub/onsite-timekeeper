@@ -14,23 +14,6 @@ import { logger } from '../lib/logger';
 // TYPES
 // ============================================
 
-export type ContactType = 'whatsapp' | 'email';
-export type ReminderFrequency = 'weekly' | 'biweekly' | 'monthly';
-
-export interface FavoriteContact {
-  type: ContactType;
-  value: string;
-  name?: string;
-}
-
-export interface ReportReminder {
-  enabled: boolean;
-  frequency: ReminderFrequency;
-  dayOfWeek: number; // 0-6 (Sunday-Saturday)
-  hour: number;
-  minute: number;
-}
-
 export interface PendingReportExport {
   periodStart: string;
   periodEnd: string;
@@ -74,18 +57,16 @@ interface SettingsState {
   // ============================================
   // GEOFENCING
   // ============================================
-  
+
   defaultRadius: number;
   minimumLocationDistance: number;
   /** @deprecated Use minimumLocationDistance */
   distanciaMinimaLocais: number;
 
   // ============================================
-  // AUTO-REPORT
+  // REPORT EXPORT
   // ============================================
-  
-  favoriteContact: FavoriteContact | null;
-  reportReminder: ReportReminder;
+
   pendingReportExport: PendingReportExport | null;
 
   // ============================================
@@ -154,18 +135,10 @@ const DEFAULT_SETTINGS: SettingsData = {
   defaultRadius: 100,
   minimumLocationDistance: 200,
   distanciaMinimaLocais: 200, // deprecated alias
-  
-  // Auto-report
-  favoriteContact: null,
-  reportReminder: {
-    enabled: false,
-    frequency: 'weekly',
-    dayOfWeek: 5, // Friday
-    hour: 18,
-    minute: 0,
-  },
+
+  // Report export
   pendingReportExport: null,
-  
+
   // Debug
   devMonitorEnabled: false,
 };
@@ -209,76 +182,6 @@ export const TIMER_OPTIONS = {
     { value: 15, label: '15 minutes' },
   ],
 } as const;
-
-export const REMINDER_FREQUENCY_OPTIONS = [
-  { value: 'weekly', label: 'Weekly' },
-  { value: 'biweekly', label: 'Every 2 weeks' },
-  { value: 'monthly', label: 'Monthly' },
-] as const;
-
-export const DAYS_OF_WEEK = [
-  { value: 0, label: 'S', fullLabel: 'Sunday' },
-  { value: 1, label: 'M', fullLabel: 'Monday' },
-  { value: 2, label: 'T', fullLabel: 'Tuesday' },
-  { value: 3, label: 'W', fullLabel: 'Wednesday' },
-  { value: 4, label: 'T', fullLabel: 'Thursday' },
-  { value: 5, label: 'F', fullLabel: 'Friday' },
-  { value: 6, label: 'S', fullLabel: 'Saturday' },
-] as const;
-
-// ============================================
-// HELPERS
-// ============================================
-
-export function getDayShortLabel(day: number): string {
-  return DAYS_OF_WEEK[day]?.label || '?';
-}
-
-export function getDayFullLabel(day: number): string {
-  return DAYS_OF_WEEK[day]?.fullLabel || 'Unknown';
-}
-
-export function formatReminderTime(hour: number, minute: number): string {
-  const h = hour % 12 || 12;
-  const m = minute.toString().padStart(2, '0');
-  const ampm = hour < 12 ? 'AM' : 'PM';
-  return `${h}:${m} ${ampm}`;
-}
-
-export function getFrequencyLabel(frequency: ReminderFrequency): string {
-  const option = REMINDER_FREQUENCY_OPTIONS.find(o => o.value === frequency);
-  return option?.label || frequency;
-}
-
-export function getNextReminderDate(reminder: ReportReminder): Date {
-  const now = new Date();
-  const target = new Date();
-  
-  // Set time
-  target.setHours(reminder.hour, reminder.minute, 0, 0);
-  
-  // Set day of week
-  const currentDay = target.getDay();
-  const daysUntilTarget = (reminder.dayOfWeek - currentDay + 7) % 7;
-  target.setDate(target.getDate() + daysUntilTarget);
-  
-  // If target is in the past, move to next occurrence
-  if (target <= now) {
-    switch (reminder.frequency) {
-      case 'weekly':
-        target.setDate(target.getDate() + 7);
-        break;
-      case 'biweekly':
-        target.setDate(target.getDate() + 14);
-        break;
-      case 'monthly':
-        target.setMonth(target.getMonth() + 1);
-        break;
-    }
-  }
-  
-  return target;
-}
 
 // ============================================
 // STORE
@@ -372,8 +275,6 @@ export const useSettingsStore = create<SettingsState>()(
         defaultRadius: state.defaultRadius,
         minimumLocationDistance: state.minimumLocationDistance,
         distanciaMinimaLocais: state.distanciaMinimaLocais,
-        favoriteContact: state.favoriteContact,
-        reportReminder: state.reportReminder,
         pendingReportExport: state.pendingReportExport,
         devMonitorEnabled: state.devMonitorEnabled,
       }),

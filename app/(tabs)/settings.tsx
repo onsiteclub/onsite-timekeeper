@@ -14,8 +14,6 @@ import {
   Switch,
   Alert,
   Linking,
-  TextInput,
-  Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -24,12 +22,6 @@ import { useAuthStore } from '../../src/stores/authStore';
 import {
   useSettingsStore,
   TIMER_OPTIONS,
-  REMINDER_FREQUENCY_OPTIONS,
-  DAYS_OF_WEEK,
-  getDayFullLabel,
-  formatReminderTime,
-  getFrequencyLabel,
-  type ContactType,
 } from '../../src/stores/settingsStore';
 import { onUserLogout } from '../../src/lib/bootstrap';
 
@@ -172,12 +164,6 @@ export default function SettingsScreen() {
   const { user, signOut } = useAuthStore();
   const settings = useSettingsStore();
 
-  // Auto-Report modal state
-  const [showContactModal, setShowContactModal] = useState(false);
-  const [contactType, setContactType] = useState<ContactType>('whatsapp');
-  const [contactValue, setContactValue] = useState('');
-  const [contactName, setContactName] = useState('');
-
   const handleSignOut = async () => {
     Alert.alert(
       'Sign Out',
@@ -207,51 +193,6 @@ export default function SettingsScreen() {
           text: 'Reset',
           style: 'destructive',
           onPress: () => settings.resetSettings(),
-        },
-      ]
-    );
-  };
-
-  const handleOpenContactModal = () => {
-    if (settings.favoriteContact) {
-      setContactType(settings.favoriteContact.type);
-      setContactValue(settings.favoriteContact.value);
-      setContactName(settings.favoriteContact.name || '');
-    } else {
-      setContactType('whatsapp');
-      setContactValue('');
-      setContactName('');
-    }
-    setShowContactModal(true);
-  };
-
-  const handleSaveContact = () => {
-    if (!contactValue.trim()) {
-      Alert.alert('Error', 'Please enter a contact value');
-      return;
-    }
-
-    settings.updateSetting('favoriteContact', {
-      type: contactType,
-      value: contactValue.trim(),
-      name: contactName.trim() || undefined,
-    });
-
-    setShowContactModal(false);
-  };
-
-  const handleRemoveContact = () => {
-    Alert.alert(
-      'Remove Favorite',
-      'Are you sure you want to remove the favorite contact?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove',
-          style: 'destructive',
-          onPress: () => {
-            settings.updateSetting('favoriteContact', null);
-          },
         },
       ]
     );
@@ -351,64 +292,6 @@ export default function SettingsScreen() {
       </AccordionSection>
 
       {/* ============================================ */}
-      {/* AUTO-REPORT SECTION */}
-      {/* ============================================ */}
-      <AccordionSection title="Auto-Report" icon="send-outline">
-        <View style={styles.settingRow}>
-          <View style={styles.settingLabelContainer}>
-            <Text style={styles.settingLabel}>Favorite Contact</Text>
-            <Text style={styles.settingHint}>
-              Set a favorite contact to quickly send reports
-            </Text>
-          </View>
-
-          {settings.favoriteContact ? (
-            <View style={styles.favoriteContactCard}>
-              <View style={styles.favoriteContactInfo}>
-                <Ionicons
-                  name={settings.favoriteContact.type === 'whatsapp' ? 'logo-whatsapp' : 'mail'}
-                  size={20}
-                  color={settings.favoriteContact.type === 'whatsapp' ? '#25D366' : colors.primary}
-                />
-                <View style={styles.favoriteContactText}>
-                  <Text style={styles.favoriteContactName}>
-                    {settings.favoriteContact.name || settings.favoriteContact.value}
-                  </Text>
-                  {settings.favoriteContact.name && (
-                    <Text style={styles.favoriteContactValue}>
-                      {settings.favoriteContact.value}
-                    </Text>
-                  )}
-                </View>
-              </View>
-              <View style={styles.favoriteContactActions}>
-                <TouchableOpacity
-                  style={styles.iconButton}
-                  onPress={handleOpenContactModal}
-                >
-                  <Ionicons name="pencil" size={18} color={colors.textSecondary} />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.iconButton}
-                  onPress={handleRemoveContact}
-                >
-                  <Ionicons name="trash-outline" size={18} color={colors.error} />
-                </TouchableOpacity>
-              </View>
-            </View>
-          ) : (
-            <TouchableOpacity
-              style={styles.addContactButton}
-              onPress={handleOpenContactModal}
-            >
-              <Ionicons name="add-circle-outline" size={20} color={colors.primary} />
-              <Text style={styles.addContactButtonText}>Add Contact</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      </AccordionSection>
-
-      {/* ============================================ */}
       {/* ABOUT SECTION */}
       {/* ============================================ */}
       <AccordionSection title="About" icon="information-circle-outline">
@@ -467,127 +350,6 @@ export default function SettingsScreen() {
 
       <View style={styles.footer} />
 
-      {/* ============================================ */}
-      {/* CONTACT MODAL */}
-      {/* ============================================ */}
-      <Modal
-        visible={showContactModal}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setShowContactModal(false)}
-      >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Favorite Contact</Text>
-            <TouchableOpacity
-              onPress={() => setShowContactModal(false)}
-              style={styles.modalCloseBtn}
-            >
-              <Ionicons name="close" size={24} color={colors.text} />
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView style={styles.modalContent}>
-            {/* Contact Type Toggle */}
-            <Text style={styles.modalLabel}>Type</Text>
-            <View style={styles.contactTypeToggle}>
-              <TouchableOpacity
-                style={[
-                  styles.contactTypeButton,
-                  contactType === 'whatsapp' && styles.contactTypeButtonActive,
-                ]}
-                onPress={() => setContactType('whatsapp')}
-              >
-                <Ionicons
-                  name="logo-whatsapp"
-                  size={20}
-                  color={contactType === 'whatsapp' ? '#fff' : colors.textSecondary}
-                />
-                <Text
-                  style={[
-                    styles.contactTypeButtonText,
-                    contactType === 'whatsapp' && styles.contactTypeButtonTextActive,
-                  ]}
-                >
-                  WhatsApp
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.contactTypeButton,
-                  contactType === 'email' && styles.contactTypeButtonActive,
-                ]}
-                onPress={() => setContactType('email')}
-              >
-                <Ionicons
-                  name="mail"
-                  size={20}
-                  color={contactType === 'email' ? '#fff' : colors.textSecondary}
-                />
-                <Text
-                  style={[
-                    styles.contactTypeButtonText,
-                    contactType === 'email' && styles.contactTypeButtonTextActive,
-                  ]}
-                >
-                  Email
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Name (optional) */}
-            <Text style={styles.modalLabel}>Name (optional)</Text>
-            <TextInput
-              style={styles.modalInput}
-              value={contactName}
-              onChangeText={setContactName}
-              placeholder="e.g., Boss, Manager, Client"
-              placeholderTextColor={colors.textTertiary}
-            />
-
-            {/* Contact Value */}
-            <Text style={styles.modalLabel}>
-              {contactType === 'whatsapp' ? 'Phone Number' : 'Email Address'}
-            </Text>
-            <TextInput
-              style={styles.modalInput}
-              value={contactValue}
-              onChangeText={setContactValue}
-              placeholder={
-                contactType === 'whatsapp'
-                  ? '+1234567890'
-                  : 'email@example.com'
-              }
-              placeholderTextColor={colors.textTertiary}
-              keyboardType={contactType === 'whatsapp' ? 'phone-pad' : 'email-address'}
-              autoCapitalize="none"
-            />
-
-            <Text style={styles.modalHint}>
-              {contactType === 'whatsapp'
-                ? 'Enter phone number with country code (e.g., +1234567890)'
-                : 'Enter a valid email address'}
-            </Text>
-          </ScrollView>
-
-          {/* Footer Buttons */}
-          <View style={styles.modalFooter}>
-            <TouchableOpacity
-              style={styles.modalCancelBtn}
-              onPress={() => setShowContactModal(false)}
-            >
-              <Text style={styles.modalCancelBtnText}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.modalSaveBtn}
-              onPress={handleSaveContact}
-            >
-              <Text style={styles.modalSaveBtnText}>Save</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
     </ScrollView>
   );
 }
@@ -802,183 +564,4 @@ const styles = StyleSheet.create({
   footer: {
     height: 40,
   },
-
-  // Favorite Contact Card
-  favoriteContactCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: colors.surface,
-    borderRadius: 12,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginTop: 8,
-  },
-  favoriteContactInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    flex: 1,
-  },
-  favoriteContactText: {
-    flex: 1,
-  },
-  favoriteContactName: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: colors.text,
-  },
-  favoriteContactValue: {
-    fontSize: 13,
-    color: colors.textSecondary,
-    marginTop: 2,
-  },
-  favoriteContactActions: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  iconButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: withOpacity(colors.surface, 0.5),
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  addContactButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: colors.surface,
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginTop: 8,
-  },
-  addContactButtonText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: colors.primary,
-  },
-
-  // Contact Modal
-  modalContainer: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  modalCloseBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: colors.surface,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalContent: {
-    flex: 1,
-    paddingHorizontal: 16,
-    paddingTop: 20,
-  },
-  modalLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.text,
-    marginBottom: 8,
-    marginTop: 16,
-  },
-  contactTypeToggle: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  contactTypeButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 12,
-    borderRadius: 12,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  contactTypeButtonActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  contactTypeButtonText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: colors.textSecondary,
-  },
-  contactTypeButtonTextActive: {
-    color: '#fff',
-  },
-  modalInput: {
-    backgroundColor: colors.surface,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 15,
-    color: colors.text,
-  },
-  modalHint: {
-    fontSize: 13,
-    color: colors.textSecondary,
-    marginTop: 6,
-    fontStyle: 'italic',
-  },
-  modalFooter: {
-    flexDirection: 'row',
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  modalCancelBtn: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: 12,
-    backgroundColor: colors.surface,
-    alignItems: 'center',
-  },
-  modalCancelBtnText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.text,
-  },
-  modalSaveBtn: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: 12,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-  },
-  modalSaveBtnText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#fff',
-  },
-
 });

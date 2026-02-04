@@ -127,9 +127,6 @@ export function useHomeScreen() {
   // Expanded day (for week view inline - DEPRECATED, keeping for compatibility)
   const [expandedDay, setExpandedDay] = useState<string | null>(null);
   
-  // Multi-select DAYS (for batch export)
-  const [selectionMode, setSelectionMode] = useState(false);
-  const [selectedDays, setSelectedDays] = useState<Set<string>>(new Set());
 
   // NEW: Day Detail Modal
   const [showDayModal, setShowDayModal] = useState(false);
@@ -335,27 +332,11 @@ export function useHomeScreen() {
     clearPendingReportExport();
 
     // Show export options
-    const { favoriteContact } = useSettingsStore.getState();
-    
     const options: any[] = [
       { text: 'Cancel', style: 'cancel' },
-    ];
-
-    // Add favorite option if configured (put it first for quick access)
-    if (favoriteContact) {
-      const icon = favoriteContact.type === 'whatsapp' ? '📱' : '📧';
-      const label = favoriteContact.name || favoriteContact.value;
-      options.push({
-        text: `${icon} Send to ${label}`,
-        onPress: () => sendToFavorite(finishedSessions),
-      });
-    }
-
-    // Standard options
-    options.push(
       { text: '💬 Share', onPress: () => exportAsText(finishedSessions) },
       { text: '📄 Save File', onPress: () => exportAsFile(finishedSessions) },
-    );
+    ];
 
     Alert.alert(
       '📊 Weekly Report',
@@ -535,9 +516,9 @@ export function useHomeScreen() {
               setPauseTimer('00:00:00');
               
               // Reload data to show the finished session
-              if (viewMode === 'week') {
-                loadWeekSessions();
-              } else {
+              // Always reload weekSessions (used by Home screen for auto-fill)
+              loadWeekSessions();
+              if (viewMode === 'month') {
                 loadMonthSessions();
               }
               
@@ -644,17 +625,11 @@ export function useHomeScreen() {
   // NAVIGATION
   // ============================================
 
-  const cancelSelection = () => {
-    setSelectionMode(false);
-    setSelectedDays(new Set());
-  };
-
   const goToPreviousWeek = () => {
     const newDate = new Date(currentWeek);
     newDate.setDate(newDate.getDate() - 7);
     setCurrentWeek(newDate);
     setExpandedDay(null);
-    cancelSelection();
   };
 
   const goToNextWeek = () => {
@@ -662,85 +637,40 @@ export function useHomeScreen() {
     newDate.setDate(newDate.getDate() + 7);
     setCurrentWeek(newDate);
     setExpandedDay(null);
-    cancelSelection();
   };
 
   const goToCurrentWeek = () => {
     setCurrentWeek(new Date());
     setExpandedDay(null);
-    cancelSelection();
   };
 
   const goToPreviousMonth = () => {
     const newDate = new Date(currentMonth);
+    newDate.setDate(1); // Set to 1st to avoid month overflow (e.g., Jan 31 → Feb 31 → March 3)
     newDate.setMonth(newDate.getMonth() - 1);
     setCurrentMonth(newDate);
     setExpandedDay(null);
-    cancelSelection();
   };
 
   const goToNextMonth = () => {
     const newDate = new Date(currentMonth);
+    newDate.setDate(1); // Set to 1st to avoid month overflow
     newDate.setMonth(newDate.getMonth() + 1);
     setCurrentMonth(newDate);
     setExpandedDay(null);
-    cancelSelection();
   };
 
   const goToCurrentMonth = () => {
     setCurrentMonth(new Date());
     setExpandedDay(null);
-    cancelSelection();
   };
 
   // ============================================
-  // DAY SELECTION (for batch export)
+  // DAY PRESS HANDLERS
   // ============================================
 
-  const toggleSelectDay = (dayKey: string) => {
-    const newSet = new Set(selectedDays);
-    if (newSet.has(dayKey)) {
-      newSet.delete(dayKey);
-      if (newSet.size === 0) {
-        setSelectionMode(false);
-      }
-    } else {
-      newSet.add(dayKey);
-    }
-    setSelectedDays(newSet);
-  };
-
-  // ============================================
-  // DAY PRESS HANDLERS (UPDATED!)
-  // ============================================
-
-const handleDayPress = (dayKey: string, hasSessions: boolean) => {
-  // Parse date safely (YYYY-MM-DD)
-  const [year, month, day] = dayKey.split('-').map(Number);
-  const date = new Date(year, month - 1, day);
-
-  // Block future days
-  if (isFutureDay(date)) {
-    Alert.alert(
-      '⚠️ Future Date',
-      'Cannot log hours for future dates',
-      [{ text: 'OK', style: 'default' }],
-      { cancelable: true }
-    );
-    return;
-  }
-
-  if (selectionMode) {
-    // In selection mode, allow selecting ANY past/present day (including empty)
-    toggleSelectDay(dayKey);
-  } else {
-    // Normal mode: open day modal
-    openDayModal(date);
-  }
-};
-
-  const handleDayLongPress = (dayKey: string, hasSessions: boolean) => {
-    // Parse date
+  const handleDayPress = (dayKey: string, hasSessions: boolean) => {
+    // Parse date safely (YYYY-MM-DD)
     const [year, month, day] = dayKey.split('-').map(Number);
     const date = new Date(year, month - 1, day);
 
@@ -748,22 +678,15 @@ const handleDayPress = (dayKey: string, hasSessions: boolean) => {
     if (isFutureDay(date)) {
       Alert.alert(
         '⚠️ Future Date',
-        'Cannot select or export future dates',
+        'Cannot log hours for future dates',
         [{ text: 'OK', style: 'default' }],
         { cancelable: true }
       );
       return;
     }
 
-    if (!selectionMode) {
-      // Enter selection mode - allow even empty days
-      setSelectionMode(true);
-      setSelectedDays(new Set([dayKey]));
-      setExpandedDay(null);
-      setShowDayModal(false);
-    } else {
-      toggleSelectDay(dayKey);
-    }
+    // Open day modal
+    openDayModal(date);
   };
 
   // ============================================
@@ -1038,7 +961,6 @@ const handleDayPress = (dayKey: string, hasSessions: boolean) => {
           manually_edited: 1,
           edit_reason: 'Edited manually by user',
         });
-        Alert.alert('✅ Success', 'Record updated!');
         setEditingSessionId(null);
       } else {
         // CREATE MODE: New session
@@ -1059,16 +981,16 @@ const handleDayPress = (dayKey: string, hasSessions: boolean) => {
           // Show confirmation dialog to replace existing sessions
           return new Promise<void>((resolve) => {
             Alert.alert(
-              '📝 Sessões existentes',
-              `Já existem ${sameDaySessions.length} registro(s) para "${locationName}" neste dia. Deseja substituí-los pela entrada manual?`,
+              'Existing Sessions',
+              `There are ${sameDaySessions.length} existing record(s) for "${locationName}" on this day. Would you like to replace them?`,
               [
                 {
-                  text: 'Cancelar',
+                  text: 'Cancel',
                   style: 'cancel',
                   onPress: () => resolve(),
                 },
                 {
-                  text: 'Adicionar',
+                  text: 'Add',
                   onPress: async () => {
                     // Add alongside existing
                     await createManualRecord({
@@ -1078,7 +1000,6 @@ const handleDayPress = (dayKey: string, hasSessions: boolean) => {
                       exit: exitDate.toISOString(),
                       pauseMinutes: pauseMinutes,
                     });
-                    Alert.alert('✅ Sucesso', 'Registro adicionado!');
                     setShowManualModal(false);
                     setManualPause('');
                     if (viewMode === 'week') {
@@ -1090,7 +1011,7 @@ const handleDayPress = (dayKey: string, hasSessions: boolean) => {
                   },
                 },
                 {
-                  text: 'Substituir',
+                  text: 'Replace',
                   style: 'destructive',
                   onPress: async () => {
                     // Delete existing sessions first
@@ -1109,7 +1030,6 @@ const handleDayPress = (dayKey: string, hasSessions: boolean) => {
                       exit: exitDate.toISOString(),
                       pauseMinutes: pauseMinutes,
                     });
-                    Alert.alert('✅ Sucesso', `${sameDaySessions.length} registro(s) substituído(s)!`);
                     setShowManualModal(false);
                     setManualPause('');
                     if (viewMode === 'week') {
@@ -1132,17 +1052,16 @@ const handleDayPress = (dayKey: string, hasSessions: boolean) => {
             exit: exitDate.toISOString(),
             pauseMinutes: pauseMinutes,
           });
-          Alert.alert('✅ Success', 'Record added!');
         }
       }
 
       setShowManualModal(false);
       setManualPause('');
 
-      // Reload week/month sessions to show the new/updated record
-      if (viewMode === 'week') {
-        await loadWeekSessions();
-      } else {
+      // Reload sessions to show the new/updated record
+      // Always reload weekSessions (used by Home screen for auto-fill)
+      await loadWeekSessions();
+      if (viewMode === 'month') {
         await loadMonthSessions();
       }
     } catch (error: any) {
@@ -1159,21 +1078,17 @@ const handleDayPress = (dayKey: string, hasSessions: boolean) => {
    * All delete operations go through here
    */
   const deleteSessionsByIds = async (
-    sessionIds: string[], 
-    options: { 
-      closeModal?: boolean; 
-      closeBatch?: boolean;
+    sessionIds: string[],
+    options: {
+      closeModal?: boolean;
       silent?: boolean;
     } = {}
   ) => {
-    const { closeModal = false, closeBatch = false, silent = false } = options;
-    
+    const { closeModal = false, silent = false } = options;
+
     if (sessionIds.length === 0) {
       if (!silent) {
         Alert.alert('Nothing to delete', 'No sessions found.');
-      }
-      if (closeBatch) {
-        cancelSelection();
       }
       return;
     }
@@ -1191,25 +1106,22 @@ const handleDayPress = (dayKey: string, hasSessions: boolean) => {
           }
         }
       }
-      
+
       // Always reload fresh data
       await reloadData();
-      if (viewMode === 'week') {
-        loadWeekSessions();
-      } else {
+      // Always reload weekSessions (used by Home screen for auto-fill)
+      loadWeekSessions();
+      if (viewMode === 'month') {
         loadMonthSessions();
       }
-      
+
       // Clear states
       setSelectedSessions(new Set());
-      
+
       if (closeModal) {
         closeDayModal();
       }
-      if (closeBatch) {
-        cancelSelection();
-      }
-      
+
       if (deleted > 0 && !silent) {
         Alert.alert('✅ Deleted', `${deleted} session(s) deleted.`);
       }
@@ -1259,27 +1171,6 @@ const handleDayPress = (dayKey: string, hasSessions: boolean) => {
     deleteSessionsByIds(ids, { closeModal: false });
   };
 
-  /**
-   * Delete from batch selection (long press days)
-   */
-  const handleDeleteSelectedDays = () => {
-    if (!selectionMode || selectedDays.size === 0) {
-      Alert.alert('Nothing selected', 'Long press a day to select.');
-      return;
-    }
-
-    // Get fresh sessions using getSessionsForDay
-    const allIds: string[] = [];
-    for (const dayKey of selectedDays) {
-      const [year, month, day] = dayKey.split('-').map(Number);
-      const date = new Date(year, month - 1, day);
-      const daySessions = getSessionsForDay(date).filter(s => s.exit_at);
-      allIds.push(...daySessions.map(s => s.id));
-    }
-
-    deleteSessionsByIds(allIds, { closeBatch: true });
-  };
-
   // Keep for backward compatibility
   const handleDeleteDay = (_dayKey: string, daySessions: ComputedSession[]) => {
     const ids = daySessions.filter(s => s.exit_at).map(s => s.id);
@@ -1295,7 +1186,6 @@ const handleDayPress = (dayKey: string, hasSessions: boolean) => {
 
     try {
       await Share.share({ message: txt, title: 'Work Report' });
-      cancelSelection();
       closeDayModal();
     } catch (error) {
       console.error('Error sharing:', error);
@@ -1320,8 +1210,7 @@ const handleDayPress = (dayKey: string, hasSessions: boolean) => {
           dialogTitle: 'Save Report',
         });
       }
-      
-      cancelSelection();
+
       closeDayModal();
     } catch (error) {
       console.error('Error exporting file:', error);
@@ -1329,95 +1218,24 @@ const handleDayPress = (dayKey: string, hasSessions: boolean) => {
     }
   };
 
-  // Export from main calendar (days selection or full period)
+  // Export from main calendar (full period)
   const handleExport = async () => {
-    let sessionsToExport: ComputedSession[];
-    
-    if (selectionMode && selectedDays.size > 0) {
-      sessionsToExport = sessions.filter(s => {
-        const sessionDate = new Date(s.entry_at);
-        const dayKey = getDayKey(sessionDate);
-        return selectedDays.has(dayKey);
-      });
-    } else {
-      sessionsToExport = sessions;
-    }
-
-    const finishedSessions = sessionsToExport.filter(s => s.exit_at);
+    const finishedSessions = sessions.filter(s => s.exit_at);
 
     if (finishedSessions.length === 0) {
       Alert.alert('Warning', 'No completed sessions to export');
       return;
     }
 
-    const { favoriteContact } = useSettingsStore.getState();
-
-    // Build options dynamically
-    const options: any[] = [
-      { text: 'Cancel', style: 'cancel' },
-    ];
-
-    // Add favorite option if configured
-    if (favoriteContact) {
-      const icon = favoriteContact.type === 'whatsapp' ? '📱' : '📧';
-      const label = favoriteContact.name || favoriteContact.value;
-      options.push({
-        text: `${icon} ${label}`,
-        onPress: () => sendToFavorite(finishedSessions),
-      });
-    }
-
-    // Standard options
-    options.push(
-      { text: '💬 Share', onPress: () => exportAsText(finishedSessions) },
-      { text: '📄 File', onPress: () => exportAsFile(finishedSessions) },
-    );
-
     Alert.alert(
       '📤 Export Report',
       'How would you like to export?',
-      options
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: '💬 Share', onPress: () => exportAsText(finishedSessions) },
+        { text: '📄 File', onPress: () => exportAsFile(finishedSessions) },
+      ]
     );
-  };
-
-
-  // NEW: Send to favorite contact
-  const sendToFavorite = async (sessionsToExport: ComputedSession[]) => {
-    const { favoriteContact } = useSettingsStore.getState();
-    if (!favoriteContact) {
-      Alert.alert('No Favorite', 'Please set a favorite contact in Settings > Auto-Report');
-      return;
-    }
-
-    const report = generateCompleteReport(sessionsToExport, userName || undefined, userId || undefined);
-
-    try {
-      if (favoriteContact.type === 'whatsapp') {
-        // Open WhatsApp with pre-filled message
-        const phone = favoriteContact.value.replace(/\D/g, '');
-        const url = `whatsapp://send?phone=${phone}&text=${encodeURIComponent(report)}`;
-        
-        const canOpen = await Linking.canOpenURL(url);
-        if (canOpen) {
-          await Linking.openURL(url);
-          closeDayModal();
-          cancelSelection();
-        } else {
-          Alert.alert('Error', 'WhatsApp is not installed');
-        }
-      } else {
-        // Open email composer
-        const subject = encodeURIComponent('Time Report - OnSite Timekeeper');
-        const body = encodeURIComponent(report);
-        const url = `mailto:${favoriteContact.value}?subject=${subject}&body=${body}`;
-        await Linking.openURL(url);
-        closeDayModal();
-        cancelSelection();
-      }
-    } catch (error) {
-      console.error('Error sending to favorite:', error);
-      Alert.alert('Error', 'Could not open app');
-    }
   };
 
   // NEW: Export from day modal (specific sessions)
@@ -1425,9 +1243,9 @@ const handleDayPress = (dayKey: string, hasSessions: boolean) => {
     if (!selectedDayForModal) return;
 
     const finishedSessions = dayModalSessions.filter(s => s.exit_at);
-    
+
     let sessionsToExport: ComputedSession[];
-    
+
     if (selectedSessions.size > 0) {
       // Export only selected sessions
       sessionsToExport = finishedSessions.filter(s => selectedSessions.has(s.id));
@@ -1441,34 +1259,15 @@ const handleDayPress = (dayKey: string, hasSessions: boolean) => {
       return;
     }
 
-    const { favoriteContact } = useSettingsStore.getState();
-    console.log('🔍 DEBUG favoriteContact:', JSON.stringify(favoriteContact));
-    const exportLabel = selectedSessions.size > 0 
+    const exportLabel = selectedSessions.size > 0
       ? `Export ${selectedSessions.size} session(s)?`
       : `Export all ${sessionsToExport.length} session(s) from this day?`;
 
-    // Build options dynamically
-    const options: any[] = [
+    Alert.alert('📤 Export', exportLabel, [
       { text: 'Cancel', style: 'cancel' },
-    ];
-
-    // Add favorite option if configured
-    if (favoriteContact) {
-      const icon = favoriteContact.type === 'whatsapp' ? '📱' : '📧';
-      const label = favoriteContact.name || favoriteContact.value;
-      options.push({
-        text: `${icon} ${label}`,
-        onPress: () => sendToFavorite(sessionsToExport),
-      });
-    }
-
-    // Standard options
-    options.push(
       { text: '💬 Share', onPress: () => exportAsText(sessionsToExport) },
       { text: '📄 File', onPress: () => exportAsFile(sessionsToExport) },
-    );
-
-    Alert.alert('📤 Export', exportLabel, options);
+    ]);
   };
 
 /**
@@ -1595,13 +1394,8 @@ const getSuggestedTimes = useCallback((locationId: string) => {
     weekTotalMinutes,
     monthTotalMinutes,
     expandedDay, // Keep for backward compat, but not used in new UI
-    
-    // Day selection (batch)
-    selectionMode,
-    selectedDays,
-    cancelSelection,
-    
-    // NEW: Day Modal
+
+    // Day Modal
     showDayModal,
     selectedDayForModal,
     dayModalSessions,
@@ -1674,7 +1468,6 @@ const getSuggestedTimes = useCallback((locationId: string) => {
     
     // Day handlers
     handleDayPress,
-    handleDayLongPress,
     getSessionsForDay,
     getTotalMinutesForDay,
     
@@ -1686,10 +1479,8 @@ const getSuggestedTimes = useCallback((locationId: string) => {
     handleDeleteSelectedSessions,
     handleDeleteFromModal,
     handleExport,
-    handleDeleteSelectedDays,
     handleExportFromModal,
-    sendToFavorite,
-    
+
     // Day Tags
     dayTags,
     showTagModal,
@@ -1713,6 +1504,7 @@ const getSuggestedTimes = useCallback((locationId: string) => {
     getSuggestedTimes,
     weekSessions,
     monthSessions,
+    getSessionsByPeriod,
   };
 }
 

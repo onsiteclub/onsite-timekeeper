@@ -8,7 +8,7 @@
  * - Improved visual hierarchy
  */
 
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -22,7 +22,9 @@ import {
   Platform,
   Animated,
   StyleSheet,
+  StatusBar,
 } from 'react-native';
+import Constants from 'expo-constants';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import DateTimePicker from '@react-native-community/datetimepicker'; // Keep for date picker only
@@ -36,6 +38,7 @@ import { useHomeScreen } from '../../src/screens/home/hooks';
 import { ShareModal } from '../../src/components/ShareModal';
 import { styles, fixedStyles } from '../../src/screens/home/styles';
 import { HomePermissionBanner } from '../../src/components/PermissionBanner';
+import { AnimatedRing } from '../../src/components/AnimatedRing';
 
 // Helper to format date
 function formatDate(date: Date): string {
@@ -108,6 +111,9 @@ export default function HomeScreen() {
   const [showShareModal, setShowShareModal] = useState(false);
   const [sessionsToShare, setSessionsToShare] = useState<ComputedSession[]>([]);
 
+  // Edit mode state - form is read-only by default
+  const [isEditing, setIsEditing] = useState(false);
+
   // Toast notification for future dates
   const [toastMessage, setToastMessage] = useState('');
   const toastOpacity = useRef(new Animated.Value(0)).current;
@@ -145,10 +151,29 @@ export default function HomeScreen() {
     handleRestart,
     handleSaveManual,
     getSuggestedTimes,
+    weekSessions,
+    openEditSession,
+    isSameDay,
+    formatTimeAMPM,
   } = useHomeScreen();
 
-  // Helper to set time with AM/PM from 24h format
-  const setTimeWithAmPm = (
+  // Get today's completed sessions (from geofence)
+  const todayGeofenceSessions = weekSessions.filter((s: ComputedSession) => {
+    const sessionDate = new Date(s.entry_at);
+    const today = new Date();
+    return isSameDay(sessionDate, today) && s.exit_at && s.type !== 'manual';
+  });
+
+  // Get today's session for selected location (if any)
+  const todaySessionForLocation = todayGeofenceSessions.find(
+    (s: ComputedSession) => s.location_id === manualLocationId
+  );
+
+  // Check if form has geofence data to show
+  const hasGeofenceData = !!todaySessionForLocation || !!currentSession;
+
+  // Helper to set time with AM/PM from 24h format (memoized for stable reference)
+  const setTimeWithAmPm = useCallback((
     hour24: string,
     setHour: (h: string) => void,
     setPeriod: (p: 'AM' | 'PM') => void
@@ -161,8 +186,40 @@ export default function HomeScreen() {
       setPeriod('AM');
       setHour(h === 0 ? '12' : String(h).padStart(2, '0'));
     }
-  };
+  }, []);
 
+  // Auto-fill from geofence when session starts (entry detected)
+  useEffect(() => {
+    if (currentSession && currentSession.location_id) {
+      // Geofence detected entry - fill entry time
+      const entryDate = new Date(currentSession.entry_at);
+      setManualLocationId(currentSession.location_id);
+      setTimeWithAmPm(String(entryDate.getHours()).padStart(2, '0'), setManualEntryH, setEntryPeriod);
+      setManualEntryM(String(entryDate.getMinutes()).padStart(2, '0'));
+      // Clear exit (not yet detected)
+      setManualExitH('');
+      setManualExitM('');
+    }
+  }, [currentSession?.id]);
+
+  // Auto-fill from completed geofence session
+  useEffect(() => {
+    if (todaySessionForLocation) {
+      const entryDate = new Date(todaySessionForLocation.entry_at);
+      const exitDate = new Date(todaySessionForLocation.exit_at!);
+
+      setTimeWithAmPm(String(entryDate.getHours()).padStart(2, '0'), setManualEntryH, setEntryPeriod);
+      setManualEntryM(String(entryDate.getMinutes()).padStart(2, '0'));
+      setTimeWithAmPm(String(exitDate.getHours()).padStart(2, '0'), setManualExitH, setExitPeriod);
+      setManualExitM(String(exitDate.getMinutes()).padStart(2, '0'));
+
+      if (todaySessionForLocation.pause_minutes) {
+        setManualPause(String(todaySessionForLocation.pause_minutes));
+      }
+    }
+  }, [todaySessionForLocation?.id, manualLocationId]);
+
+  // Initialize location if not set
   useEffect(() => {
     if (locations.length > 0 && !manualLocationId) {
       const firstLocationId = locations[0].id;
@@ -376,12 +433,25 @@ export default function HomeScreen() {
   };
 
   return (
-    <View style={fixedStyles.container}>
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={{ flexGrow: 1 }}
-        showsVerticalScrollIndicator={false}
-      >
+    <View style={{ flex: 1, backgroundColor: '#F3F4F6' }}>
+      {/* Status bar strip - gray background behind system status bar */}
+      <StatusBar barStyle="dark-content" backgroundColor="#F3F4F6" />
+      <View style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        height: Constants.statusBarHeight || 28,
+        backgroundColor: '#F3F4F6',
+        zIndex: 1,
+      }} />
+
+      <View style={fixedStyles.container}>
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{ flexGrow: 1 }}
+          showsVerticalScrollIndicator={false}
+        >
       {/* HEADER */}
       <View style={fixedStyles.header}>
         <TouchableOpacity
@@ -500,290 +570,378 @@ export default function HomeScreen() {
       </View>
 
       {/* ============================================ */}
-      {/* LOG HOURS FORM - Enhanced */}
+      {/* MAIN CONTENT WRAPPER - Timer + Form with flex distribution */}
       {/* ============================================ */}
-      <Card style={[fixedStyles.formSection, locations.length === 0 && onboardingStyles.formDisabled].filter(Boolean) as ViewStyle[]}>
-        {/* Date Selector */}
-        <TouchableOpacity
-          style={fixedStyles.dateSelector}
-          onPress={() => setShowDateDropdown(!showDateDropdown)}
-        >
-          <View style={fixedStyles.dateSelectorContent}>
-            <Ionicons name="calendar-outline" size={16} color={colors.textSecondary} />
-            <Text style={fixedStyles.dateSelectorText}>{formatDateWithDay(manualDate)}</Text>
-          </View>
-          <Ionicons name="chevron-down" size={16} color={colors.textSecondary} />
-        </TouchableOpacity>
+      <View style={fixedStyles.mainContentWrapper}>
+        {/* TIMER - With Animated Ring */}
+        <Card style={[
+          fixedStyles.timerSection,
+          currentSession && fixedStyles.timerSectionActive,
+        ].filter(Boolean) as ViewStyle[]}>
+          <AnimatedRing
+            state={currentSession ? (isPaused ? 'paused' : 'active') : 'idle'}
+            size={240}
+            strokeWidth={12}
+          >
+            {currentSession ? (
+              <View style={timerRingStyles.content}>
+                {/* Status badge - soft tint + state color text */}
+                <View style={[
+                  timerRingStyles.statusBadge,
+                  isPaused ? timerRingStyles.statusBadgePaused : timerRingStyles.statusBadgeActive
+                ]}>
+                  <Text style={[
+                    timerRingStyles.statusBadgeText,
+                    isPaused ? timerRingStyles.statusBadgeTextPaused : timerRingStyles.statusBadgeTextActive
+                  ]}>
+                    {isPaused ? 'Paused' : 'Active'} • {currentSession.location_name}
+                  </Text>
+                </View>
 
-        {/* Date Dropdown */}
-        {showDateDropdown && (
-          <View style={fixedStyles.dateDropdown}>
-            <TouchableOpacity
-              style={fixedStyles.dateOption}
-              onPress={() => handleDateSelect('today')}
-            >
-              <Ionicons name="today-outline" size={16} color={colors.text} />
-              <Text style={fixedStyles.dateOptionText}>Today</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={fixedStyles.dateOption}
-              onPress={() => handleDateSelect('yesterday')}
-            >
-              <Ionicons name="arrow-back-outline" size={16} color={colors.text} />
-              <Text style={fixedStyles.dateOptionText}>Yesterday</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={fixedStyles.dateOption}
-              onPress={() => handleDateSelect('custom')}
-            >
-              <Ionicons name="calendar" size={16} color={colors.text} />
-              <Text style={fixedStyles.dateOptionText}>Choose date...</Text>
-            </TouchableOpacity>
-          </View>
-        )}
+                {/* Main timer with HRS label */}
+                <Text style={[
+                  timerRingStyles.timer,
+                  isPaused && timerRingStyles.timerPaused
+                ]}>
+                  {timer}
+                </Text>
+                <Text style={timerRingStyles.timerLabel}>HRS</Text>
 
-        {/* ENTRY TIME - Text inputs with AM/PM */}
-        <View style={fixedStyles.timeRow}>
-          <Text style={fixedStyles.timeLabel}>Entry</Text>
-          <View style={homeInputStyles.timeInputGroup}>
-            <TextInput
-              style={homeInputStyles.timeInput}
-              value={manualEntryH}
-              onChangeText={handleEntryHourChange}
-              keyboardType="number-pad"
-              placeholder="HH"
-              placeholderTextColor={colors.textMuted}
-              maxLength={2}
-              selectTextOnFocus
-            />
-            <Text style={homeInputStyles.timeSeparator}>:</Text>
-            <TextInput
-              style={homeInputStyles.timeInput}
-              value={manualEntryM}
-              onChangeText={(t) => setManualEntryM(t.replace(/[^0-9]/g, '').slice(0, 2))}
-              keyboardType="number-pad"
-              placeholder="MM"
-              placeholderTextColor={colors.textMuted}
-              maxLength={2}
-              selectTextOnFocus
-            />
-            <View style={homeInputStyles.ampmToggle}>
-              <TouchableOpacity
-                style={[homeInputStyles.ampmBtn, entryPeriod === 'AM' && homeInputStyles.ampmBtnActive]}
-                onPress={() => setEntryPeriod('AM')}
-              >
-                <Text style={[homeInputStyles.ampmText, entryPeriod === 'AM' && homeInputStyles.ampmTextActive]}>AM</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[homeInputStyles.ampmBtn, entryPeriod === 'PM' && homeInputStyles.ampmBtnActive]}
-                onPress={() => setEntryPeriod('PM')}
-              >
-                <Text style={[homeInputStyles.ampmText, entryPeriod === 'PM' && homeInputStyles.ampmTextActive]}>PM</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-
-        {/* EXIT TIME - Text inputs with AM/PM */}
-        <View style={fixedStyles.timeRow}>
-          <Text style={fixedStyles.timeLabel}>Exit</Text>
-          <View style={homeInputStyles.timeInputGroup}>
-            <TextInput
-              style={homeInputStyles.timeInput}
-              value={manualExitH}
-              onChangeText={handleExitHourChange}
-              keyboardType="number-pad"
-              placeholder="HH"
-              placeholderTextColor={colors.textMuted}
-              maxLength={2}
-              selectTextOnFocus
-            />
-            <Text style={homeInputStyles.timeSeparator}>:</Text>
-            <TextInput
-              style={homeInputStyles.timeInput}
-              value={manualExitM}
-              onChangeText={(t) => setManualExitM(t.replace(/[^0-9]/g, '').slice(0, 2))}
-              keyboardType="number-pad"
-              placeholder="MM"
-              placeholderTextColor={colors.textMuted}
-              maxLength={2}
-              selectTextOnFocus
-            />
-            <View style={homeInputStyles.ampmToggle}>
-              <TouchableOpacity
-                style={[homeInputStyles.ampmBtn, exitPeriod === 'AM' && homeInputStyles.ampmBtnActive]}
-                onPress={() => setExitPeriod('AM')}
-              >
-                <Text style={[homeInputStyles.ampmText, exitPeriod === 'AM' && homeInputStyles.ampmTextActive]}>AM</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[homeInputStyles.ampmBtn, exitPeriod === 'PM' && homeInputStyles.ampmBtnActive]}
-                onPress={() => setExitPeriod('PM')}
-              >
-                <Text style={[homeInputStyles.ampmText, exitPeriod === 'PM' && homeInputStyles.ampmTextActive]}>PM</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-
-        {/* BREAK - Dropdown with presets */}
-        <View style={fixedStyles.timeRow}>
-          <Text style={fixedStyles.timeLabel}>Break</Text>
-          {showBreakCustomInput ? (
-            <View style={fixedStyles.timeInputGroup}>
-              <TextInput
-                style={fixedStyles.breakInput}
-                placeholder="0"
-                placeholderTextColor={colors.textMuted}
-                value={manualPause}
-                onChangeText={(t) => setManualPause(t.replace(/[^0-9]/g, '').slice(0, 3))}
-                keyboardType="number-pad"
-                maxLength={3}
-                selectTextOnFocus
-                autoFocus
-                onBlur={() => setShowBreakCustomInput(false)}
-              />
-              <Text style={fixedStyles.breakUnit}>min</Text>
-            </View>
-          ) : (
-            <TouchableOpacity
-              style={fixedStyles.breakDropdownButton}
-              onPress={() => setShowBreakDropdown(!showBreakDropdown)}
-            >
-              <Text style={fixedStyles.breakDropdownText}>
-                {manualPause ? `${manualPause} min` : 'None'}
-              </Text>
-              <Ionicons name="chevron-down" size={16} color={colors.textSecondary} />
-            </TouchableOpacity>
-          )}
-        </View>
-
-        {/* Break Dropdown Menu */}
-        {showBreakDropdown && (
-          <View style={fixedStyles.breakDropdownMenu}>
-            <TouchableOpacity
-              style={fixedStyles.breakOption}
-              onPress={() => handleBreakSelect('0')}
-            >
-              <Text style={fixedStyles.breakOptionText}>None</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={fixedStyles.breakOption}
-              onPress={() => handleBreakSelect('15')}
-            >
-              <Text style={fixedStyles.breakOptionText}>15 min</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={fixedStyles.breakOption}
-              onPress={() => handleBreakSelect('30')}
-            >
-              <Text style={fixedStyles.breakOptionText}>30 min</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={fixedStyles.breakOption}
-              onPress={() => handleBreakSelect('45')}
-            >
-              <Text style={fixedStyles.breakOptionText}>45 min</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={fixedStyles.breakOption}
-              onPress={() => handleBreakSelect('60')}
-            >
-              <Text style={fixedStyles.breakOptionText}>60 min</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[fixedStyles.breakOption, fixedStyles.breakOptionLast]}
-              onPress={() => handleBreakSelect('custom')}
-            >
-              <Ionicons name="create-outline" size={16} color={colors.primary} />
-              <Text style={[fixedStyles.breakOptionText, { color: colors.primary }]}>Custom...</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* TOTAL HOURS - Simplified text */}
-        <View style={fixedStyles.totalRowSimple}>
-          <Text style={fixedStyles.totalSimple}>
-            Total: <Text style={fixedStyles.totalSimpleValue}>{totalHours}</Text>
-          </Text>
-        </View>
-
-        {/* Save Button */}
-        <TouchableOpacity
-          style={[fixedStyles.saveButton, locations.length === 0 && onboardingStyles.saveButtonDisabled]}
-          onPress={handleSaveAndShare}
-          disabled={locations.length === 0}
-        >
-          <Ionicons name="checkmark-circle" size={20} color={locations.length === 0 ? colors.textMuted : colors.buttonPrimaryText} />
-          <Text style={[fixedStyles.saveButtonText, locations.length === 0 && onboardingStyles.saveButtonTextDisabled]}>Save Hours</Text>
-        </TouchableOpacity>
-      </Card>
-
-      {/* ============================================ */}
-      {/* TIMER - 25% (VERTICAL LAYOUT - buttons below) */}
-      {/* ============================================ */}
-      <Card style={[
-        fixedStyles.timerSection,
-        currentSession && fixedStyles.timerSectionActive,
-      ].filter(Boolean) as ViewStyle[]}>
-        {currentSession ? (
-          <View style={fixedStyles.timerVertical}>
-            {/* Badge + Timer */}
-            <View style={fixedStyles.timerTopRow}>
-              <View style={fixedStyles.activeBadge}>
-                <View style={fixedStyles.activeBadgeDot} />
-                <Text style={fixedStyles.activeBadgeText}>{currentSession.location_name}</Text>
-              </View>
-              <Text style={[fixedStyles.timerDisplay, isPaused && fixedStyles.timerPaused]}>{timer}</Text>
-              <View style={fixedStyles.pausaInfo}>
-                <Ionicons name="cafe-outline" size={14} color={colors.textSecondary} />
-                <Text style={[fixedStyles.pausaTimer, isPaused && fixedStyles.pausaTimerActive]}>
-                  {pauseTimer}
+                {/* Break time - simple text format */}
+                <Text style={timerRingStyles.breakText}>
+                  Break: {pauseTimer}
                 </Text>
               </View>
-            </View>
+            ) : canRestart ? (
+              <View style={timerRingStyles.content}>
+                {/* Idle badge */}
+                <View style={timerRingStyles.statusBadgeIdle}>
+                  <Text style={timerRingStyles.statusBadgeTextIdle}>
+                    Ready • {activeLocation?.name}
+                  </Text>
+                </View>
 
-            {/* Buttons BELOW - centered */}
-            <View style={fixedStyles.timerActionsRow}>
+                {/* Idle timer display */}
+                <Text style={timerRingStyles.timerIdle}>00:00:00</Text>
+                <Text style={timerRingStyles.timerLabelIdle}>HRS</Text>
+
+                {/* Start instruction */}
+                <Text style={timerRingStyles.idleHint}>Tap START to begin</Text>
+              </View>
+            ) : (
+              <View style={timerRingStyles.content}>
+                <Ionicons name="location-outline" size={32} color={colors.textMuted} />
+                <Text style={timerRingStyles.waitingText}>
+                  {isGeofencingActive ? 'Waiting for location...' : 'No location set'}
+                </Text>
+              </View>
+            )}
+          </AnimatedRing>
+
+          {/* Action buttons OUTSIDE ring (like reference) */}
+          {currentSession ? (
+            <View style={timerRingStyles.actions}>
               {isPaused ? (
-                <TouchableOpacity style={fixedStyles.resumeBtn} onPress={handleResume}>
-                  <Ionicons name="play" size={18} color={colors.buttonPrimaryText} />
+                <TouchableOpacity style={timerRingStyles.resumeBtn} onPress={handleResume}>
+                  <Ionicons name="play" size={18} color={colors.white} />
+                  <Text style={timerRingStyles.resumeBtnText}>RESUME</Text>
                 </TouchableOpacity>
               ) : (
-                <TouchableOpacity style={fixedStyles.pauseBtn} onPress={handlePause}>
-                  <Ionicons name="pause" size={18} color={colors.text} />
+                <TouchableOpacity style={timerRingStyles.pauseBtn} onPress={handlePause}>
+                  <Ionicons name="pause" size={18} color={colors.white} />
+                  <Text style={timerRingStyles.pauseBtnText}>PAUSE</Text>
                 </TouchableOpacity>
               )}
-              <TouchableOpacity style={fixedStyles.stopBtn} onPress={handleStop}>
-                <Ionicons name="stop" size={18} color={colors.white} />
+              <TouchableOpacity style={timerRingStyles.stopBtn} onPress={handleStop}>
+                <Text style={timerRingStyles.stopBtnText}>STOP</Text>
+                <Ionicons name="stop-circle-outline" size={18} color={colors.text} />
               </TouchableOpacity>
             </View>
-          </View>
-        ) : canRestart ? (
-          <View style={fixedStyles.timerVertical}>
-            <View style={fixedStyles.timerTopRow}>
-              <View style={fixedStyles.idleBadge}>
-                <View style={fixedStyles.idleBadgeDot} />
-                <Text style={fixedStyles.idleBadgeText}>{activeLocation?.name}</Text>
+          ) : canRestart ? (
+            <TouchableOpacity style={timerRingStyles.startBtn} onPress={handleRestart}>
+              <Ionicons name="play" size={18} color={colors.white} />
+              <Text style={timerRingStyles.startBtnText}>START</Text>
+            </TouchableOpacity>
+          ) : null}
+        </Card>
+
+      {/* ============================================ */}
+      {/* LOG HOURS FORM - Read-only viewer (Edit to modify) */}
+      {/* ============================================ */}
+      <Card style={[fixedStyles.formSection, locations.length === 0 && onboardingStyles.formDisabled].filter(Boolean) as ViewStyle[]}>
+        {/* Header with Edit button */}
+        <View style={viewerStyles.header}>
+          <View style={viewerStyles.headerLeft}>
+            {hasGeofenceData && (
+              <View style={geofenceIndicatorStyles.badge}>
+                <Ionicons name="locate" size={10} color={colors.success} />
+                <Text style={geofenceIndicatorStyles.text}>Auto</Text>
               </View>
-              <Text style={fixedStyles.timerIdle}>00:00:00</Text>
+            )}
+            <Text style={viewerStyles.dateText}>{formatDateWithDay(manualDate)}</Text>
+          </View>
+          <TouchableOpacity
+            style={[viewerStyles.editBtn, isEditing && viewerStyles.editBtnActive]}
+            onPress={() => setIsEditing(!isEditing)}
+          >
+            <Ionicons name={isEditing ? "close" : "pencil"} size={14} color={isEditing ? colors.white : colors.primary} />
+            <Text style={[viewerStyles.editBtnText, isEditing && viewerStyles.editBtnTextActive]}>
+              {isEditing ? 'Cancel' : 'Edit'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* READ-ONLY VIEW (default) */}
+        {!isEditing ? (
+          <View style={viewerStyles.readOnlyView}>
+            <View style={viewerStyles.timeDisplayRow}>
+              <View style={viewerStyles.timeBlock}>
+                <Text style={viewerStyles.timeBlockLabel}>Entry</Text>
+                <Text style={viewerStyles.timeBlockValue}>
+                  {manualEntryH && manualEntryM ? `${manualEntryH}:${manualEntryM} ${entryPeriod}` : '--:--'}
+                </Text>
+              </View>
+              <Ionicons name="arrow-forward" size={16} color={colors.textMuted} />
+              <View style={viewerStyles.timeBlock}>
+                <Text style={viewerStyles.timeBlockLabel}>Exit</Text>
+                <Text style={viewerStyles.timeBlockValue}>
+                  {manualExitH && manualExitM ? `${manualExitH}:${manualExitM} ${exitPeriod}` : '--:--'}
+                </Text>
+              </View>
+              <View style={viewerStyles.timeBlock}>
+                <Text style={viewerStyles.timeBlockLabel}>Break</Text>
+                <Text style={viewerStyles.timeBlockValue}>{manualPause ? `${manualPause}m` : '0m'}</Text>
+              </View>
             </View>
-            <View style={fixedStyles.timerActionsRow}>
-              <TouchableOpacity style={fixedStyles.startBtn} onPress={handleRestart}>
-                <Ionicons name="play" size={18} color={colors.buttonPrimaryText} />
-                <Text style={fixedStyles.startBtnText}>Start</Text>
-              </TouchableOpacity>
+            <View style={viewerStyles.totalDisplay}>
+              <Ionicons name="time-outline" size={16} color={colors.primary} />
+              <Text style={viewerStyles.totalText}>Total: {totalHours}</Text>
             </View>
           </View>
         ) : (
-          <View style={fixedStyles.timerWaiting}>
-            <Ionicons name="location-outline" size={20} color={colors.textMuted} />
-            <Text style={fixedStyles.timerWaitingText}>
-              {isGeofencingActive ? 'Waiting for location...' : 'Monitoring inactive'}
-            </Text>
-          </View>
+          <>
+            {/* Date Selector - only visible when editing */}
+            <TouchableOpacity
+              style={fixedStyles.dateSelector}
+              onPress={() => setShowDateDropdown(!showDateDropdown)}
+            >
+              <View style={fixedStyles.dateSelectorContent}>
+                <Ionicons name="calendar-outline" size={16} color={colors.textSecondary} />
+                <Text style={fixedStyles.dateSelectorText}>{formatDateWithDay(manualDate)}</Text>
+              </View>
+              <Ionicons name="chevron-down" size={16} color={colors.textSecondary} />
+            </TouchableOpacity>
+
+            {/* Date Dropdown */}
+            {showDateDropdown && (
+              <View style={fixedStyles.dateDropdown}>
+                <TouchableOpacity
+                  style={fixedStyles.dateOption}
+                  onPress={() => handleDateSelect('today')}
+                >
+                  <Ionicons name="today-outline" size={16} color={colors.text} />
+                  <Text style={fixedStyles.dateOptionText}>Today</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={fixedStyles.dateOption}
+                  onPress={() => handleDateSelect('yesterday')}
+                >
+                  <Ionicons name="arrow-back-outline" size={16} color={colors.text} />
+                  <Text style={fixedStyles.dateOptionText}>Yesterday</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={fixedStyles.dateOption}
+                  onPress={() => handleDateSelect('custom')}
+                >
+                  <Ionicons name="calendar" size={16} color={colors.text} />
+                  <Text style={fixedStyles.dateOptionText}>Choose date...</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* ENTRY TIME - Text inputs with AM/PM */}
+            <View style={fixedStyles.timeRow}>
+              <Text style={fixedStyles.timeLabel}>Entry</Text>
+              <View style={homeInputStyles.timeInputGroup}>
+                <TextInput
+                  style={homeInputStyles.timeInput}
+                  value={manualEntryH}
+                  onChangeText={handleEntryHourChange}
+                  keyboardType="number-pad"
+                  placeholder="HH"
+                  placeholderTextColor={colors.textMuted}
+                  maxLength={2}
+                  selectTextOnFocus
+                />
+                <Text style={homeInputStyles.timeSeparator}>:</Text>
+                <TextInput
+                  style={homeInputStyles.timeInput}
+                  value={manualEntryM}
+                  onChangeText={(t) => setManualEntryM(t.replace(/[^0-9]/g, '').slice(0, 2))}
+                  keyboardType="number-pad"
+                  placeholder="MM"
+                  placeholderTextColor={colors.textMuted}
+                  maxLength={2}
+                  selectTextOnFocus
+                />
+                <View style={homeInputStyles.ampmToggle}>
+                  <TouchableOpacity
+                    style={[homeInputStyles.ampmBtn, entryPeriod === 'AM' && homeInputStyles.ampmBtnActive]}
+                    onPress={() => setEntryPeriod('AM')}
+                  >
+                    <Text style={[homeInputStyles.ampmText, entryPeriod === 'AM' && homeInputStyles.ampmTextActive]}>AM</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[homeInputStyles.ampmBtn, entryPeriod === 'PM' && homeInputStyles.ampmBtnActive]}
+                    onPress={() => setEntryPeriod('PM')}
+                  >
+                    <Text style={[homeInputStyles.ampmText, entryPeriod === 'PM' && homeInputStyles.ampmTextActive]}>PM</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+
+            {/* EXIT TIME - Text inputs with AM/PM */}
+            <View style={fixedStyles.timeRow}>
+              <Text style={fixedStyles.timeLabel}>Exit</Text>
+              <View style={homeInputStyles.timeInputGroup}>
+                <TextInput
+                  style={homeInputStyles.timeInput}
+                  value={manualExitH}
+                  onChangeText={handleExitHourChange}
+                  keyboardType="number-pad"
+                  placeholder="HH"
+                  placeholderTextColor={colors.textMuted}
+                  maxLength={2}
+                  selectTextOnFocus
+                />
+                <Text style={homeInputStyles.timeSeparator}>:</Text>
+                <TextInput
+                  style={homeInputStyles.timeInput}
+                  value={manualExitM}
+                  onChangeText={(t) => setManualExitM(t.replace(/[^0-9]/g, '').slice(0, 2))}
+                  keyboardType="number-pad"
+                  placeholder="MM"
+                  placeholderTextColor={colors.textMuted}
+                  maxLength={2}
+                  selectTextOnFocus
+                />
+                <View style={homeInputStyles.ampmToggle}>
+                  <TouchableOpacity
+                    style={[homeInputStyles.ampmBtn, exitPeriod === 'AM' && homeInputStyles.ampmBtnActive]}
+                    onPress={() => setExitPeriod('AM')}
+                  >
+                    <Text style={[homeInputStyles.ampmText, exitPeriod === 'AM' && homeInputStyles.ampmTextActive]}>AM</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[homeInputStyles.ampmBtn, exitPeriod === 'PM' && homeInputStyles.ampmBtnActive]}
+                    onPress={() => setExitPeriod('PM')}
+                  >
+                    <Text style={[homeInputStyles.ampmText, exitPeriod === 'PM' && homeInputStyles.ampmTextActive]}>PM</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+
+            {/* BREAK - Dropdown with presets */}
+            <View style={fixedStyles.timeRow}>
+              <Text style={fixedStyles.timeLabel}>Break</Text>
+              {showBreakCustomInput ? (
+                <View style={fixedStyles.timeInputGroup}>
+                  <TextInput
+                    style={fixedStyles.breakInput}
+                    placeholder="0"
+                    placeholderTextColor={colors.textMuted}
+                    value={manualPause}
+                    onChangeText={(t) => setManualPause(t.replace(/[^0-9]/g, '').slice(0, 3))}
+                    keyboardType="number-pad"
+                    maxLength={3}
+                    selectTextOnFocus
+                    autoFocus
+                    onBlur={() => setShowBreakCustomInput(false)}
+                  />
+                  <Text style={fixedStyles.breakUnit}>min</Text>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={fixedStyles.breakDropdownButton}
+                  onPress={() => setShowBreakDropdown(!showBreakDropdown)}
+                >
+                  <Text style={fixedStyles.breakDropdownText}>
+                    {manualPause ? `${manualPause} min` : 'None'}
+                  </Text>
+                  <Ionicons name="chevron-down" size={16} color={colors.textSecondary} />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* Break Dropdown Menu */}
+            {showBreakDropdown && (
+              <View style={fixedStyles.breakDropdownMenu}>
+                <TouchableOpacity
+                  style={fixedStyles.breakOption}
+                  onPress={() => handleBreakSelect('0')}
+                >
+                  <Text style={fixedStyles.breakOptionText}>None</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={fixedStyles.breakOption}
+                  onPress={() => handleBreakSelect('15')}
+                >
+                  <Text style={fixedStyles.breakOptionText}>15 min</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={fixedStyles.breakOption}
+                  onPress={() => handleBreakSelect('30')}
+                >
+                  <Text style={fixedStyles.breakOptionText}>30 min</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={fixedStyles.breakOption}
+                  onPress={() => handleBreakSelect('45')}
+                >
+                  <Text style={fixedStyles.breakOptionText}>45 min</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={fixedStyles.breakOption}
+                  onPress={() => handleBreakSelect('60')}
+                >
+                  <Text style={fixedStyles.breakOptionText}>60 min</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[fixedStyles.breakOption, fixedStyles.breakOptionLast]}
+                  onPress={() => handleBreakSelect('custom')}
+                >
+                  <Ionicons name="create-outline" size={16} color={colors.primary} />
+                  <Text style={[fixedStyles.breakOptionText, { color: colors.primary }]}>Custom...</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* TOTAL HOURS - Simplified text */}
+            <View style={fixedStyles.totalRowSimple}>
+              <Text style={fixedStyles.totalSimple}>
+                Total: <Text style={fixedStyles.totalSimpleValue}>{totalHours}</Text>
+              </Text>
+            </View>
+
+            {/* Save Changes Button - only when editing */}
+            <TouchableOpacity
+              style={[fixedStyles.saveButton, { backgroundColor: colors.success }]}
+              onPress={() => {
+                handleSaveAndShare();
+                setIsEditing(false);
+                showToast('Hours saved successfully!');
+              }}
+            >
+              <Ionicons name="checkmark-circle" size={20} color={colors.white} />
+              <Text style={fixedStyles.saveButtonText}>Save Changes</Text>
+            </TouchableOpacity>
+          </>
         )}
       </Card>
+      </View>
+      {/* END MAIN CONTENT WRAPPER */}
 
       {/* Date Picker (keep this - only for date selection) */}
       {showDatePicker && (
@@ -804,9 +962,6 @@ export default function HomeScreen() {
         visible={showShareModal}
         onClose={() => setShowShareModal(false)}
         sessions={sessionsToShare}
-        userName={userName || undefined}
-        userId={userId || undefined}
-        onGoToReports={() => router.push('/(tabs)/reports')}
         title="Hours Saved!"
       />
 
@@ -821,6 +976,7 @@ export default function HomeScreen() {
           <Text style={toastStyles.toastText}>{toastMessage}</Text>
         </Animated.View>
       )}
+      </View>
     </View>
   );
 }
@@ -904,6 +1060,110 @@ const homeInputStyles = StyleSheet.create({
   },
 });
 
+// Geofence data indicator styles
+const geofenceIndicatorStyles = StyleSheet.create({
+  badge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    backgroundColor: `${colors.success}15`,
+    borderRadius: 8,
+  },
+  text: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: colors.success,
+  },
+});
+
+// Viewer styles - read-only form display
+const viewerStyles = StyleSheet.create({
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,  // +40%
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  dateText: {
+    fontSize: 15,  // Larger
+    fontWeight: '600',
+    color: colors.text,
+  },
+  editBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingVertical: 8,  // Larger
+    paddingHorizontal: 14,
+    backgroundColor: `${colors.primary}15`,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: `${colors.primary}30`,
+  },
+  editBtnActive: {
+    backgroundColor: colors.textSecondary,
+    borderColor: colors.textSecondary,
+  },
+  editBtnText: {
+    fontSize: 13,  // Larger
+    fontWeight: '600',
+    color: colors.primary,
+  },
+  editBtnTextActive: {
+    color: colors.white,
+  },
+  readOnlyView: {
+    alignItems: 'center',
+    paddingVertical: 4,  // Add vertical padding
+  },
+  timeDisplayRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 16,  // More gap
+    marginBottom: 14,  // More margin
+  },
+  timeBlock: {
+    alignItems: 'center',
+    minWidth: 70,  // Wider
+  },
+  timeBlockLabel: {
+    fontSize: 11,  // Larger
+    fontWeight: '600',
+    color: colors.textMuted,
+    marginBottom: 4,  // More space
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  timeBlockValue: {
+    fontSize: 18,  // Larger
+    fontWeight: '700',
+    color: colors.text,
+    fontVariant: ['tabular-nums'],
+  },
+  totalDisplay: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,  // Larger
+    paddingHorizontal: 18,
+    backgroundColor: `${colors.primary}10`,
+    borderRadius: 24,
+  },
+  totalText: {
+    fontSize: 16,  // Larger
+    fontWeight: '700',
+    color: colors.primary,
+  },
+});
+
 // Onboarding styles for first-time users
 const onboardingStyles = StyleSheet.create({
   onboardingHint: {
@@ -922,5 +1182,188 @@ const onboardingStyles = StyleSheet.create({
   },
   saveButtonTextDisabled: {
     color: colors.textMuted,
+  },
+});
+
+// Timer Ring Styles - State-based color system (v3.0)
+// IDLE: neutral gray | RUNNING: green #0F766E | PAUSED: amber #C58B1B
+const timerRingStyles = StyleSheet.create({
+  content: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 4,
+  },
+
+  // Status badge - soft tint background + state color text
+  statusBadge: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 20,
+    marginBottom: 8,
+  },
+  statusBadgeActive: {
+    backgroundColor: colors.greenSoft, // Soft green tint (#D1FAE5)
+  },
+  statusBadgePaused: {
+    backgroundColor: colors.amberSoft, // Soft amber tint (#FFF3D6)
+  },
+  statusBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  statusBadgeTextActive: {
+    color: colors.green, // Green text (#0F766E)
+  },
+  statusBadgeTextPaused: {
+    color: colors.amber, // Amber text (#C58B1B)
+  },
+  statusBadgeIdle: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 20,
+    backgroundColor: colors.surface2,  // Neutral surface (#F2F4F7)
+    marginBottom: 8,
+  },
+  statusBadgeTextIdle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.iconMuted,  // Neutral gray (#98A2B3)
+    textAlign: 'center',
+  },
+
+  // Timer display
+  timer: {
+    fontSize: 44,
+    fontWeight: '700',
+    color: colors.text,  // Dark text (#101828)
+    fontVariant: ['tabular-nums'],
+    letterSpacing: 0,
+  },
+  timerPaused: {
+    opacity: 0.7,
+  },
+  timerLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: colors.textSecondary,  // Muted (#667085)
+    marginTop: 2,
+    letterSpacing: 2,
+  },
+  timerIdle: {
+    fontSize: 40,
+    fontWeight: '600',
+    color: colors.text,  // Dark text (#101828)
+    fontVariant: ['tabular-nums'],
+    letterSpacing: 0,
+  },
+  timerLabelIdle: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: colors.textSecondary,  // Muted (#667085)
+    marginTop: 2,
+    letterSpacing: 2,
+  },
+
+  // Break time - simple text
+  breakText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: colors.textSecondary,  // Muted (#667085)
+    marginTop: 8,
+  },
+
+  // Idle hint
+  idleHint: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: colors.textSecondary,  // Muted (#667085)
+    marginTop: 12,
+  },
+
+  // Action buttons - enterprise style
+  actions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    marginTop: 16,
+    width: '100%',
+    paddingHorizontal: 16,
+  },
+  pauseBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    backgroundColor: colors.green,  // Green (#0F766E) - pause while running
+    borderRadius: 10,
+  },
+  pauseBtnText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.white,
+  },
+  resumeBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    backgroundColor: colors.amber,  // Amber (#C58B1B) - resume while paused
+    borderRadius: 10,
+  },
+  resumeBtnText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.white,
+  },
+  stopBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    backgroundColor: colors.white,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#D1D5DB',  // Neutral border
+  },
+  stopBtnText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.text,  // Dark text (#101828)
+  },
+  startBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    backgroundColor: colors.buttonPrimary,  // Green (#0F766E)
+    borderRadius: 10,
+    marginTop: 8,
+  },
+  startBtnText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.white,
+  },
+
+  // Waiting state
+  waitingText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: colors.iconMuted,  // Muted gray (#98A2B3)
+    marginTop: 12,
+    textAlign: 'center',
   },
 });

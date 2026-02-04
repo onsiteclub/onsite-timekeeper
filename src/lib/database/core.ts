@@ -148,20 +148,52 @@ export interface LocationAuditDB {
   id: string;
   user_id: string;
   session_id: string | null;
-  
+
   // Event info
   event_type: AuditEventType;
   location_id: string | null;
   location_name: string | null;
-  
+
   // GPS data
   latitude: number;
   longitude: number;
   accuracy: number | null;
-  
+
   // Timestamps
   occurred_at: string;
   created_at: string;
+  synced_at: string | null;
+}
+
+// ============================================
+// TYPES - DAILY HOURS (User-facing consolidated view)
+// ============================================
+
+export type DailyHoursSource = 'gps' | 'manual' | 'edited';
+
+export interface DailyHoursDB {
+  id: string;
+  user_id: string;
+  date: string; // YYYY-MM-DD (UNIQUE with user_id)
+
+  // Hours data
+  total_minutes: number;
+  break_minutes: number;
+  location_name: string | null; // Primary location of the day
+  location_id: string | null;
+
+  // Credibility
+  verified: number; // 1 = GPS confirmed, 0 = manual (not verified)
+  source: DailyHoursSource;
+
+  // Reference times (from GPS, HH:MM format)
+  first_entry: string | null;
+  last_exit: string | null;
+
+  // Metadata
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
   synced_at: string | null;
 }
 
@@ -324,6 +356,40 @@ export async function initDatabase(): Promise<void> {
     `);
 
     // ============================================
+    // DAILY HOURS TABLE (User-facing consolidated view)
+    // ============================================
+
+    db.execSync(`
+      CREATE TABLE IF NOT EXISTS daily_hours (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        date TEXT NOT NULL,
+
+        -- Hours data
+        total_minutes INTEGER NOT NULL DEFAULT 0,
+        break_minutes INTEGER DEFAULT 0,
+        location_name TEXT,
+        location_id TEXT,
+
+        -- Credibility
+        verified INTEGER DEFAULT 0,
+        source TEXT DEFAULT 'manual',
+
+        -- Reference times (HH:MM format from GPS)
+        first_entry TEXT,
+        last_exit TEXT,
+
+        -- Metadata
+        notes TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        synced_at TEXT,
+
+        UNIQUE(user_id, date)
+      )
+    `);
+
+    // ============================================
     // INDEXES
     // ============================================
 
@@ -349,6 +415,11 @@ export async function initDatabase(): Promise<void> {
     db.execSync(`CREATE INDEX IF NOT EXISTS idx_audit_user ON location_audit(user_id)`);
     db.execSync(`CREATE INDEX IF NOT EXISTS idx_audit_session ON location_audit(session_id)`);
     db.execSync(`CREATE INDEX IF NOT EXISTS idx_audit_occurred ON location_audit(occurred_at)`);
+
+    // Daily hours
+    db.execSync(`CREATE INDEX IF NOT EXISTS idx_daily_hours_user ON daily_hours(user_id)`);
+    db.execSync(`CREATE INDEX IF NOT EXISTS idx_daily_hours_date ON daily_hours(date)`);
+    db.execSync(`CREATE INDEX IF NOT EXISTS idx_daily_hours_synced ON daily_hours(synced_at)`);
 
     // ============================================
     // MIGRATION: Drop deprecated tables

@@ -89,24 +89,40 @@ export function getMonthEnd(date: Date): Date {
   return d;
 }
 
-export function getMonthCalendarDays(date: Date): (Date | null)[] {
+export function getMonthCalendarDays(date: Date): Date[] {
   const start = getMonthStart(date);
   const end = getMonthEnd(date);
-  const days: (Date | null)[] = [];
-  
-  // Fill empty days at the start
+  const days: Date[] = [];
+
+  // Always show 5 weeks (35 days) for consistent calendar height
+  const TOTAL_CELLS = 35;
+
+  // Fill days from previous month at the start
   const firstDayOfWeek = start.getDay();
-  for (let i = 0; i < firstDayOfWeek; i++) {
-    days.push(null);
+  if (firstDayOfWeek > 0) {
+    const prevMonth = new Date(start);
+    prevMonth.setDate(prevMonth.getDate() - firstDayOfWeek);
+    for (let i = 0; i < firstDayOfWeek; i++) {
+      days.push(new Date(prevMonth));
+      prevMonth.setDate(prevMonth.getDate() + 1);
+    }
   }
-  
-  // Fill days of the month
+
+  // Fill days of the current month
   const current = new Date(start);
-  while (current <= end) {
+  while (current <= end && days.length < TOTAL_CELLS) {
     days.push(new Date(current));
     current.setDate(current.getDate() + 1);
   }
-  
+
+  // Fill days from next month at the end to complete 35 cells
+  const nextMonth = new Date(end);
+  nextMonth.setDate(nextMonth.getDate() + 1);
+  while (days.length < TOTAL_CELLS) {
+    days.push(new Date(nextMonth));
+    nextMonth.setDate(nextMonth.getDate() + 1);
+  }
+
   return days;
 }
 

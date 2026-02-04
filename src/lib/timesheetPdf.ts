@@ -2,20 +2,13 @@
  * Timesheet PDF Generator - OnSite Timekeeper
  *
  * Generates professional PDF timesheets from work sessions.
- * Uses expo-print to create HTML-based PDFs.
- * Falls back to text-based sharing if native module not available.
- *
- * Design inspired by standard construction/labor timesheets:
- * - Clean table format
- * - GPS verification badges
- * - Daily breakdown with totals
- * - Professional header/footer
+ * Simple table format matching standard timesheet documents.
  */
 
-import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import { Share, Alert } from 'react-native';
-import { formatDuration, type ComputedSession } from './database';
+import { type ComputedSession } from './database';
 
 // Dynamic import for expo-print (may not be available without rebuild)
 let Print: typeof import('expo-print') | null = null;
@@ -72,22 +65,8 @@ function formatDateShort(date: Date): string {
   });
 }
 
-function formatDateLong(date: Date): string {
-  return date.toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-  });
-}
-
 function getDayName(date: Date): string {
   return date.toLocaleDateString('en-US', { weekday: 'short' });
-}
-
-function formatHoursDecimal(minutes: number): string {
-  const hours = minutes / 60;
-  return hours.toFixed(2);
 }
 
 function formatHoursHM(minutes: number): string {
@@ -170,519 +149,239 @@ function aggregateSessionsByDay(sessions: ComputedSession[]): DayRow[] {
 }
 
 // ============================================
-// HTML TEMPLATE
+// SIMPLE TABLE GENERATOR (Main format)
 // ============================================
 
-function generateTimesheetHTML(
+// ============================================
+// HTML TEMPLATE FOR PDF
+// ============================================
+
+function generateSimpleHTML(
   sessions: ComputedSession[],
   options: TimesheetOptions
 ): string {
   const rows = aggregateSessionsByDay(sessions);
 
-  // Calculate totals
-  const grandTotalMinutes = rows.reduce((acc, r) => acc + r.totalMinutes, 0);
-  const grandTotalBreak = rows.reduce((acc, r) => acc + r.breakMinutes, 0);
-  const daysWorked = rows.length;
-  const gpsVerified = rows.filter(r => r.isVerified).length;
-  const manualEntries = rows.filter(r => r.isManual).length;
+  // Create map of day data by date key
+  const rowsByDate = new Map<string, DayRow>();
+  for (const row of rows) {
+    const dateKey = row.date.toISOString().split('T')[0];
+    rowsByDate.set(dateKey, row);
+  }
 
-  // Format period
-  const periodStr = `${formatDateLong(options.periodStart)} - ${formatDateLong(options.periodEnd)}`;
+  // Generate table rows for ALL days in period
+  let grandTotalMinutes = 0;
+  const tableRows: string[] = [];
 
-  // Generate table rows
-  const tableRows = rows.map(row => `
-    <tr>
-      <td class="date-col">
-        <div class="date-main">${row.dateFormatted}</div>
-        <div class="date-day">${row.dayName}</div>
-      </td>
-      <td class="location-col">
-        ${row.locationName}
-        ${row.sessionsCount > 1 ? `<span class="sessions-badge">${row.sessionsCount}x</span>` : ''}
-      </td>
-      <td class="time-col">${row.startTime}</td>
-      <td class="time-col">${row.endTime}</td>
-      <td class="break-col">${row.breakMinutes > 0 ? `${row.breakMinutes}m` : '-'}</td>
-      <td class="total-col">
-        <span class="hours-value">${formatHoursHM(row.totalMinutes)}</span>
-        <span class="hours-decimal">(${formatHoursDecimal(row.totalMinutes)})</span>
-      </td>
-      <td class="verify-col">
-        ${row.isVerified
-          ? '<span class="badge badge-gps">GPS</span>'
-          : row.isManual
-            ? '<span class="badge badge-manual">Manual</span>'
-            : '<span class="badge badge-edited">Edited</span>'
-        }
-      </td>
-    </tr>
-  `).join('');
+  const currentDate = new Date(options.periodStart);
+  currentDate.setHours(12, 0, 0, 0);
+  const endDate = new Date(options.periodEnd);
+  endDate.setHours(23, 59, 59, 999);
 
-  // Generate reference code
-  const now = new Date();
-  const userPart = options.employeeId
-    ? options.employeeId.replace(/-/g, '').slice(-4).toUpperCase()
-    : '0000';
-  const datePart = `${(now.getMonth()+1).toString().padStart(2,'0')}${now.getDate().toString().padStart(2,'0')}`;
-  const refCode = `TS-${userPart}-${datePart}-${daysWorked.toString().padStart(2, '0')}`;
+  while (currentDate <= endDate) {
+    const dateKey = currentDate.toISOString().split('T')[0];
+    const row = rowsByDate.get(dateKey);
+
+    const day = currentDate.getDate().toString().padStart(2, '0');
+    const dayName = currentDate.toLocaleDateString('en-US', { weekday: 'long' });
+
+    if (row) {
+      const breakStr = row.breakMinutes > 0 ? `${row.breakMinutes}m` : '';
+      tableRows.push(`
+        <tr>
+          <td class="day-col">${day} - ${dayName}</td>
+          <td class="time-col">${row.startTime}</td>
+          <td class="time-col">${row.endTime}</td>
+          <td class="break-col">${breakStr}</td>
+          <td class="total-col">${formatHoursHM(row.totalMinutes)}</td>
+        </tr>
+      `);
+      grandTotalMinutes += row.totalMinutes;
+    } else {
+      tableRows.push(`
+        <tr>
+          <td class="day-col">${day} - ${dayName}</td>
+          <td class="time-col"></td>
+          <td class="time-col"></td>
+          <td class="break-col"></td>
+          <td class="total-col"></td>
+        </tr>
+      `);
+    }
+
+    currentDate.setDate(currentDate.getDate() + 1);
+  }
 
   return `
 <!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Timesheet - ${options.employeeName}</title>
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-
+    * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-      font-size: 11px;
-      line-height: 1.4;
-      color: #1a1a1a;
-      background: #fff;
-      padding: 20px;
-    }
-
-    .header {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      margin-bottom: 24px;
-      padding-bottom: 16px;
-      border-bottom: 2px solid #2563eb;
-    }
-
-    .header-left {
-      flex: 1;
-    }
-
-    .company-name {
+      font-family: Arial, sans-serif;
       font-size: 10px;
-      font-weight: 500;
-      color: #6b7280;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      margin-bottom: 4px;
+      padding: 40px 50px;
+      color: #333;
     }
 
-    .title {
+    /* ===== LETTERHEAD / COMPANY HEADER ===== */
+    .letterhead {
+      border-bottom: 3px solid #1a365d;
+      padding-bottom: 20px;
+      margin-bottom: 30px;
+    }
+    .company-name {
       font-size: 22px;
-      font-weight: 700;
-      color: #1a1a1a;
-      margin-bottom: 4px;
+      font-weight: bold;
+      color: #1a365d;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .company-subtitle {
+      font-size: 9px;
+      color: #666;
+      margin-top: 4px;
+      font-style: italic;
+    }
+    .company-info {
+      margin-top: 8px;
+      font-size: 8px;
+      color: #888;
+      line-height: 1.6;
     }
 
-    .subtitle {
-      font-size: 12px;
-      color: #6b7280;
+    /* ===== DOCUMENT TITLE ===== */
+    .doc-title {
+      text-align: center;
+      margin: 30px 0;
     }
-
-    .header-right {
-      text-align: right;
-    }
-
-    .employee-name {
+    .doc-title h1 {
       font-size: 16px;
       font-weight: 600;
-      color: #1a1a1a;
-      margin-bottom: 4px;
-    }
-
-    .employee-id {
-      font-size: 10px;
-      color: #6b7280;
-    }
-
-    .period-box {
-      background: #f3f4f6;
-      border-radius: 8px;
-      padding: 12px 16px;
-      margin-bottom: 20px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-
-    .period-label {
-      font-size: 10px;
-      font-weight: 600;
-      color: #6b7280;
+      color: #1a365d;
       text-transform: uppercase;
-      letter-spacing: 0.5px;
+      letter-spacing: 2px;
     }
-
-    .period-value {
-      font-size: 12px;
-      font-weight: 500;
-      color: #1a1a1a;
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-bottom: 20px;
-    }
-
-    thead {
-      background: #1e3a5f;
-      color: #fff;
-    }
-
-    th {
-      font-size: 9px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      padding: 10px 8px;
-      text-align: left;
-    }
-
-    th:last-child {
-      text-align: center;
-    }
-
-    tbody tr {
-      border-bottom: 1px solid #e5e7eb;
-    }
-
-    tbody tr:hover {
-      background: #f9fafb;
-    }
-
-    td {
-      padding: 10px 8px;
-      vertical-align: middle;
-    }
-
-    .date-col {
-      width: 70px;
-    }
-
-    .date-main {
-      font-weight: 600;
-      color: #1a1a1a;
-    }
-
-    .date-day {
-      font-size: 9px;
-      color: #6b7280;
-    }
-
-    .location-col {
-      max-width: 120px;
-    }
-
-    .sessions-badge {
-      display: inline-block;
-      background: #e5e7eb;
-      color: #6b7280;
-      font-size: 9px;
-      font-weight: 600;
-      padding: 2px 6px;
-      border-radius: 4px;
-      margin-left: 4px;
-    }
-
-    .time-col {
-      width: 70px;
-      font-weight: 500;
-    }
-
-    .break-col {
-      width: 50px;
-      color: #6b7280;
-      text-align: center;
-    }
-
-    .total-col {
-      width: 90px;
-    }
-
-    .hours-value {
-      font-weight: 700;
-      color: #1a1a1a;
-    }
-
-    .hours-decimal {
-      font-size: 9px;
-      color: #6b7280;
-      margin-left: 4px;
-    }
-
-    .verify-col {
-      width: 60px;
-      text-align: center;
-    }
-
-    .badge {
-      display: inline-block;
-      font-size: 8px;
-      font-weight: 600;
-      padding: 3px 8px;
-      border-radius: 4px;
-      text-transform: uppercase;
-      letter-spacing: 0.3px;
-    }
-
-    .badge-gps {
-      background: #dcfce7;
-      color: #166534;
-    }
-
-    .badge-manual {
-      background: #fef3c7;
-      color: #92400e;
-    }
-
-    .badge-edited {
-      background: #dbeafe;
-      color: #1e40af;
-    }
-
-    .summary-section {
-      display: flex;
-      gap: 16px;
-      margin-bottom: 20px;
-    }
-
-    .summary-card {
-      flex: 1;
-      background: #f3f4f6;
-      border-radius: 8px;
-      padding: 12px 16px;
-      text-align: center;
-    }
-
-    .summary-card.primary {
-      background: #2563eb;
-      color: #fff;
-    }
-
-    .summary-label {
-      font-size: 9px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      color: #6b7280;
-      margin-bottom: 4px;
-    }
-
-    .summary-card.primary .summary-label {
-      color: rgba(255,255,255,0.7);
-    }
-
-    .summary-value {
-      font-size: 18px;
-      font-weight: 700;
-      color: #1a1a1a;
-    }
-
-    .summary-card.primary .summary-value {
-      color: #fff;
-    }
-
-    .summary-sub {
+    .doc-period {
       font-size: 10px;
-      color: #6b7280;
-      margin-top: 2px;
-    }
-
-    .summary-card.primary .summary-sub {
-      color: rgba(255,255,255,0.7);
-    }
-
-    .footer {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-end;
-      margin-top: 30px;
-      padding-top: 20px;
-      border-top: 1px solid #e5e7eb;
-    }
-
-    .signature-area {
-      flex: 1;
-    }
-
-    .signature-line {
-      width: 200px;
-      border-bottom: 1px solid #1a1a1a;
-      margin-bottom: 4px;
-      height: 30px;
-    }
-
-    .signature-label {
-      font-size: 9px;
-      color: #6b7280;
-    }
-
-    .footer-right {
-      text-align: right;
-    }
-
-    .ref-code {
-      font-size: 10px;
-      font-weight: 600;
-      color: #6b7280;
-      font-family: monospace;
-    }
-
-    .generated {
-      font-size: 9px;
-      color: #9ca3af;
-      margin-top: 4px;
-    }
-
-    .legend {
-      display: flex;
-      gap: 16px;
-      margin-top: 12px;
-      padding-top: 12px;
-      border-top: 1px solid #e5e7eb;
-    }
-
-    .legend-item {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 9px;
-      color: #6b7280;
-    }
-
-    .app-name {
-      font-size: 10px;
-      font-weight: 500;
-      color: #2563eb;
+      color: #666;
       margin-top: 8px;
     }
 
-    @media print {
-      body {
-        padding: 0;
-      }
+    /* ===== TABLE ===== */
+    .table-container {
+      max-width: 90%;
+      margin: 0 auto;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 15px;
+    }
+    th {
+      background: #f8f9fa;
+      color: #1a365d;
+      font-weight: 600;
+      font-size: 9px;
+      padding: 10px 8px;
+      text-align: left;
+      border-bottom: 2px solid #1a365d;
+    }
+    th:not(:first-child) {
+      text-align: center;
+    }
+    td {
+      padding: 8px;
+      border-bottom: 1px solid #e9ecef;
+      vertical-align: middle;
+    }
+    .day-col {
+      font-weight: 500;
+      color: #1a365d;
+      width: 30%;
+    }
+    .time-col {
+      text-align: center;
+      width: 17%;
+    }
+    .break-col {
+      text-align: center;
+      width: 13%;
+    }
+    .total-col {
+      text-align: center;
+      width: 23%;
+      font-weight: 500;
+      background: #f8f9fa;
+    }
+    .total-row {
+      background: #eef2ff;
+      font-weight: bold;
+    }
+    .total-row td {
+      border-top: 2px solid #1a365d;
+      padding: 12px 8px;
+    }
+    .total-row .total-col {
+      background: #dbeafe;
+      color: #1a365d;
+      font-size: 12px;
+    }
 
-      .header {
-        page-break-after: avoid;
-      }
-
-      table {
-        page-break-inside: auto;
-      }
-
-      tr {
-        page-break-inside: avoid;
-        page-break-after: auto;
-      }
+    /* ===== FOOTER ===== */
+    .footer {
+      margin-top: 40px;
+      padding-top: 20px;
+      border-top: 1px solid #ddd;
+      font-size: 7px;
+      color: #999;
+      text-align: center;
     }
   </style>
 </head>
 <body>
-  <div class="header">
-    <div class="header-left">
-      ${options.companyName ? `<div class="company-name">${options.companyName}</div>` : ''}
-      <div class="title">Timesheet</div>
-      <div class="subtitle">Work Hours Report</div>
-    </div>
-    <div class="header-right">
-      <div class="employee-name">${options.employeeName}</div>
-      ${options.employeeId ? `<div class="employee-id">ID: ${options.employeeId.slice(-8).toUpperCase()}</div>` : ''}
+  <!-- LETTERHEAD -->
+  <div class="letterhead">
+    <div class="company-name">${options.employeeName}</div>
+    <div class="company-subtitle">Sole Proprietorship</div>
+    <div class="company-info">
+      <!-- Space for address, phone, email if needed -->
     </div>
   </div>
 
-  <div class="period-box">
-    <div>
-      <div class="period-label">Period</div>
-      <div class="period-value">${periodStr}</div>
-    </div>
-    <div style="text-align: right;">
-      <div class="period-label">Days Worked</div>
-      <div class="period-value">${daysWorked} day${daysWorked !== 1 ? 's' : ''}</div>
-    </div>
+  <!-- DOCUMENT TITLE -->
+  <div class="doc-title">
+    <h1>Timesheet</h1>
+    <div class="doc-period">Period: ${formatDateShort(options.periodStart)} - ${formatDateShort(options.periodEnd)}</div>
   </div>
 
-  <table>
-    <thead>
-      <tr>
-        <th>Date</th>
-        <th>Location</th>
-        <th>Start</th>
-        <th>End</th>
-        <th>Break</th>
-        <th>Total</th>
-        <th>Type</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${tableRows}
-    </tbody>
-  </table>
-
-  <div class="summary-section">
-    <div class="summary-card primary">
-      <div class="summary-label">Total Hours</div>
-      <div class="summary-value">${formatHoursHM(grandTotalMinutes)}</div>
-      <div class="summary-sub">${formatHoursDecimal(grandTotalMinutes)} decimal</div>
-    </div>
-    <div class="summary-card">
-      <div class="summary-label">Total Break</div>
-      <div class="summary-value">${grandTotalBreak}m</div>
-      <div class="summary-sub">${formatHoursDecimal(grandTotalBreak)} hours</div>
-    </div>
-    <div class="summary-card">
-      <div class="summary-label">GPS Verified</div>
-      <div class="summary-value">${gpsVerified}</div>
-      <div class="summary-sub">of ${daysWorked} days</div>
-    </div>
-    ${manualEntries > 0 ? `
-    <div class="summary-card">
-      <div class="summary-label">Manual Entries</div>
-      <div class="summary-value">${manualEntries}</div>
-      <div class="summary-sub">not verified</div>
-    </div>
-    ` : ''}
+  <!-- TABLE -->
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th>Day / Date</th>
+          <th>Start time</th>
+          <th>End Time</th>
+          <th>Break</th>
+          <th>Total Work Hours</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${tableRows.join('')}
+        <tr class="total-row">
+          <td colspan="4" style="text-align: right; padding-right: 20px;">TOTAL HOURS:</td>
+          <td class="total-col">${formatHoursHM(grandTotalMinutes)}</td>
+        </tr>
+      </tbody>
+    </table>
   </div>
 
+  <!-- FOOTER -->
   <div class="footer">
-    <div class="signature-area">
-      <div class="signature-line"></div>
-      <div class="signature-label">Employee Signature</div>
-    </div>
-    <div class="signature-area">
-      <div class="signature-line"></div>
-      <div class="signature-label">Supervisor Signature</div>
-    </div>
-    <div class="footer-right">
-      <div class="ref-code">Ref: ${refCode}</div>
-      <div class="generated">Generated: ${new Date().toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      })}</div>
-      <div class="app-name">OnSite Timekeeper</div>
-    </div>
-  </div>
-
-  <div class="legend">
-    <div class="legend-item">
-      <span class="badge badge-gps">GPS</span>
-      <span>Location verified by GPS</span>
-    </div>
-    <div class="legend-item">
-      <span class="badge badge-manual">Manual</span>
-      <span>Entered manually (unverified)</span>
-    </div>
-    <div class="legend-item">
-      <span class="badge badge-edited">Edited</span>
-      <span>GPS entry was edited</span>
-    </div>
+    Generated by OnSite Timekeeper
   </div>
 </body>
 </html>
@@ -690,63 +389,127 @@ function generateTimesheetHTML(
 }
 
 // ============================================
-// TEXT REPORT GENERATOR (Fallback)
+// TEXT TABLE (fallback)
 // ============================================
 
-function generateTimesheetText(
+function generateSimpleTable(
   sessions: ComputedSession[],
   options: TimesheetOptions
 ): string {
   const rows = aggregateSessionsByDay(sessions);
   const lines: string[] = [];
 
-  // Header
-  lines.push('═══════════════════════════════════');
-  lines.push('         TIMESHEET REPORT');
-  lines.push('═══════════════════════════════════');
-  lines.push('');
-  lines.push(`Employee: ${options.employeeName}`);
-  if (options.employeeId) {
-    lines.push(`ID: ${options.employeeId.slice(-8).toUpperCase()}`);
+  // Create map of day data by date key (YYYY-MM-DD)
+  const rowsByDate = new Map<string, DayRow>();
+  for (const row of rows) {
+    const dateKey = row.date.toISOString().split('T')[0];
+    rowsByDate.set(dateKey, row);
   }
-  lines.push(`Period: ${formatDateLong(options.periodStart)} - ${formatDateLong(options.periodEnd)}`);
+
+  // Header with employee name
+  lines.push(`📋 ${options.employeeName}`);
   lines.push('');
-  lines.push('───────────────────────────────────');
+
+  // Table header
+  lines.push('┌─────────────────┬───────────┬───────────┬───────┬───────────┐');
+  lines.push('│ Day / Date      │ Start     │ End       │ Break │ Total     │');
+  lines.push('├─────────────────┼───────────┼───────────┼───────┼───────────┤');
 
   // Calculate totals
   let grandTotalMinutes = 0;
-  let grandTotalBreak = 0;
 
-  // Each day
-  for (const row of rows) {
-    const verifyBadge = row.isVerified ? '✓ GPS' : row.isManual ? '⚠ Manual' : '✎ Edited';
+  // Iterate through ALL days in the period
+  const currentDate = new Date(options.periodStart);
+  currentDate.setHours(12, 0, 0, 0); // Noon to avoid timezone issues
+  const endDate = new Date(options.periodEnd);
+  endDate.setHours(23, 59, 59, 999);
 
-    lines.push('');
-    lines.push(`📅 ${row.dateFormatted} (${row.dayName})`);
-    lines.push(`📍 ${row.locationName}`);
-    lines.push(`⏰ ${row.startTime} → ${row.endTime}`);
-    if (row.breakMinutes > 0) {
-      lines.push(`☕ Break: ${row.breakMinutes}min`);
+  while (currentDate <= endDate) {
+    const dateKey = currentDate.toISOString().split('T')[0];
+    const row = rowsByDate.get(dateKey);
+
+    const dayDate = `${formatDateShort(currentDate)} ${getDayName(currentDate)}`.padEnd(15);
+
+    if (row) {
+      // Day with data
+      const start = row.startTime.padEnd(9);
+      const end = row.endTime.padEnd(9);
+      const breakTime = row.breakMinutes > 0 ? `${row.breakMinutes}m`.padEnd(5) : '--'.padEnd(5);
+      const total = formatHoursHM(row.totalMinutes).padEnd(9);
+
+      lines.push(`│ ${dayDate} │ ${start} │ ${end} │ ${breakTime} │ ${total} │`);
+      grandTotalMinutes += row.totalMinutes;
+    } else {
+      // Day without data - show "--"
+      lines.push(`│ ${dayDate} │ ${'--'.padEnd(9)} │ ${'--'.padEnd(9)} │ ${'--'.padEnd(5)} │ ${'--'.padEnd(9)} │`);
     }
-    lines.push(`${verifyBadge} │ Total: ${formatHoursHM(row.totalMinutes)}`);
 
-    grandTotalMinutes += row.totalMinutes;
-    grandTotalBreak += row.breakMinutes;
+    // Move to next day
+    currentDate.setDate(currentDate.getDate() + 1);
   }
 
-  // Footer
+  // Footer with total
+  lines.push('├─────────────────┴───────────┴───────────┴───────┼───────────┤');
+  lines.push(`│                              TOTAL HOURS        │ ${formatHoursHM(grandTotalMinutes).padEnd(9)} │`);
+  lines.push('└─────────────────────────────────────────────────┴───────────┘');
+
+  return lines.join('\n');
+}
+
+// Alternative: Clean text format for WhatsApp
+function generateWhatsAppTable(
+  sessions: ComputedSession[],
+  options: TimesheetOptions
+): string {
+  const rows = aggregateSessionsByDay(sessions);
+  const lines: string[] = [];
+
+  // Create map of day data by date key
+  const rowsByDate = new Map<string, DayRow>();
+  for (const row of rows) {
+    const dateKey = row.date.toISOString().split('T')[0];
+    rowsByDate.set(dateKey, row);
+  }
+
+  // Header
+  lines.push(`*${options.employeeName}*`);
+  lines.push('━━━━━━━━━━━━━━━━━━━━━');
   lines.push('');
-  lines.push('═══════════════════════════════════');
-  lines.push(`TOTAL HOURS: ${formatHoursHM(grandTotalMinutes)} (${formatHoursDecimal(grandTotalMinutes)} decimal)`);
-  lines.push(`TOTAL BREAK: ${grandTotalBreak}min`);
-  lines.push(`DAYS WORKED: ${rows.length}`);
-  lines.push('═══════════════════════════════════');
-  lines.push('');
-  lines.push('✓ GPS = Location verified');
-  lines.push('⚠ Manual = Entered manually');
-  lines.push('');
-  lines.push('OnSite Timekeeper');
-  lines.push(`Generated: ${new Date().toLocaleString()}`);
+
+  // Calculate totals
+  let grandTotalMinutes = 0;
+
+  // Iterate through ALL days in the period
+  const currentDate = new Date(options.periodStart);
+  currentDate.setHours(12, 0, 0, 0);
+  const endDate = new Date(options.periodEnd);
+  endDate.setHours(23, 59, 59, 999);
+
+  while (currentDate <= endDate) {
+    const dateKey = currentDate.toISOString().split('T')[0];
+    const row = rowsByDate.get(dateKey);
+
+    if (row) {
+      // Day with data
+      const breakStr = row.breakMinutes > 0 ? ` (☕${row.breakMinutes}m)` : '';
+      lines.push(`📅 *${row.dateFormatted}* - ${row.dayName}`);
+      lines.push(`⏰ ${row.startTime} → ${row.endTime}${breakStr}`);
+      lines.push(`✅ *${formatHoursHM(row.totalMinutes)}*`);
+      grandTotalMinutes += row.totalMinutes;
+    } else {
+      // Day without data
+      lines.push(`📅 *${formatDateShort(currentDate)}* - ${getDayName(currentDate)}`);
+      lines.push(`⏰ -- → --`);
+      lines.push(`✅ *--*`);
+    }
+    lines.push('');
+
+    currentDate.setDate(currentDate.getDate() + 1);
+  }
+
+  // Total
+  lines.push('━━━━━━━━━━━━━━━━━━━━━');
+  lines.push(`📊 *TOTAL: ${formatHoursHM(grandTotalMinutes)}*`);
 
   return lines.join('\n');
 }
@@ -771,27 +534,18 @@ export async function generateAndShareTimesheetPDF(
       return entryDate >= options.periodStart && entryDate <= options.periodEnd;
     });
 
-    if (filteredSessions.length === 0) {
-      throw new Error('No completed sessions in this period');
-    }
-
     // Check if expo-print is available
     if (!Print) {
       // Fallback to text-based sharing
       console.log('expo-print not available, using text fallback');
-      const textReport = generateTimesheetText(filteredSessions, options);
+      const textReport = generateSimpleTable(filteredSessions, options);
 
-      // Offer options: Share or Save as file
       return new Promise((resolve, reject) => {
         Alert.alert(
           'Share Timesheet',
-          'PDF generation requires app rebuild. Would you like to share as text instead?',
+          'PDF requires app rebuild. Share as text?',
           [
-            {
-              text: 'Cancel',
-              style: 'cancel',
-              onPress: () => resolve(),
-            },
+            { text: 'Cancel', style: 'cancel', onPress: () => resolve() },
             {
               text: 'Share Text',
               onPress: async () => {
@@ -806,36 +560,13 @@ export async function generateAndShareTimesheetPDF(
                 }
               },
             },
-            {
-              text: 'Save File',
-              onPress: async () => {
-                try {
-                  const fileName = `Timesheet_${options.employeeName.replace(/\s+/g, '_')}_${formatDateShort(options.periodStart).replace(/\//g, '-')}.txt`;
-                  const fileUri = `${FileSystem.cacheDirectory}${fileName}`;
-
-                  await FileSystem.writeAsStringAsync(fileUri, textReport, {
-                    encoding: FileSystem.EncodingType.UTF8,
-                  });
-
-                  if (await Sharing.isAvailableAsync()) {
-                    await Sharing.shareAsync(fileUri, {
-                      mimeType: 'text/plain',
-                      dialogTitle: 'Save Timesheet',
-                    });
-                  }
-                  resolve();
-                } catch (e) {
-                  reject(e);
-                }
-              },
-            },
           ]
         );
       });
     }
 
     // Generate HTML
-    const html = generateTimesheetHTML(filteredSessions, options);
+    const html = generateSimpleHTML(filteredSessions, options);
 
     // Generate PDF
     const { uri } = await Print.printToFileAsync({
@@ -843,7 +574,7 @@ export async function generateAndShareTimesheetPDF(
       base64: false,
     });
 
-    // Rename file to something meaningful
+    // Rename file
     const fileName = `Timesheet_${options.employeeName.replace(/\s+/g, '_')}_${formatDateShort(options.periodStart).replace(/\//g, '-')}.pdf`;
     const newUri = `${FileSystem.cacheDirectory}${fileName}`;
 
@@ -867,10 +598,35 @@ export async function generateAndShareTimesheetPDF(
 }
 
 /**
- * Generate PDF and return the file URI (for preview)
- * Returns text file URI if expo-print not available
+ * Generate and share a text table timesheet
  */
-export async function generateTimesheetPDFUri(
+export async function generateAndShareTimesheet(
+  sessions: ComputedSession[],
+  options: TimesheetOptions
+): Promise<void> {
+  try {
+    const filteredSessions = sessions.filter(s => {
+      if (!s.exit_at) return false;
+      const entryDate = new Date(s.entry_at);
+      return entryDate >= options.periodStart && entryDate <= options.periodEnd;
+    });
+
+    const textReport = generateSimpleTable(filteredSessions, options);
+
+    await Share.share({
+      message: textReport,
+      title: `Timesheet - ${options.employeeName}`,
+    });
+  } catch (error) {
+    console.error('Error sharing timesheet:', error);
+    throw error;
+  }
+}
+
+/**
+ * Generate timesheet text and save to file, return the file URI
+ */
+export async function generateTimesheetFileUri(
   sessions: ComputedSession[],
   options: TimesheetOptions
 ): Promise<string> {
@@ -885,40 +641,25 @@ export async function generateTimesheetPDFUri(
     throw new Error('No completed sessions in this period');
   }
 
-  // Check if expo-print is available
-  if (!Print) {
-    // Fallback: create text file
-    const textReport = generateTimesheetText(filteredSessions, options);
-    const fileName = `Timesheet_${options.employeeName.replace(/\s+/g, '_')}.txt`;
-    const fileUri = `${FileSystem.cacheDirectory}${fileName}`;
+  // Generate simple table
+  const textReport = generateSimpleTable(filteredSessions, options);
+  const fileName = `Timesheet_${options.employeeName.replace(/\s+/g, '_')}.txt`;
+  const fileUri = `${FileSystem.cacheDirectory}${fileName}`;
 
-    await FileSystem.writeAsStringAsync(fileUri, textReport, {
-      encoding: FileSystem.EncodingType.UTF8,
-    });
-
-    return fileUri;
-  }
-
-  // Generate HTML
-  const html = generateTimesheetHTML(filteredSessions, options);
-
-  // Generate PDF
-  const { uri } = await Print.printToFileAsync({
-    html,
-    base64: false,
+  await FileSystem.writeAsStringAsync(fileUri, textReport, {
+    encoding: FileSystem.EncodingType.UTF8,
   });
 
-  return uri;
+  return fileUri;
 }
 
 /**
- * Print timesheet directly (opens system print dialog)
- * Shows text in alert if expo-print not available
+ * Get the raw timesheet text (for preview or copy)
  */
-export async function printTimesheet(
+export function getTimesheetText(
   sessions: ComputedSession[],
   options: TimesheetOptions
-): Promise<void> {
+): string {
   // Filter only completed sessions within period
   const filteredSessions = sessions.filter(s => {
     if (!s.exit_at) return false;
@@ -927,19 +668,8 @@ export async function printTimesheet(
   });
 
   if (filteredSessions.length === 0) {
-    throw new Error('No completed sessions in this period');
+    return 'No completed sessions in this period';
   }
 
-  // Check if expo-print is available
-  if (!Print) {
-    const textReport = generateTimesheetText(filteredSessions, options);
-    Alert.alert('Print Preview', 'PDF print requires app rebuild.\n\n' + textReport.substring(0, 500) + '...');
-    return;
-  }
-
-  // Generate HTML
-  const html = generateTimesheetHTML(filteredSessions, options);
-
-  // Open print dialog
-  await Print.printAsync({ html });
+  return generateSimpleTable(filteredSessions, options);
 }

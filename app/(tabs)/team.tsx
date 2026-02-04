@@ -19,7 +19,9 @@ import {
   TextInput,
   Platform,
   KeyboardAvoidingView,
+  StatusBar,
 } from 'react-native';
+import Constants from 'expo-constants';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, borderRadius, spacing } from '../../src/constants/colors';
 import {
@@ -414,18 +416,31 @@ export default function TeamScreen() {
   }
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={onRefresh}
-          tintColor={colors.primary}
-        />
-      }
-    >
-      <View style={styles.header}>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      {/* Status bar strip */}
+      <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
+      <View style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        height: Constants.statusBarHeight || 28,
+        backgroundColor: colors.background,
+        zIndex: 1,
+      }} />
+
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={colors.primary}
+          />
+        }
+      >
+        <View style={styles.header}>
         <Text style={styles.title}>Team</Text>
         <Text style={styles.subtitle}>
           {workers.length} worker{workers.length !== 1 ? 's' : ''} linked
@@ -576,7 +591,8 @@ export default function TeamScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 
@@ -591,6 +607,7 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: spacing.md,
+    paddingTop: (Constants.statusBarHeight || 28) + 12,
     paddingBottom: spacing.xxl,
   },
   loadingContainer: {
