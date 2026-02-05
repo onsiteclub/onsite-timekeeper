@@ -21,6 +21,7 @@ import { ErrorBoundary } from '../src/components/ErrorBoundary';
 import { useAuthStore } from '../src/stores/authStore';
 import { useLocationStore } from '../src/stores/locationStore';
 import { useRecordStore } from '../src/stores/recordStore';
+import { useDailyLogStore } from '../src/stores/dailyLogStore';
 import { useWorkSessionStore } from '../src/stores/workSessionStore';
 import { useSyncStore } from '../src/stores/syncStore';
 import { useSettingsStore } from '../src/stores/settingsStore';
@@ -76,6 +77,11 @@ export default function RootLayout() {
       logger.info('boot', '📝 Initializing record store...');
       await useRecordStore.getState().initialize();
       logger.info('boot', '✅ Record store initialized');
+
+      // Initialize daily log store (Caderneta Digital)
+      logger.info('boot', '📖 Initializing daily log store...');
+      await useDailyLogStore.getState().initialize();
+      logger.info('boot', '✅ Daily log store initialized');
 
       // Migrate records to daily_hours (one-time, skips if already done)
       const currentUser = useAuthStore.getState().user;

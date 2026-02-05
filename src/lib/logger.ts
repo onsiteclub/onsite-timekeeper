@@ -25,7 +25,8 @@ type LogCategory =
   | 'pingpong'
   | 'permissions'
   | 'settings'
-  | 'grants';     // QR code device linking
+  | 'grants'      // QR code device linking
+  | 'dailyLog';   // Daily hours tracking (Caderneta Digital)
 
 
 export interface LogEntry {
@@ -73,6 +74,7 @@ const categoryColor: Record<LogCategory, string> = {
   permissions: '\x1b[36m', // cyan
   settings: '\x1b[37m',    // white
   grants: '\x1b[94m',      // light blue (QR code linking)
+  dailyLog: '\x1b[32m',    // green (Caderneta Digital)
 };
 
 // In-memory log storage

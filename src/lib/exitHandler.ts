@@ -14,6 +14,7 @@ import { registerExit, handleSessionMerge, getOpenSession } from './database/rec
 import { createEntryRecord } from './database/records';
 import { useSyncStore } from '../stores/syncStore';
 import { useRecordStore } from '../stores/recordStore';
+import { useDailyLogStore } from '../stores/dailyLogStore';
 import { showArrivalNotification, showEndOfDayNotification, showPendingEntryNotification, cancelNotification } from './notifications';
 import { db, type RecordDB, calculateDuration, getToday } from './database/core';
 import { useSettingsStore } from '../stores/settingsStore';
@@ -106,6 +107,8 @@ export async function handleExitWithDelay(
 
     // Refresh UI state
     useRecordStore.getState().reloadData?.();
+    useDailyLogStore.getState().reloadToday();
+    useDailyLogStore.getState().resetTracking();
 
     logger.info('session', `📤 Exit registered: ${locationName}`);
 
@@ -237,6 +240,10 @@ async function createNewSession(
 
   // Refresh UI state
   useRecordStore.getState().reloadData?.();
+  useDailyLogStore.getState().reloadToday();
+
+  // Start tracking in dailyLogStore (for timer UI)
+  useDailyLogStore.getState().startTracking(locationId, locationName);
 
   // SYNC TO SUPABASE (don't block)
   useSyncStore.getState().syncRecordsOnly().catch(e =>

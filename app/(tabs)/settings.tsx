@@ -297,7 +297,7 @@ export default function SettingsScreen() {
       <AccordionSection title="Legal" icon="document-text-outline">
         <TouchableOpacity
           style={styles.legalButton}
-          onPress={() => router.push('/legal')}
+          onPress={() => router.push('/legal' as any)}
         >
           <View style={styles.legalButtonContent}>
             <Ionicons name="shield-checkmark-outline" size={20} color={colors.primary} />

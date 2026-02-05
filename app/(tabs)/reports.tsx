@@ -77,25 +77,31 @@ function WeeklyBarChart({
 }) {
   const scrollViewRef = useRef<ScrollView>(null);
 
-  // Generate last 4 weeks of data
+  // Generate weeks for the selected month
   const weeksData = useMemo(() => {
     const weeks: WeekData[] = [];
-    const today = new Date(currentDate);
-    
-    for (let w = 0; w < 4; w++) {
-      const weekEnd = new Date(today);
-      weekEnd.setDate(weekEnd.getDate() - (w * 7));
-      
-      const weekStart = new Date(weekEnd);
-      weekStart.setDate(weekStart.getDate() - 6);
-      
+
+    // Get first and last day of the month
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    const firstDayOfMonth = new Date(year, month, 1);
+    const lastDayOfMonth = new Date(year, month + 1, 0);
+
+    // Find the Sunday that starts the first week containing this month
+    const firstWeekStart = new Date(firstDayOfMonth);
+    firstWeekStart.setDate(firstWeekStart.getDate() - firstWeekStart.getDay());
+
+    // Generate weeks until we pass the end of the month
+    let weekStart = new Date(firstWeekStart);
+
+    while (weekStart <= lastDayOfMonth) {
       const days: WeekData['days'] = [];
       let totalMinutes = 0;
-      
+
       for (let d = 0; d < 7; d++) {
         const date = new Date(weekStart);
         date.setDate(date.getDate() + d);
-        
+
         // Sum minutes for this day
         const dayMinutes = sessions
           .filter(s => s.exit_at && isSameDay(new Date(s.entry_at), date))
@@ -103,20 +109,23 @@ function WeeklyBarChart({
             const pause = s.pause_minutes || 0;
             return sum + Math.max(0, s.duration_minutes - pause);
           }, 0);
-        
+
         days.push({
           date,
           minutes: dayMinutes,
           dayName: WEEKDAYS_SHORT[date.getDay()],
         });
-        
+
         totalMinutes += dayMinutes;
       }
-      
-      weeks.push({ weekStart, days, totalMinutes });
+
+      weeks.push({ weekStart: new Date(weekStart), days, totalMinutes });
+
+      // Move to next week
+      weekStart.setDate(weekStart.getDate() + 7);
     }
-    
-    return weeks.reverse(); // Oldest first for scroll
+
+    return weeks;
   }, [sessions, currentDate]);
 
   // Find max for scaling
@@ -341,8 +350,20 @@ export default function ReportsScreen() {
   };
 
   // Convert 12h to 24h for saving
+  // Also handles cases where user typed 24h format directly (13-23)
   const get24Hour = (hour12: string, period: 'AM' | 'PM'): number => {
     const h = parseInt(hour12, 10) || 0;
+
+    // If hour is already in 24h format (13-23), return as-is
+    if (h >= 13 && h <= 23) {
+      return h;
+    }
+    // Handle 0 as midnight
+    if (h === 0) {
+      return 0;
+    }
+
+    // Standard 12h to 24h conversion
     if (period === 'AM') {
       return h === 12 ? 0 : h;
     } else {
