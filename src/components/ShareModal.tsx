@@ -1,8 +1,8 @@
 /**
  * ShareModal - OnSite Timekeeper
  *
- * Unified modal for sharing/exporting work records
- * Used in: Home (after save), Reports (export)
+ * Summary modal shown after saving work hours.
+ * Displays a brief summary of the saved record.
  */
 
 import React, { useMemo } from 'react';
@@ -12,22 +12,15 @@ import {
   TouchableOpacity,
   Modal,
   StyleSheet,
-  Alert,
-  Linking,
-  Share,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, withOpacity } from '../constants/colors';
-import { generateReport } from '../lib/reports';
+import { colors } from '../constants/colors';
 import { formatDuration, type ComputedSession } from '../lib/database';
 
 interface ShareModalProps {
   visible: boolean;
   onClose: () => void;
   sessions: ComputedSession[];
-  userName?: string;
-  userId?: string;
-  onGoToReports?: () => void; // Optional - only shown if provided
   title?: string;
 }
 
@@ -39,10 +32,7 @@ export function ShareModal({
   visible,
   onClose,
   sessions,
-  userName,
-  userId,
-  onGoToReports,
-  title = 'Share Report'
+  title = 'Hours Saved!'
 }: ShareModalProps) {
   // Compute summary from sessions
   const summary = useMemo(() => {
@@ -103,62 +93,6 @@ export function ShareModal({
 
   if (!sessions || sessions.length === 0) return null;
 
-  const reportText = generateReport(sessions, { userName, userId });
-
-  // Share as TXT (uses native share sheet)
-  const handleShareTxt = async () => {
-    try {
-      await Share.share({
-        message: reportText,
-        title: `Work Report - ${summary.date}`,
-      });
-      onClose();
-    } catch (error) {
-      console.error('Error sharing:', error);
-    }
-  };
-
-  // Share via WhatsApp
-  const handleShareWhatsApp = async () => {
-    try {
-      const whatsappUrl = `whatsapp://send?text=${encodeURIComponent(reportText)}`;
-      const canOpen = await Linking.canOpenURL(whatsappUrl);
-
-      if (canOpen) {
-        await Linking.openURL(whatsappUrl);
-        onClose();
-      } else {
-        Alert.alert('WhatsApp not installed', 'Please install WhatsApp to share via this method.');
-      }
-    } catch (error) {
-      Alert.alert('Error', 'Could not open WhatsApp');
-      console.error('WhatsApp error:', error);
-    }
-  };
-
-  // Share via Email
-  const handleShareEmail = async () => {
-    try {
-      const subject = encodeURIComponent(`Work Report - ${summary.locationName} - ${summary.date}`);
-      const body = encodeURIComponent(reportText);
-      const emailUrl = `mailto:?subject=${subject}&body=${body}`;
-
-      await Linking.openURL(emailUrl);
-      onClose();
-    } catch (error) {
-      Alert.alert('Error', 'Could not open email app');
-      console.error('Email error:', error);
-    }
-  };
-
-  // Go to Reports
-  const handleGoToReports = () => {
-    onClose();
-    if (onGoToReports) {
-      onGoToReports();
-    }
-  };
-
   return (
     <Modal
       visible={visible}
@@ -197,48 +131,6 @@ export function ShareModal({
                   {summary.entryTime} - {summary.exitTime} ({summary.totalHours})
                 </Text>
               </View>
-            </View>
-
-            {/* Divider */}
-            <View style={modalStyles.divider} />
-
-            {/* Share Options */}
-            <Text style={modalStyles.sectionTitle}>Share via</Text>
-
-            <View style={modalStyles.optionsGrid}>
-              {/* TXT / Share */}
-              <TouchableOpacity style={modalStyles.optionBtn} onPress={handleShareTxt}>
-                <View style={[modalStyles.optionIcon, { backgroundColor: withOpacity(colors.textSecondary, 0.15) }]}>
-                  <Ionicons name="document-text-outline" size={24} color={colors.text} />
-                </View>
-                <Text style={modalStyles.optionLabel}>Text</Text>
-              </TouchableOpacity>
-
-              {/* WhatsApp */}
-              <TouchableOpacity style={modalStyles.optionBtn} onPress={handleShareWhatsApp}>
-                <View style={[modalStyles.optionIcon, { backgroundColor: '#25D366' }]}>
-                  <Ionicons name="logo-whatsapp" size={24} color={colors.white} />
-                </View>
-                <Text style={modalStyles.optionLabel}>WhatsApp</Text>
-              </TouchableOpacity>
-
-              {/* Email */}
-              <TouchableOpacity style={modalStyles.optionBtn} onPress={handleShareEmail}>
-                <View style={[modalStyles.optionIcon, { backgroundColor: '#EA4335' }]}>
-                  <Ionicons name="mail-outline" size={24} color={colors.white} />
-                </View>
-                <Text style={modalStyles.optionLabel}>Email</Text>
-              </TouchableOpacity>
-
-              {/* Go to Reports - only if handler provided */}
-              {onGoToReports && (
-                <TouchableOpacity style={modalStyles.optionBtn} onPress={handleGoToReports}>
-                  <View style={[modalStyles.optionIcon, { backgroundColor: colors.primary }]}>
-                    <Ionicons name="bar-chart-outline" size={24} color={colors.white} />
-                  </View>
-                  <Text style={modalStyles.optionLabel}>Reports</Text>
-                </TouchableOpacity>
-              )}
             </View>
 
             {/* Done Button */}
@@ -306,44 +198,8 @@ const modalStyles = StyleSheet.create({
     color: colors.text,
     flex: 1,
   },
-  divider: {
-    height: 1,
-    backgroundColor: colors.border,
-    marginVertical: 16,
-  },
-  sectionTitle: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 12,
-  },
-  optionsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    marginBottom: 16,
-  },
-  optionBtn: {
-    alignItems: 'center',
-    width: 70,
-  },
-  optionIcon: {
-    width: 52,
-    height: 52,
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 6,
-  },
-  optionLabel: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: colors.text,
-    textAlign: 'center',
-  },
   doneBtn: {
+    marginTop: 16,
     paddingVertical: 14,
     borderRadius: 12,
     backgroundColor: colors.surfaceMuted,
