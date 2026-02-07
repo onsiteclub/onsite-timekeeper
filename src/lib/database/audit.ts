@@ -73,6 +73,7 @@ export async function recordLocationAudit(
 
 /**
  * Record entry event
+ * V3: sessionId is optional (null) since we use daily_hours instead of sessions
  */
 export async function recordEntryAudit(
   userId: string,
@@ -81,16 +82,17 @@ export async function recordEntryAudit(
   accuracy: number | null,
   locationId: string,
   locationName: string,
-  sessionId: string
+  sessionId: string | null
 ): Promise<string> {
   return recordLocationAudit(
     userId, 'entry', latitude, longitude, accuracy,
-    locationId, locationName, sessionId
+    locationId, locationName, sessionId || 'v3-daily'
   );
 }
 
 /**
  * Record exit event
+ * V3: sessionId is optional (null) since we use daily_hours instead of sessions
  */
 export async function recordExitAudit(
   userId: string,
@@ -99,11 +101,11 @@ export async function recordExitAudit(
   accuracy: number | null,
   locationId: string,
   locationName: string,
-  sessionId: string
+  sessionId: string | null
 ): Promise<string> {
   return recordLocationAudit(
     userId, 'exit', latitude, longitude, accuracy,
-    locationId, locationName, sessionId
+    locationId, locationName, sessionId || 'v3-daily'
   );
 }
 

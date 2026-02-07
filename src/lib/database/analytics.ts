@@ -309,7 +309,7 @@ export async function cleanOldAnalytics(daysToKeep: number = 30): Promise<number
   try {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - daysToKeep);
-    const cutoffStr = cutoff.toISOString().split('T')[0];
+    const cutoffStr = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, '0')}-${String(cutoff.getDate()).padStart(2, '0')}`;
     
     const result = db.runSync(
       `DELETE FROM analytics_daily WHERE date < ? AND synced_at IS NOT NULL`,

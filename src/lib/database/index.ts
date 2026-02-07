@@ -1,8 +1,8 @@
 /**
- * Database Module - OnSite Timekeeper V2
- * 
- * Re-exports all database functionality
- * BACKWARD COMPATIBLE with V1 API
+ * Database Module - OnSite Timekeeper V3
+ *
+ * Re-exports all database functionality.
+ * V3: Removed records (replaced by daily_hours + active_tracking)
  */
 
 // ============================================
@@ -15,18 +15,16 @@ export {
   generateUUID,
   now,
   getToday,
+  toLocalDateString,
   calculateDistance,
   calculateDuration,
   formatDuration,
   // Types
   type LocationStatus,
-  type RecordType,
   type AuditEventType,
   type DailyHoursSource,
+  type DailyHoursType,
   type LocationDB,
-  type RecordDB,
-  type ComputedSession,
-  type DayStats,
   type AnalyticsDailyDB,
   type ErrorLogDB,
   type LocationAuditDB,
@@ -49,24 +47,6 @@ export {
   upsertLocationFromSync,
   type CreateLocationParams,
 } from './locations';
-
-// ============================================
-// RECORDS
-// ============================================
-
-export {
-  createEntryRecord,
-  registerExit,
-  getOpenSession,
-  getGlobalActiveSession,
-  getTodaySessions,
-  getSessionsByPeriod,
-  getTodayStats,
-  getRecordsForSync,
-  markRecordSynced,
-  upsertRecordFromSync,
-  type CreateRecordParams,
-} from './records';
 
 // ============================================
 // ANALYTICS (replaces telemetry)
@@ -160,8 +140,6 @@ export {
   updateDailyHours,
   addMinutesToDay,
   deleteDailyHours,
-  // Migration
-  migrateRecordsToDailyHours,
   // Sync
   getUnsyncedDailyHours,
   markDailyHoursSynced,
@@ -180,9 +158,3 @@ export {
   resetDatabase,
 } from './debug';
 
-// ============================================
-// BACKWARD COMPATIBILITY (V1 API)
-// ============================================
-
-// Alias for old telemetry function name
-export { trackMetric as incrementTelemetry } from './analytics';

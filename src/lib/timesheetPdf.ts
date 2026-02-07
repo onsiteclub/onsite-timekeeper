@@ -8,7 +8,9 @@
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { Share, Alert } from 'react-native';
-import { type ComputedSession } from './database';
+// V3: ComputedSession now comes from hooks.ts (was removed from database)
+import { type ComputedSession } from '../screens/home/hooks';
+import { toLocalDateString } from './database/core';
 
 // Dynamic import for expo-print (may not be available without rebuild)
 let Print: typeof import('expo-print') | null = null;
@@ -89,7 +91,7 @@ function aggregateSessionsByDay(sessions: ComputedSession[]): DayRow[] {
     if (!session.exit_at) continue; // Skip incomplete sessions
 
     const entryDate = new Date(session.entry_at);
-    const dateKey = entryDate.toISOString().split('T')[0]; // YYYY-MM-DD
+    const dateKey = toLocalDateString(entryDate);
 
     if (!byDate.has(dateKey)) {
       byDate.set(dateKey, []);
@@ -165,7 +167,7 @@ function generateSimpleHTML(
   // Create map of day data by date key
   const rowsByDate = new Map<string, DayRow>();
   for (const row of rows) {
-    const dateKey = row.date.toISOString().split('T')[0];
+    const dateKey = toLocalDateString(row.date);
     rowsByDate.set(dateKey, row);
   }
 
@@ -179,7 +181,7 @@ function generateSimpleHTML(
   endDate.setHours(23, 59, 59, 999);
 
   while (currentDate <= endDate) {
-    const dateKey = currentDate.toISOString().split('T')[0];
+    const dateKey = toLocalDateString(currentDate);
     const row = rowsByDate.get(dateKey);
 
     const day = currentDate.getDate().toString().padStart(2, '0');
@@ -402,7 +404,7 @@ function generateSimpleTable(
   // Create map of day data by date key (YYYY-MM-DD)
   const rowsByDate = new Map<string, DayRow>();
   for (const row of rows) {
-    const dateKey = row.date.toISOString().split('T')[0];
+    const dateKey = toLocalDateString(row.date);
     rowsByDate.set(dateKey, row);
   }
 
@@ -425,7 +427,7 @@ function generateSimpleTable(
   endDate.setHours(23, 59, 59, 999);
 
   while (currentDate <= endDate) {
-    const dateKey = currentDate.toISOString().split('T')[0];
+    const dateKey = toLocalDateString(currentDate);
     const row = rowsByDate.get(dateKey);
 
     const dayDate = `${formatDateShort(currentDate)} ${getDayName(currentDate)}`.padEnd(15);
@@ -467,7 +469,7 @@ function generateWhatsAppTable(
   // Create map of day data by date key
   const rowsByDate = new Map<string, DayRow>();
   for (const row of rows) {
-    const dateKey = row.date.toISOString().split('T')[0];
+    const dateKey = toLocalDateString(row.date);
     rowsByDate.set(dateKey, row);
   }
 
@@ -486,7 +488,7 @@ function generateWhatsAppTable(
   endDate.setHours(23, 59, 59, 999);
 
   while (currentDate <= endDate) {
-    const dateKey = currentDate.toISOString().split('T')[0];
+    const dateKey = toLocalDateString(currentDate);
     const row = rowsByDate.get(dateKey);
 
     if (row) {

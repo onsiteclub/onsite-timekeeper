@@ -44,7 +44,7 @@ export function QRCodeGenerator({
       setToken(result.token);
       setExpiresAt(result.expiresAt);
     } else {
-      setError('Erro ao gerar QR code. Tente novamente.');
+      setError('Failed to generate QR code. Please try again.');
     }
 
     setLoading(false);
@@ -66,7 +66,7 @@ export function QRCodeGenerator({
 
       if (diff === 0) {
         setToken(null);
-        setError('QR code expirado');
+        setError('QR code expired');
       }
     };
 
@@ -86,7 +86,7 @@ export function QRCodeGenerator({
     return (
       <View style={styles.container}>
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Gerando QR code...</Text>
+        <Text style={styles.loadingText}>Generating QR code...</Text>
       </View>
     );
   }
@@ -94,13 +94,13 @@ export function QRCodeGenerator({
   if (error || !token) {
     return (
       <View style={styles.container}>
-        <Text style={styles.errorText}>{error || 'Erro desconhecido'}</Text>
+        <Text style={styles.errorText}>{error || 'Unknown error'}</Text>
         <TouchableOpacity style={styles.retryButton} onPress={generateToken}>
-          <Text style={styles.retryButtonText}>Tentar novamente</Text>
+          <Text style={styles.retryButtonText}>Try Again</Text>
         </TouchableOpacity>
         {onClose && (
           <TouchableOpacity style={styles.closeButton} onPress={onClose}>
-            <Text style={styles.closeButtonText}>Fechar</Text>
+            <Text style={styles.closeButtonText}>Close</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -111,9 +111,9 @@ export function QRCodeGenerator({
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Compartilhar Acesso</Text>
+      <Text style={styles.title}>Share Access</Text>
       <Text style={styles.subtitle}>
-        Peça para o gerente escanear este QR code
+        Ask the manager to scan this QR code
       </Text>
 
       <View style={styles.qrContainer}>
@@ -126,19 +126,19 @@ export function QRCodeGenerator({
       </View>
 
       <View style={styles.timerContainer}>
-        <Text style={styles.timerLabel}>Expira em</Text>
+        <Text style={styles.timerLabel}>Expires in</Text>
         <Text style={[styles.timerText, timeLeft < 60 && styles.timerWarning]}>
           {formatTime(timeLeft)}
         </Text>
       </View>
 
       <TouchableOpacity style={styles.refreshButton} onPress={generateToken}>
-        <Text style={styles.refreshButtonText}>Gerar novo QR</Text>
+        <Text style={styles.refreshButtonText}>Generate New QR</Text>
       </TouchableOpacity>
 
       {onClose && (
         <TouchableOpacity style={styles.closeButton} onPress={onClose}>
-          <Text style={styles.closeButtonText}>Fechar</Text>
+          <Text style={styles.closeButtonText}>Close</Text>
         </TouchableOpacity>
       )}
     </View>

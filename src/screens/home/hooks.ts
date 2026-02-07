@@ -19,18 +19,19 @@ import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 
 import { useAuthStore } from '../../stores/authStore';
-import { 
-  useLocationStore, 
-  selectLocations, 
-  selectActiveGeofence, 
+import {
+  useLocationStore,
+  selectLocations,
+  selectActiveGeofence,
   selectIsGeofencingActive,
-  selectCurrentFenceId // NEW: Import new selector
+  selectCurrentFenceId,
 } from '../../stores/locationStore';
-import { useRecordStore } from '../../stores/recordStore';
+import { useDailyLogStore } from '../../stores/dailyLogStore';
 import { useSyncStore } from '../../stores/syncStore';
 import { useSettingsStore } from '../../stores/settingsStore';
-import { formatDuration } from '../../lib/database';
-import type { ComputedSession } from '../../lib/database';
+import { formatDuration, getDailyHoursByPeriod, upsertDailyHours, updateDailyHours, deleteDailyHours, getToday } from '../../lib/database';
+import type { DailyHoursEntry } from '../../lib/database/daily';
+import { getActiveTrackingState, type ActiveTracking } from '../../lib/exitHandler';
 import { generateCompleteReport } from '../../lib/reports';
 
 import {
@@ -52,6 +53,55 @@ import {
   type CalendarDay,
   type DayTagType,
 } from './helpers';
+
+// ============================================
+// V3: ComputedSession replaced by DailyHoursEntry
+// LegacySession provides backward compatibility for UI
+// ============================================
+
+export interface LegacySession {
+  id: string;
+  location_id: string;
+  location_name: string | null;
+  entry_at: string;
+  exit_at: string | null;
+  duration_minutes: number;
+  pause_minutes: number;
+  status: 'active' | 'finished';
+  type: 'automatic' | 'manual';
+  // V3 additions for full Reports compatibility
+  color?: string;
+  manually_edited?: number;
+  edit_reason?: string;
+}
+
+// Export alias for files that still use ComputedSession name
+export type ComputedSession = LegacySession;
+
+// Helper to convert DailyHoursEntry to legacy session format for UI compatibility
+function dailyToLegacySession(entry: DailyHoursEntry, locationColor?: string): LegacySession {
+  const entryTime = entry.first_entry
+    ? new Date(`${entry.date}T${entry.first_entry}:00`).toISOString()
+    : new Date(`${entry.date}T09:00:00`).toISOString();
+  const exitTime = entry.last_exit
+    ? new Date(`${entry.date}T${entry.last_exit}:00`).toISOString()
+    : null;
+
+  return {
+    id: entry.id,
+    location_id: entry.location_id || '',
+    location_name: entry.location_name,
+    entry_at: entryTime,
+    exit_at: exitTime,
+    duration_minutes: entry.total_minutes,
+    pause_minutes: entry.break_minutes,
+    status: exitTime ? 'finished' : 'active',
+    type: entry.source === 'gps' ? 'automatic' : 'manual',
+    color: locationColor,
+    manually_edited: entry.source === 'edited' || entry.source === 'manual' ? 1 : 0,
+    edit_reason: entry.notes || undefined,
+  };
+}
 
 
 
@@ -78,16 +128,115 @@ export function useHomeScreen() {
 
 
   
-  const { 
-    currentSession, 
-    reloadData, 
-    registerExit, 
-    registerEntry,
-    getSessionsByPeriod,
-    createManualRecord,
-    editRecord,
-    deleteRecord,
-  } = useRecordStore();
+  // V3: Use dailyLogStore and locationStore instead of recordStore
+  const { reloadToday, todayLog } = useDailyLogStore();
+  const { handleManualEntry, handleManualExit } = useLocationStore();
+
+  // V3: Get current session from active_tracking
+  const activeTracking = getActiveTrackingState();
+  const currentSession = activeTracking
+    ? {
+        id: 'active',
+        location_id: activeTracking.location_id,
+        location_name: activeTracking.location_name,
+        entry_at: activeTracking.enter_at,
+        exit_at: null,
+        duration_minutes: 0,
+        pause_minutes: 0,
+        status: 'active' as const,
+        type: 'automatic' as const,
+      }
+    : null;
+
+  // V3: Wrapper functions for backward compatibility
+  const reloadData = async () => reloadToday();
+  const registerExit = async (locationId: string) => handleManualExit(locationId);
+  const registerEntry = async (locationId: string, _locationName: string) => handleManualEntry(locationId);
+
+  // V3: Get sessions by period using daily_hours
+  // FIX: Must be memoized - without useCallback, new function ref each render
+  // causes loadMonthSessions → useEffect → setMonthSessions → re-render → infinite loop
+  const getSessionsByPeriod = useCallback(async (startDate: string, endDate: string): Promise<ComputedSession[]> => {
+    if (!userId) return [];
+    const start = startDate.split('T')[0];
+    const end = endDate.split('T')[0];
+    const entries = getDailyHoursByPeriod(userId, start, end);
+    // Map entries with location colors
+    return entries.map(entry => {
+      const location = locations.find(l => l.id === entry.location_id);
+      return dailyToLegacySession(entry, location?.color);
+    });
+  }, [userId, locations]);
+
+  // V3: Create manual record using daily_hours
+  const createManualRecord = async (params: {
+    locationId: string;
+    locationName: string;
+    entry: string;
+    exit: string;
+    pauseMinutes?: number;
+    absenceType?: string;
+  }) => {
+    if (!userId) throw new Error('User not authenticated');
+
+    const date = params.entry.split('T')[0];
+    const entryTime = new Date(params.entry);
+    const exitTime = new Date(params.exit);
+    const durationMs = exitTime.getTime() - entryTime.getTime();
+    const durationMinutes = Math.max(0, Math.round(durationMs / 60000) - (params.pauseMinutes || 0));
+
+    const firstEntry = `${entryTime.getHours().toString().padStart(2, '0')}:${entryTime.getMinutes().toString().padStart(2, '0')}`;
+    const lastExit = `${exitTime.getHours().toString().padStart(2, '0')}:${exitTime.getMinutes().toString().padStart(2, '0')}`;
+
+    upsertDailyHours({
+      userId,
+      date,
+      totalMinutes: durationMinutes,
+      breakMinutes: params.pauseMinutes || 0,
+      locationName: params.locationName,
+      locationId: params.locationId,
+      verified: false,
+      source: 'manual',
+      firstEntry,
+      lastExit,
+      notes: params.absenceType || undefined,
+    });
+
+    reloadToday();
+  };
+
+  // V3: Edit record using daily_hours
+  const editRecord = async (
+    _sessionId: string,
+    updates: {
+      entry_at?: string;
+      exit_at?: string;
+      pause_minutes?: number;
+      manually_edited?: number;
+      edit_reason?: string;
+    }
+  ) => {
+    if (!userId) throw new Error('User not authenticated');
+    // For V3, we update today's entry since we don't have session IDs
+    const today = getToday();
+    updateDailyHours(userId, today, {
+      breakMinutes: updates.pause_minutes,
+      source: 'edited',
+    });
+    reloadToday();
+  };
+
+  // V3: Delete record (deletes the daily entry)
+  const deleteRecord = async (sessionId: string) => {
+    if (!userId) throw new Error('User not authenticated');
+    // sessionId in V3 is actually the daily_hours id or date
+    // For simplicity, we try to parse as date first
+    const dateMatch = sessionId.match(/^\d{4}-\d{2}-\d{2}$/);
+    if (dateMatch) {
+      deleteDailyHours(userId, sessionId);
+    }
+    reloadToday();
+  };
 
 
    
@@ -277,6 +426,47 @@ export function useHomeScreen() {
       return a.name.localeCompare(b.name);
     });
   }, [activeLocations, weekSessions, currentSession]);
+
+  // ============================================
+  // AUTO-POPULATE FORM FROM TODAY'S DATA
+  // ============================================
+  // When todayLog updates (e.g., geofence exit), populate the read-only viewer
+  // Only when viewing today and not actively editing a session
+
+  useEffect(() => {
+    if (!todayLog || editingSessionId) return;
+
+    // Only auto-populate when form is showing today
+    if (!isToday(manualDate)) return;
+
+    // Populate entry time from todayLog
+    if (todayLog.firstEntry) {
+      const [h, m] = todayLog.firstEntry.split(':');
+      if (h && m) {
+        setManualEntryH(h);
+        setManualEntryM(m);
+      }
+    }
+
+    // Populate exit time from todayLog
+    if (todayLog.lastExit) {
+      const [h, m] = todayLog.lastExit.split(':');
+      if (h && m) {
+        setManualExitH(h);
+        setManualExitM(m);
+      }
+    }
+
+    // Populate break
+    if (todayLog.breakMinutes > 0) {
+      setManualPause(String(todayLog.breakMinutes));
+    }
+
+    // Populate location
+    if (todayLog.locationId) {
+      setManualLocationId(todayLog.locationId);
+    }
+  }, [todayLog, editingSessionId, manualDate]);
 
   // ============================================
   // PENDING EXPORT EFFECT (from notification)
@@ -1197,7 +1387,7 @@ export function useHomeScreen() {
 
     try {
       const now = new Date();
-      const fileName = `report_${now.toISOString().split('T')[0]}.txt`;
+      const fileName = `report_${getToday()}.txt`;
       const filePath = `${FileSystem.cacheDirectory}${fileName}`;
 
       await FileSystem.writeAsStringAsync(filePath, txt, {

@@ -1,12 +1,23 @@
 /**
  * Home Screen Helpers - OnSite Timekeeper
- * 
+ *
  * Utility functions for date and calendar manipulation
- * 
+ *
  * REFACTORED: All PT names removed, English only
+ * V3: Local ComputedSession type (no import from database)
  */
 
-import type { ComputedSession } from '../../lib/database';
+// V3: Minimal interface for calendar display
+// Full definition in hooks.ts (LegacySession)
+interface ComputedSession {
+  id: string;
+  location_id: string;
+  location_name: string | null;
+  entry_at: string;
+  exit_at: string | null;
+  duration_minutes: number;
+  pause_minutes?: number;
+}
 
 // ============================================
 // CONSTANTS

@@ -22,8 +22,8 @@ export default function TabsLayout() {
           paddingBottom: 8,
           paddingTop: 8,
         },
-        tabBarActiveTintColor: colors.primary,
-        tabBarInactiveTintColor: colors.textMuted,
+        tabBarActiveTintColor: colors.tabActive,      // Amber (#C58B1B)
+        tabBarInactiveTintColor: colors.tabInactive,  // iconMuted (#98A2B3)
         tabBarLabelStyle: {
           fontSize: 12,
           fontWeight: '500',

@@ -1,15 +1,19 @@
 /**
  * Database Core - OnSite Timekeeper
- * 
+ *
  * SQLite instance, initialization, types and helpers
- * 
- * V2 REFACTOR:
- * - Removed heartbeat_log (redundant)
- * - Removed geopoints (over-collection)
- * - Removed sync_log (overengineered)
- * - Added analytics_daily (unified metrics)
- * - Added error_log (structured errors)
- * - Added location_audit (only entry/exit GPS proof)
+ *
+ * V3 ARCHITECTURE:
+ * - daily_hours is the single source of truth for work hours
+ * - active_tracking is a singleton for current geofence session
+ * - locations stores user geofence zones
+ * - analytics_daily for product metrics
+ * - error_log for structured errors
+ * - location_audit for GPS entry/exit proof
+ *
+ * REMOVED in V3:
+ * - records table (replaced by daily_hours + active_tracking)
+ * - heartbeat_log, geopoints, sync_log, telemetry_daily
  */
 
 import * as SQLite from 'expo-sqlite';
@@ -26,7 +30,6 @@ export const db = SQLite.openDatabaseSync('onsite-timekeeper.db');
 // ============================================
 
 export type LocationStatus = 'active' | 'deleted' | 'pending_delete' | 'syncing';
-export type RecordType = 'automatic' | 'manual';
 export type AuditEventType = 'entry' | 'exit' | 'dispute' | 'correction';
 
 export interface LocationDB {
@@ -43,35 +46,6 @@ export interface LocationDB {
   created_at: string;
   updated_at: string;
   synced_at: string | null;
-}
-
-export interface RecordDB {
-  id: string;
-  user_id: string;
-  location_id: string;
-  location_name: string | null;
-  entry_at: string;
-  exit_at: string | null;
-  type: RecordType;
-  manually_edited: number; // SQLite has no boolean
-  edit_reason: string | null;
-  integrity_hash: string | null;
-  color: string | null;
-  device_id: string | null;
-  pause_minutes: number | null;
-  created_at: string;
-  synced_at: string | null;
-}
-
-// Session with computed fields for UI
-export interface ComputedSession extends RecordDB {
-  status: 'active' | 'paused' | 'finished';
-  duration_minutes: number;
-}
-
-export interface DayStats {
-  total_minutes: number;
-  total_sessions: number;
 }
 
 // ============================================
@@ -170,6 +144,7 @@ export interface LocationAuditDB {
 // ============================================
 
 export type DailyHoursSource = 'gps' | 'manual' | 'edited';
+export type DailyHoursType = 'work' | 'rain' | 'snow' | 'sick' | 'dayoff' | 'holiday';
 
 export interface DailyHoursDB {
   id: string;
@@ -190,11 +165,26 @@ export interface DailyHoursDB {
   first_entry: string | null;
   last_exit: string | null;
 
+  // Type of entry
+  type: DailyHoursType;
+
   // Metadata
   notes: string | null;
   created_at: string;
   updated_at: string;
   synced_at: string | null;
+}
+
+// ============================================
+// TYPES - ACTIVE TRACKING (Singleton)
+// ============================================
+
+export interface ActiveTrackingDB {
+  id: string; // Always 'current' (singleton)
+  location_id: string;
+  location_name: string;
+  enter_at: string;
+  created_at: string;
 }
 
 // ============================================
@@ -231,27 +221,6 @@ export async function initDatabase(): Promise<void> {
         last_seen_at TEXT DEFAULT CURRENT_TIMESTAMP,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        synced_at TEXT
-      )
-    `);
-
-    // Records table (sessions)
-    db.execSync(`
-      CREATE TABLE IF NOT EXISTS records (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL,
-        location_id TEXT NOT NULL,
-        location_name TEXT,
-        entry_at TEXT NOT NULL,
-        exit_at TEXT,
-        type TEXT DEFAULT 'automatic',
-        manually_edited INTEGER DEFAULT 0,
-        edit_reason TEXT,
-        integrity_hash TEXT,
-        color TEXT,
-        device_id TEXT,
-        pause_minutes INTEGER DEFAULT 0,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         synced_at TEXT
       )
     `);
@@ -375,6 +344,9 @@ export async function initDatabase(): Promise<void> {
         verified INTEGER DEFAULT 0,
         source TEXT DEFAULT 'manual',
 
+        -- Type of entry (work, absence types)
+        type TEXT DEFAULT 'work',
+
         -- Reference times (HH:MM format from GPS)
         first_entry TEXT,
         last_exit TEXT,
@@ -389,6 +361,28 @@ export async function initDatabase(): Promise<void> {
       )
     `);
 
+    // Migration: Add type column if missing (for existing databases)
+    try {
+      db.execSync(`ALTER TABLE daily_hours ADD COLUMN type TEXT DEFAULT 'work'`);
+      logger.debug('database', 'Added type column to daily_hours');
+    } catch {
+      // Column already exists, ignore
+    }
+
+    // ============================================
+    // ACTIVE TRACKING TABLE (Singleton for current geofence session)
+    // ============================================
+
+    db.execSync(`
+      CREATE TABLE IF NOT EXISTS active_tracking (
+        id TEXT PRIMARY KEY DEFAULT 'current',
+        location_id TEXT NOT NULL,
+        location_name TEXT NOT NULL,
+        enter_at TEXT NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
     // ============================================
     // INDEXES
     // ============================================
@@ -396,11 +390,6 @@ export async function initDatabase(): Promise<void> {
     // Locations
     db.execSync(`CREATE INDEX IF NOT EXISTS idx_locations_user ON locations(user_id)`);
     db.execSync(`CREATE INDEX IF NOT EXISTS idx_locations_status ON locations(status)`);
-
-    // Records
-    db.execSync(`CREATE INDEX IF NOT EXISTS idx_records_user ON records(user_id)`);
-    db.execSync(`CREATE INDEX IF NOT EXISTS idx_records_location ON records(location_id)`);
-    db.execSync(`CREATE INDEX IF NOT EXISTS idx_records_entry ON records(entry_at)`);
 
     // Analytics
     db.execSync(`CREATE INDEX IF NOT EXISTS idx_analytics_user ON analytics_daily(user_id)`);
@@ -431,6 +420,7 @@ export async function initDatabase(): Promise<void> {
       db.execSync(`DROP TABLE IF EXISTS geopoints`);
       db.execSync(`DROP TABLE IF EXISTS sync_log`);
       db.execSync(`DROP TABLE IF EXISTS telemetry_daily`);
+      db.execSync(`DROP TABLE IF EXISTS records`); // V3: replaced by daily_hours
       logger.info('database', '🧹 Deprecated tables removed');
     } catch (e) {
       // Tables might not exist, that's fine
@@ -460,8 +450,20 @@ export function now(): string {
   return new Date().toISOString();
 }
 
+/**
+ * Convert a Date to local YYYY-MM-DD string.
+ * CRITICAL: Do NOT use toISOString().split('T')[0] - that returns UTC date,
+ * which is wrong for users in negative UTC offsets (e.g., UTC-5 at 9PM = next day in UTC).
+ */
+export function toLocalDateString(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 export function getToday(): string {
-  return new Date().toISOString().split('T')[0];
+  return toLocalDateString(new Date());
 }
 
 function toRad(deg: number): number {

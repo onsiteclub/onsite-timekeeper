@@ -93,6 +93,7 @@ export function AnimatedRing({
     <View style={[styles.container, { width: size, height: size }]}>
       {/* Static background ring - neutral gray track */}
       <View
+        pointerEvents="none"
         style={[
           styles.backgroundRing,
           {
@@ -107,6 +108,7 @@ export function AnimatedRing({
 
       {/* Animated Ring - Use Animated wrapper for transform, inner View for border */}
       <Animated.View
+        pointerEvents="none"
         style={{
           position: 'absolute',
           width: size,

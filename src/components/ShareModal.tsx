@@ -15,7 +15,9 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
-import { formatDuration, type ComputedSession } from '../lib/database';
+import { formatDuration } from '../lib/database';
+// V3: ComputedSession now comes from hooks.ts (was removed from database)
+import type { ComputedSession } from '../screens/home/hooks';
 
 interface ShareModalProps {
   visible: boolean;

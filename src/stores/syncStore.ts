@@ -3,21 +3,19 @@
  *
  * Handles synchronization between local SQLite and Supabase.
  *
- * SUPABASE TABLES (KRONOS):
+ * SUPABASE TABLES (bi-directional sync):
  * - app_timekeeper_geofences → local "locations" table
- * - app_timekeeper_entries → local "records" table
- * - app_timekeeper_projects → (not used yet)
+ * - daily_hours → local "daily_hours" table
  *
- * LOCAL ONLY (no Supabase table):
- * - analytics_daily → marked synced locally
- * - error_log → marked synced locally
- * - location_audit → marked synced locally
+ * LOCAL ONLY (marked synced locally):
+ * - analytics_daily
+ * - error_log
+ * - location_audit
  *
  * SYNC TRIGGERS:
  * - On boot (initial sync)
  * - At midnight (daily sync)
- * - After create/edit/delete location
- * - After entry/exit geofence events
+ * - After confirmed geofence exit
  */
 
 import { create } from 'zustand';
@@ -29,10 +27,6 @@ import {
   getLocationsForSync,
   markLocationSynced,
   upsertLocationFromSync,
-  // Records
-  getRecordsForSync,
-  markRecordSynced,
-  upsertRecordFromSync,
   // Analytics
   getAnalyticsForSync,
   markAnalyticsSynced,
@@ -49,13 +43,19 @@ import {
   cleanOldAudit,
   // Types
   type LocationDB,
-  type RecordDB,
   type AnalyticsDailyDB,
   type ErrorLogDB,
   type LocationAuditDB,
 } from '../lib/database';
+import {
+  getUnsyncedDailyHours,
+  markDailyHoursSynced,
+  upsertDailyHoursFromSync,
+  type DailyHoursEntry,
+} from '../lib/database/daily';
 import { useAuthStore } from './authStore';
 import { setReconfiguring } from '../lib/geofenceLogic';
+
 // ============================================
 // CONSTANTS
 // ============================================
@@ -73,12 +73,12 @@ const CLEANUP_DAYS = {
 
 interface SyncStats {
   uploadedLocations: number;
-  uploadedRecords: number;
+  uploadedDailyHours: number;
   uploadedAnalytics: number;
   uploadedErrors: number;
   uploadedAudit: number;
   downloadedLocations: number;
-  downloadedRecords: number;
+  downloadedDailyHours: number;
   errors: string[];
 }
 
@@ -93,11 +93,10 @@ interface SyncState {
   initialize: () => Promise<() => void>;
   syncNow: () => Promise<SyncStats>;
   syncLocationsOnly: () => Promise<void>;
-  syncRecordsOnly: () => Promise<void>;
   forceFullSync: () => Promise<void>;
   runCleanup: () => Promise<void>;
   toggleSync: () => void;
-  
+
   // Debug
   debugSync: () => Promise<{ success: boolean; stats?: any }>;
 }
@@ -116,12 +115,17 @@ let lastOnlineState: boolean | null = null;
 // ============================================
 
 function getTodayDateString(): string {
-  return new Date().toISOString().split('T')[0];
+  // Use local date, not UTC (toISOString returns UTC)
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 function isMidnight(): boolean {
   const now = new Date();
-  return now.getHours() === 0 && now.getMinutes() < 5; // 00:00 - 00:05
+  return now.getHours() === 0 && now.getMinutes() < 5;
 }
 
 // ============================================
@@ -136,38 +140,31 @@ export const useSyncStore = create<SyncState>((set, get) => ({
   syncEnabled: true,
 
   initialize: async () => {
-    logger.info('boot', '🔄 Initializing sync store V2...');
+    logger.info('boot', '🔄 Initializing sync store...');
 
-    // ============================================
-    // NETWORK LISTENER
-    // ============================================
-  netInfoUnsubscribe = NetInfo.addEventListener((state) => {
-  const online = !!state.isConnected;
-  
-  // Only log when state actually changes
-  if (lastOnlineState !== online) {
-    logger.info('sync', `📶 Network: ${online ? 'online' : 'offline'}`);
-    lastOnlineState = online;
-  }
-  
-  set({ isOnline: online });
-});
+    // Network listener
+    netInfoUnsubscribe = NetInfo.addEventListener((state) => {
+      const online = !!state.isConnected;
 
-    // Initial check
+      if (lastOnlineState !== online) {
+        logger.info('sync', `📶 Network: ${online ? 'online' : 'offline'}`);
+        lastOnlineState = online;
+      }
+
+      set({ isOnline: online });
+    });
+
     const state = await NetInfo.fetch();
     const online = !!state.isConnected;
     set({ isOnline: online });
 
-    // ============================================
-    // MIDNIGHT SYNC CHECK
-    // ============================================
+    // Midnight sync check
     midnightCheckInterval = setInterval(async () => {
       const today = getTodayDateString();
-      
-      // If it's midnight and we haven't synced today
+
       if (isMidnight() && lastSyncDate !== today) {
         const { isOnline, syncEnabled, isSyncing } = get();
-        
+
         if (isOnline && syncEnabled && !isSyncing) {
           logger.info('sync', '🌙 Midnight sync triggered');
           lastSyncDate = today;
@@ -177,9 +174,7 @@ export const useSyncStore = create<SyncState>((set, get) => ({
       }
     }, MIDNIGHT_CHECK_INTERVAL);
 
-    // ============================================
-    // INITIAL SYNC (if online)
-    // ============================================
+    // Initial sync
     if (isSupabaseConfigured() && online) {
       logger.info('sync', '🚀 Running initial sync...');
       try {
@@ -189,21 +184,17 @@ export const useSyncStore = create<SyncState>((set, get) => ({
       }
     }
 
-    logger.info('boot', '✅ Sync store V2 initialized');
+    logger.info('boot', '✅ Sync store initialized');
 
-    // Return cleanup function
     return () => {
       if (netInfoUnsubscribe) netInfoUnsubscribe();
       if (midnightCheckInterval) clearInterval(midnightCheckInterval);
     };
   },
 
-  // ============================================
-  // MAIN SYNC
-  // ============================================
   syncNow: async () => {
     const { isSyncing, isOnline } = get();
-    
+
     if (isSyncing) {
       logger.warn('sync', 'Sync already in progress');
       return get().lastSyncStats || createEmptyStats();
@@ -232,7 +223,6 @@ export const useSyncStore = create<SyncState>((set, get) => ({
     try {
       logger.info('sync', '🔄 Starting sync...');
 
-      // Track sync attempt
       await trackMetric(userId, 'sync_attempts');
 
       // 1. Upload locations
@@ -240,10 +230,10 @@ export const useSyncStore = create<SyncState>((set, get) => ({
       stats.uploadedLocations = locUp.count;
       stats.errors.push(...locUp.errors);
 
-      // 2. Upload records
-      const recUp = await uploadRecords(userId);
-      stats.uploadedRecords = recUp.count;
-      stats.errors.push(...recUp.errors);
+      // 2. Upload daily_hours (mark as synced locally for now)
+      const dhUp = await uploadDailyHours(userId);
+      stats.uploadedDailyHours = dhUp.count;
+      stats.errors.push(...dhUp.errors);
 
       // 3. Upload analytics
       const anaUp = await uploadAnalytics(userId);
@@ -265,29 +255,27 @@ export const useSyncStore = create<SyncState>((set, get) => ({
       stats.downloadedLocations = locDown.count;
       stats.errors.push(...locDown.errors);
 
-      // 7. Download records
-      const recDown = await downloadRecords(userId);
-      stats.downloadedRecords = recDown.count;
-      stats.errors.push(...recDown.errors);
+      // 7. Download daily_hours (for multi-device sync)
+      const dhDown = await downloadDailyHours(userId);
+      stats.downloadedDailyHours = dhDown.count;
+      stats.errors.push(...dhDown.errors);
 
-      // Track failures
       if (stats.errors.length > 0) {
         await trackMetric(userId, 'sync_failures');
       }
 
-      set({ 
+      set({
         lastSyncAt: new Date(),
         lastSyncStats: stats,
       });
 
       const hasErrors = stats.errors.length > 0;
-        logger.info('sync', `${hasErrors ? '⚠️' : '✅'} Sync completed`, {
-        up: `${stats.uploadedLocations}L/${stats.uploadedRecords}R/${stats.uploadedAnalytics}A`,
-        down: `${stats.downloadedLocations}L/${stats.downloadedRecords}R`,
+      logger.info('sync', `${hasErrors ? '⚠️' : '✅'} Sync completed`, {
+        up: `${stats.uploadedLocations}L/${stats.uploadedDailyHours}D/${stats.uploadedAnalytics}A`,
+        down: `${stats.downloadedLocations}L/${stats.downloadedDailyHours}D`,
         errors: stats.errors.length,
       });
 
-      // Reload locations
       const { useLocationStore } = require('./locationStore');
       await useLocationStore.getState().reloadLocations();
       return stats;
@@ -304,29 +292,16 @@ export const useSyncStore = create<SyncState>((set, get) => ({
     }
   },
 
-  // ============================================
-  // PARTIAL SYNCS
-  // ============================================
   syncLocationsOnly: async () => {
     const userId = useAuthStore.getState().getUserId();
     if (!userId) return;
-    
+
     if (!get().isOnline || !isSupabaseConfigured()) return;
-    
+
     await uploadLocations(userId);
     await downloadLocations(userId);
     const { useLocationStore } = require('./locationStore');
-await useLocationStore.getState().reloadLocations();
-  },
-
-  syncRecordsOnly: async () => {
-    const userId = useAuthStore.getState().getUserId();
-    if (!userId) return;
-    
-    if (!get().isOnline || !isSupabaseConfigured()) return;
-    
-    await uploadRecords(userId);
-    await downloadRecords(userId);
+    await useLocationStore.getState().reloadLocations();
   },
 
   forceFullSync: async () => {
@@ -335,9 +310,6 @@ await useLocationStore.getState().reloadLocations();
     await get().syncNow();
   },
 
-  // ============================================
-  // CLEANUP
-  // ============================================
   runCleanup: async () => {
     try {
       logger.info('sync', '🧹 Running cleanup...');
@@ -362,13 +334,10 @@ await useLocationStore.getState().reloadLocations();
     logger.info('sync', `Sync ${newValue ? 'enabled' : 'disabled'}`);
   },
 
-  // ============================================
-  // DEBUG
-  // ============================================
   debugSync: async () => {
     const netState = await NetInfo.fetch();
     const userId = useAuthStore.getState().getUserId();
-    
+
     return {
       success: true,
       stats: {
@@ -395,21 +364,25 @@ await useLocationStore.getState().reloadLocations();
 }));
 
 // ============================================
-// UPLOAD FUNCTIONS
+// HELPERS
 // ============================================
 
 function createEmptyStats(): SyncStats {
   return {
     uploadedLocations: 0,
-    uploadedRecords: 0,
+    uploadedDailyHours: 0,
     uploadedAnalytics: 0,
     uploadedErrors: 0,
     uploadedAudit: 0,
     downloadedLocations: 0,
-    downloadedRecords: 0,
+    downloadedDailyHours: 0,
     errors: [],
   };
 }
+
+// ============================================
+// UPLOAD FUNCTIONS
+// ============================================
 
 async function uploadLocations(userId: string): Promise<{ count: number; errors: string[] }> {
   let count = 0;
@@ -417,13 +390,10 @@ async function uploadLocations(userId: string): Promise<{ count: number; errors:
 
   try {
     const locations = await getLocationsForSync(userId);
-    logger.info('sync', `[SYNC:geofences] UPLOAD START - ${locations.length} pending`);
+    logger.info('sync', `[SYNC:geofences] ${locations.length} pending`);
 
     for (const location of locations) {
       try {
-        // Map local fields to Supabase app_timekeeper_geofences schema
-        // status mapping: local 'deleted' → Supabase 'archived'
-        // Allowed values: 'active', 'paused', 'archived'
         const statusMapped = location.status === 'deleted' ? 'archived' : location.status;
 
         const payload = {
@@ -436,43 +406,29 @@ async function uploadLocations(userId: string): Promise<{ count: number; errors:
           color: location.color,
           status: statusMapped,
           deleted_at: location.deleted_at,
-          last_entry_at: location.last_seen_at, // Mapped: last_seen_at → last_entry_at
+          last_entry_at: location.last_seen_at,
           created_at: location.created_at,
           updated_at: location.updated_at,
           synced_at: new Date().toISOString(),
         };
 
-        logger.info('sync', `[SYNC:geofences] UPSERT ATTEMPT - ${location.name}`, { payload });
-
-        const { data, error, status, statusText } = await supabase
+        const { data, error } = await supabase
           .from('app_timekeeper_geofences')
           .upsert(payload)
           .select();
 
-        logger.info('sync', `[SYNC:geofences] UPSERT RESPONSE - status: ${status} ${statusText}`, {
-          data,
-          error: error ? { message: error.message, code: error.code, details: error.details } : null
-        });
-
         if (error) {
-          const errMsg = `Geofence ${location.name}: ${error.message}`;
-          errors.push(errMsg);
-          logger.error('sync', `[SYNC:geofences] UPLOAD ERROR - ${location.name}: ${error.message} (code: ${error.code})`);
-          await captureSyncError(new Error(error.message), { userId, action: 'uploadLocations', locationName: location.name });
+          errors.push(`Geofence ${location.name}: ${error.message}`);
+          await captureSyncError(new Error(error.message), { userId, action: 'uploadLocations' });
         } else if (!data || data.length === 0) {
-          // RLS might be blocking silently
-          logger.warn('sync', `[SYNC:geofences] UPLOAD WARNING - ${location.name}: No data returned (RLS blocking?)`);
-          errors.push(`Geofence ${location.name}: No data returned (possible RLS issue)`);
+          errors.push(`Geofence ${location.name}: No data returned`);
         } else {
           await markLocationSynced(location.id);
           count++;
-          logger.info('sync', `[SYNC:geofences] UPLOAD OK - ${location.name}`);
         }
       } catch (e) {
-        const errMsg = `Geofence ${location.name}: ${e}`;
-        errors.push(errMsg);
-        logger.error('sync', `❌ Upload geofence exception: ${location.name}`, { error: String(e) });
-        await captureSyncError(e as Error, { userId, action: 'uploadLocations', locationName: location.name });
+        errors.push(`Geofence ${location.name}: ${e}`);
+        await captureSyncError(e as Error, { userId, action: 'uploadLocations' });
       }
     }
   } catch (error) {
@@ -482,79 +438,62 @@ async function uploadLocations(userId: string): Promise<{ count: number; errors:
   return { count, errors };
 }
 
-async function uploadRecords(userId: string): Promise<{ count: number; errors: string[] }> {
+async function uploadDailyHours(userId: string): Promise<{ count: number; errors: string[] }> {
   let count = 0;
   const errors: string[] = [];
 
   try {
-    const records = await getRecordsForSync(userId);
-    logger.info('sync', `[SYNC:entries] UPLOAD START - ${records.length} pending`);
+    const dailyHours = getUnsyncedDailyHours(userId);
 
-    for (const record of records) {
+    if (dailyHours.length === 0) {
+      return { count: 0, errors };
+    }
+
+    logger.info('sync', `[SYNC:daily_hours] ${dailyHours.length} pending`);
+
+    for (const day of dailyHours) {
       try {
-        // Calculate duration if exit exists
-        let durationMinutes: number | null = null;
-        if (record.exit_at && record.entry_at) {
-          const entry = new Date(record.entry_at).getTime();
-          const exit = new Date(record.exit_at).getTime();
-          durationMinutes = Math.round((exit - entry) / 60000) - (record.pause_minutes || 0);
-        }
-
-        // Map local fields to Supabase app_timekeeper_entries schema
-        // entry_method mapping: local 'automatic' → Supabase 'geofence'
-        // Allowed values: 'manual', 'geofence', 'qrcode', 'nfc', 'voice'
-        const entryMethod = record.type === 'automatic' ? 'geofence' : record.type;
-
+        // FIX: Supabase column is 'work_date' (not 'date'), and 'type' column exists
         const payload = {
-          id: record.id,
-          user_id: record.user_id,
-          geofence_id: record.location_id,        // Mapped: location_id → geofence_id
-          geofence_name: record.location_name,    // Mapped: location_name → geofence_name
-          entry_at: record.entry_at,
-          exit_at: record.exit_at,
-          entry_method: entryMethod,              // Mapped: 'automatic' → 'geofence'
-          is_manual_entry: entryMethod === 'manual',
-          manually_edited: record.manually_edited === 1,
-          edit_reason: record.edit_reason,
-          integrity_hash: record.integrity_hash,
-          device_id: record.device_id,
-          pause_minutes: record.pause_minutes || 0,
-          duration_minutes: durationMinutes,
-          client_created_at: record.created_at,   // Mapped: created_at → client_created_at
+          id: day.id,
+          user_id: day.user_id,
+          work_date: day.date, // LOCAL 'date' → SUPABASE 'work_date'
+          total_minutes: day.total_minutes,
+          break_minutes: day.break_minutes,
+          location_name: day.location_name,
+          location_id: day.location_id,
+          verified: day.verified, // Already boolean from DailyHoursEntry
+          source: day.source,
+          type: day.type || 'work', // Now included (Supabase has this column)
+          first_entry: day.first_entry,
+          last_exit: day.last_exit,
+          notes: day.notes,
+          created_at: day.created_at,
+          updated_at: day.updated_at,
           synced_at: new Date().toISOString(),
         };
 
-        logger.info('sync', `[SYNC:entries] UPSERT ATTEMPT - ${record.location_name}`, { payload });
-
-        const { data, error, status, statusText } = await supabase
-          .from('app_timekeeper_entries')
-          .upsert(payload)
+        const { data, error } = await supabase
+          .from('daily_hours')
+          .upsert(payload, { onConflict: 'user_id,work_date' })
           .select();
 
-        logger.info('sync', `[SYNC:entries] UPSERT RESPONSE - status: ${status} ${statusText}`, {
-          data,
-          error: error ? { message: error.message, code: error.code, details: error.details } : null
-        });
-
         if (error) {
-          errors.push(`Entry: ${error.message}`);
-          logger.error('sync', `[SYNC:entries] UPLOAD ERROR - ${record.location_name}: ${error.message}`);
-          await captureSyncError(new Error(error.message), { userId, action: 'uploadRecords' });
+          errors.push(`DailyHours ${day.date}: ${error.message}`);
+          await captureSyncError(new Error(error.message), { userId, action: 'uploadDailyHours' });
         } else if (!data || data.length === 0) {
-          logger.warn('sync', `[SYNC:entries] UPLOAD WARNING - ${record.location_name}: No data returned (RLS blocking?)`);
-          errors.push(`Entry ${record.location_name}: No data returned (possible RLS issue)`);
+          errors.push(`DailyHours ${day.date}: No data returned`);
         } else {
-          await markRecordSynced(record.id);
+          markDailyHoursSynced(userId, day.date);
           count++;
-          logger.info('sync', `[SYNC:entries] UPLOAD OK - ${record.location_name} (${record.type})`);
         }
       } catch (e) {
-        errors.push(`Entry: ${e}`);
-        logger.error('sync', `❌ Upload entry exception`, { error: String(e), recordId: record.id });
-        await captureSyncError(e as Error, { userId, action: 'uploadRecords' });
+        errors.push(`DailyHours ${day.date}: ${e}`);
+        await captureSyncError(e as Error, { userId, action: 'uploadDailyHours' });
       }
     }
   } catch (error) {
+    logger.error('sync', '[SYNC:daily_hours] Error', { error: String(error) });
     errors.push(String(error));
   }
 
@@ -562,7 +501,6 @@ async function uploadRecords(userId: string): Promise<{ count: number; errors: s
 }
 
 async function uploadAnalytics(userId: string): Promise<{ count: number; errors: string[] }> {
-  // NOTE: analytics_daily table doesn't exist in Supabase - mark as synced locally only
   const errors: string[] = [];
 
   try {
@@ -572,20 +510,17 @@ async function uploadAnalytics(userId: string): Promise<{ count: number; errors:
       return { count: 0, errors };
     }
 
-    logger.debug('sync', `[SYNC:analytics] SKIP - table not in Supabase, marking ${analytics.length} days as synced locally`);
-
     for (const day of analytics) {
       await markAnalyticsSynced(day.date, day.user_id);
     }
   } catch (error) {
-    logger.error('sync', '[SYNC:analytics] Error marking local sync', { error: String(error) });
+    logger.error('sync', '[SYNC:analytics] Error', { error: String(error) });
   }
 
   return { count: 0, errors };
 }
 
 async function uploadErrors(): Promise<{ count: number; errors: string[] }> {
-  // NOTE: log_errors table doesn't exist in Supabase - mark as synced locally only
   const errors: string[] = [];
 
   try {
@@ -595,19 +530,16 @@ async function uploadErrors(): Promise<{ count: number; errors: string[] }> {
       return { count: 0, errors };
     }
 
-    logger.debug('sync', `[SYNC:errors] SKIP - table not in Supabase, marking ${errorLogs.length} items as synced locally`);
-
     const idsToMark = errorLogs.map(err => err.id);
     await markErrorsSynced(idsToMark);
   } catch (error) {
-    logger.error('sync', '[SYNC:errors] Error marking local sync', { error: String(error) });
+    logger.error('sync', '[SYNC:errors] Error', { error: String(error) });
   }
 
   return { count: 0, errors };
 }
 
 async function uploadAudit(userId: string): Promise<{ count: number; errors: string[] }> {
-  // NOTE: log_locations table doesn't exist in Supabase - mark as synced locally only
   const errors: string[] = [];
 
   try {
@@ -617,12 +549,10 @@ async function uploadAudit(userId: string): Promise<{ count: number; errors: str
       return { count: 0, errors };
     }
 
-    logger.debug('sync', `[SYNC:audit] SKIP - table not in Supabase, marking ${audits.length} items as synced locally`);
-
     const idsToMark = audits.map(audit => audit.id);
     await markAuditSynced(idsToMark);
   } catch (error) {
-    logger.error('sync', '[SYNC:audit] Error marking local sync', { error: String(error) });
+    logger.error('sync', '[SYNC:audit] Error', { error: String(error) });
   }
 
   return { count: 0, errors };
@@ -644,7 +574,7 @@ async function downloadLocations(userId: string): Promise<{ count: number; error
 
     if (error) {
       errors.push(error.message);
-      logger.error('sync', `❌ Download geofences failed`, { error: error.message, code: error.code });
+      logger.error('sync', `❌ Download geofences failed`, { error: error.message });
       return { count, errors };
     }
 
@@ -652,7 +582,6 @@ async function downloadLocations(userId: string): Promise<{ count: number; error
 
     for (const remote of data || []) {
       try {
-        // Map Supabase app_timekeeper_geofences to local schema
         await upsertLocationFromSync({
           id: remote.id,
           user_id: remote.user_id,
@@ -663,7 +592,7 @@ async function downloadLocations(userId: string): Promise<{ count: number; error
           color: remote.color,
           status: remote.status,
           deleted_at: remote.deleted_at,
-          last_seen_at: remote.last_entry_at,  // Mapped: last_entry_at → last_seen_at
+          last_seen_at: remote.last_entry_at,
           created_at: remote.created_at,
           updated_at: remote.updated_at,
           synced_at: new Date().toISOString(),
@@ -671,25 +600,21 @@ async function downloadLocations(userId: string): Promise<{ count: number; error
         count++;
       } catch (e) {
         errors.push(`Geofence ${remote.name}: ${e}`);
-        logger.error('sync', `❌ Upsert geofence failed: ${remote.name}`, { error: String(e) });
       }
     }
 
-    // After downloading locations, ensure monitoring is started if needed
     if (count > 0) {
       const { useLocationStore } = require('./locationStore');
-      await useLocationStore.getState().reloadLocations(); // Reload from SQLite first!
+      await useLocationStore.getState().reloadLocations();
       const { locations, isMonitoring, startMonitoring } = useLocationStore.getState();
 
       if (locations.length > 0 && !isMonitoring) {
         logger.info('sync', '🚀 Starting monitoring after download...');
-        setReconfiguring(true); // Abre janela
+        setReconfiguring(true);
         await startMonitoring();
 
-        // Fecha janela após 1s para permitir eventos iniciais serem queued
         setTimeout(() => {
           setReconfiguring(false);
-          logger.debug('geofence', '🔓 Reconfigure window closed');
         }, 1000);
       }
     }
@@ -700,53 +625,61 @@ async function downloadLocations(userId: string): Promise<{ count: number; error
 
   return { count, errors };
 }
-async function downloadRecords(userId: string): Promise<{ count: number; errors: string[] }> {
+
+async function downloadDailyHours(userId: string): Promise<{ count: number; errors: string[] }> {
   let count = 0;
   const errors: string[] = [];
 
   try {
     const { data, error } = await supabase
-      .from('app_timekeeper_entries')
+      .from('daily_hours')
       .select('*')
       .eq('user_id', userId);
 
     if (error) {
       errors.push(error.message);
-      logger.error('sync', `❌ Download entries failed`, { error: error.message, code: error.code });
+      logger.error('sync', `❌ Download daily_hours failed`, { error: error.message });
       return { count, errors };
     }
 
-    logger.debug('sync', `📥 ${data?.length || 0} entries from Supabase`);
+    logger.debug('sync', `📥 ${data?.length || 0} daily_hours from Supabase`);
 
     for (const remote of data || []) {
       try {
-        // Map Supabase app_timekeeper_entries to local schema
-        await upsertRecordFromSync({
+        // FIX: Supabase column is 'work_date' (not 'date'), and 'type' exists in Supabase
+        upsertDailyHoursFromSync({
           id: remote.id,
           user_id: remote.user_id,
-          location_id: remote.geofence_id,        // Mapped: geofence_id → location_id
-          location_name: remote.geofence_name,    // Mapped: geofence_name → location_name
-          entry_at: remote.entry_at,
-          exit_at: remote.exit_at,
-          type: remote.entry_method || (remote.is_manual_entry ? 'manual' : 'automatic'),  // Mapped: entry_method → type
-          manually_edited: remote.manually_edited ? 1 : 0,
-          edit_reason: remote.edit_reason,
-          integrity_hash: remote.integrity_hash,
-          device_id: remote.device_id,
-          pause_minutes: remote.pause_minutes || 0,
-          color: null,  // Not in new schema
-          created_at: remote.client_created_at || remote.created_at,  // Mapped: client_created_at → created_at
+          date: remote.work_date, // SUPABASE 'work_date' → LOCAL 'date'
+          total_minutes: remote.total_minutes,
+          break_minutes: remote.break_minutes || 0,
+          location_name: remote.location_name,
+          location_id: remote.location_id,
+          verified: remote.verified ? 1 : 0,
+          source: remote.source || 'manual',
+          type: remote.type || 'work', // Now read from Supabase
+          first_entry: remote.first_entry,
+          last_exit: remote.last_exit,
+          notes: remote.notes,
+          created_at: remote.created_at,
+          updated_at: remote.updated_at,
           synced_at: new Date().toISOString(),
         });
         count++;
       } catch (e) {
-        errors.push(`Entry: ${e}`);
-        logger.error('sync', `❌ Upsert entry failed`, { error: String(e), recordId: remote.id });
+        errors.push(`DailyHours ${remote.work_date}: ${e}`);
       }
+    }
+
+    // Reload dailyLogStore if we downloaded data
+    if (count > 0) {
+      const { useDailyLogStore } = require('./dailyLogStore');
+      await useDailyLogStore.getState().reloadToday();
+      await useDailyLogStore.getState().reloadWeek();
     }
   } catch (error) {
     errors.push(String(error));
-    logger.error('sync', `❌ Download entries exception`, { error: String(error) });
+    logger.error('sync', `❌ Download daily_hours exception`, { error: String(error) });
   }
 
   return { count, errors };

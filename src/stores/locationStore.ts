@@ -1,13 +1,14 @@
 /**
- * Location Store - OnSite Timekeeper V2
- * 
+ * Location Store - OnSite Timekeeper V3
+ *
  * Manages geofences and handles entry/exit events.
- * BACKWARD COMPATIBLE with V1 API
- * 
- * FIX: Added auto-start monitoring on initialize
- * FIX: Added setReconfiguring to suppress phantom events during fence restart
- * FIX: Added reconcile callback to check actual state when window closes
- * FIX: Added currentFenceId to track physical presence inside fence (START button fix)
+ * Uses active_tracking table and daily_hours as source of truth.
+ *
+ * V3 CHANGES:
+ * - Removed records dependency (uses exitHandler instead)
+ * - activeSession now uses ActiveTracking type
+ * - handleGeofenceEvent calls exitHandler directly
+ * - Manual entry/exit uses onGeofenceEnter/onManualExit
  */
 
 import { create } from 'zustand';
@@ -32,12 +33,7 @@ import {
   updateLocation,
   removeLocation as removeLocationDb,
   updateLastSeen,
-  // Records
-  createEntryRecord,
-  registerExit,
-  getOpenSession,
-  getGlobalActiveSession,
-  // V2: New imports
+  // V2: Observability
   trackMetric,
   trackGeofenceTrigger,
   trackFeatureUsed,
@@ -46,12 +42,16 @@ import {
   captureGeofenceError,
   // Types
   type LocationDB,
-  type RecordDB,
 } from '../lib/database';
 import {
-  startHeartbeat,
-  stopHeartbeat,
-} from '../lib/backgroundTasks';
+  // V3: Exit handler (replaces records)
+  onGeofenceEnter,
+  onGeofenceExit,
+  onManualExit,
+  hasActiveTracking,
+  getActiveTrackingState,
+  type ActiveTracking,
+} from '../lib/exitHandler';
 import {
   updateActiveFences,
   addToSkippedToday,
@@ -62,8 +62,8 @@ import { setReconfiguring } from '../lib/geofenceLogic';
 import type { GeofenceEvent } from '../lib/backgroundTypes';
 import { useAuthStore } from './authStore';
 import { useSyncStore } from './syncStore';
-import { useWorkSessionStore } from './workSessionStore';
-import { useRecordStore } from './recordStore';
+// NOTE: WorkSessionStore removed in V3 - now using exitHandler directly
+import { useDailyLogStore } from './dailyLogStore';
 import { useSettingsStore } from './settingsStore';
 
 // ============================================
@@ -116,10 +116,10 @@ export interface LocationState {
   isLoading: boolean;
   isMonitoring: boolean;
   currentLocation: LocationCoords | null;
-  activeSession: RecordDB | null;
+  activeSession: ActiveTracking | null; // V3: Now uses active_tracking table
   permissionStatus: 'unknown' | 'granted' | 'denied' | 'restricted';
   lastGeofenceEvent: GeofenceEvent | null;
-  currentFenceId: string | null; // NEW: Track which fence user is physically inside
+  currentFenceId: string | null; // Track which fence user is physically inside
   
   // Timer configs (from settings)
   entryTimeout: number;
@@ -251,18 +251,12 @@ export const useLocationStore = create<LocationState>((set, get) => ({
         }
       }  // <- fecha o if (location)
 
-      // Initialize work session store (notifications + pending action flow)
-      await useWorkSessionStore.getState().initialize();
-
       // NOTE: Callbacks are registered in bootstrap.ts (singleton pattern)
       // DO NOT register here to avoid duplicates
 
-      // Check for active session
-      const userId = useAuthStore.getState().getUserId();
-      if (userId) {
-        const session = await getGlobalActiveSession(userId);
-        set({ activeSession: session });
-      }
+      // V3: Check for active tracking (replaced records-based session)
+      const activeTracking = getActiveTrackingState();
+      set({ activeSession: activeTracking });
 
       // ============================================
       // AUTO-START MONITORING (NEW!)
@@ -546,11 +540,11 @@ export const useLocationStore = create<LocationState>((set, get) => ({
     if (!userId) throw new Error('User not authenticated');
 
     try {
-      // Check for active session
-      const session = await getOpenSession(userId, id);
-      if (session) {
-        // Register exit first
-        await registerExit(userId, id);
+      // V3: Check if tracking this location and trigger exit
+      const activeTracking = getActiveTrackingState();
+      if (activeTracking && activeTracking.location_id === id) {
+        const location = await getLocationById(id);
+        await onGeofenceExit(userId, id, location?.name || 'Unknown');
       }
 
       await removeLocationDb(userId, id);
@@ -560,7 +554,7 @@ export const useLocationStore = create<LocationState>((set, get) => ({
 
       // Reload and restart monitoring
       await get().reloadLocations();
-      
+
       if (get().isMonitoring) {
         // Use restartMonitoring to suppress phantom events
         await get().restartMonitoring();
@@ -569,12 +563,11 @@ export const useLocationStore = create<LocationState>((set, get) => ({
       // Sync to cloud
       await useSyncStore.getState().syncLocationsOnly();
 
-      // Update active session state
-      const newSession = await getGlobalActiveSession(userId);
-      set({ activeSession: newSession });
+      // V3: Update active session state from active_tracking
+      set({ activeSession: getActiveTrackingState() });
 
-      // Notify record store
-      useRecordStore.getState().reloadData?.();
+      // Notify daily log store
+      useDailyLogStore.getState().reloadToday();
 
       logger.info('database', `🗑️ Location deleted: ${id}`);
     } catch (error) {
@@ -620,9 +613,6 @@ export const useLocationStore = create<LocationState>((set, get) => ({
       // Start background location
       await startBackgroundLocation();
 
-      // Start heartbeat
-      await startHeartbeat();
-
       // Save state for next app launch
       await saveMonitoringState(true);
 
@@ -642,7 +632,6 @@ export const useLocationStore = create<LocationState>((set, get) => ({
     try {
       await stopGeofencing();
       await stopBackgroundLocation();
-      await stopHeartbeat();
 
       // Save state for next app launch
       await saveMonitoringState(false);
@@ -682,7 +671,6 @@ export const useLocationStore = create<LocationState>((set, get) => ({
       // Stop everything
       await stopGeofencing();
       await stopBackgroundLocation();
-      await stopHeartbeat();
 
       // Small delay to let OS process the stop
       await new Promise(resolve => setTimeout(resolve, 100));
@@ -699,7 +687,6 @@ export const useLocationStore = create<LocationState>((set, get) => ({
 
       await startGeofencing(regions);
       await startBackgroundLocation();
-      await startHeartbeat();
 
       set({ isMonitoring: true });
       logger.info('geofence', `🔄 Monitoring restarted (${locations.length} fences)`);
@@ -766,46 +753,37 @@ export const useLocationStore = create<LocationState>((set, get) => ({
       // Check which fence we're in (if any)
       const { isInside, fence } = await checkInsideFence(latitude, longitude, userId, false);
 
-      // Get current session
-      const activeSession = await getGlobalActiveSession(userId);
+      // V3: Get current tracking state
+      const activeTracking = getActiveTrackingState();
 
       logger.debug('geofence', 'Reconcile state', {
         isInside,
         fence: fence?.name,
-        activeSession: activeSession?.location_name,
+        activeTracking: activeTracking?.location_name,
       });
 
-      // Case 1: Inside a fence but no session → defer to WorkSessionStore (pending flow)
-      const sessionFlow = useWorkSessionStore.getState();
-      const payloadCoords = { latitude, longitude, accuracy: location.accuracy ?? undefined };
-
-      if (isInside && fence && !activeSession) {
-        logger.info('geofence', `🧭 Reconcile: inside ${fence.name} with no session — pending entry flow`);
-        set({ currentFenceId: fence.id }); // NEW: Update currentFenceId
-        await sessionFlow.handleGeofenceEnter(fence.id, fence.name, payloadCoords);
+      // Case 1: Inside a fence but no tracking → trigger entry
+      if (isInside && fence && !activeTracking) {
+        logger.info('geofence', `🧭 Reconcile: inside ${fence.name} with no tracking — triggering entry`);
+        set({ currentFenceId: fence.id });
+        await onGeofenceEnter(userId, fence.id, fence.name);
       }
 
-      // Case 2: Outside all fences but have session → defer to WorkSessionStore (pending exit flow)
-      else if (!isInside && activeSession) {
-        logger.info('geofence', `🧭 Reconcile: outside with active session — pending exit flow`);
-        set({ currentFenceId: null }); // NEW: Clear currentFenceId
-        await sessionFlow.handleGeofenceExit(
-          activeSession.location_id,
-          activeSession.location_name || 'Unknown',
-          payloadCoords
-        );
+      // Case 2: Outside all fences but tracking → trigger exit
+      else if (!isInside && activeTracking) {
+        logger.info('geofence', `🧭 Reconcile: outside with active tracking — triggering exit`);
+        set({ currentFenceId: null });
+        await onGeofenceExit(userId, activeTracking.location_id, activeTracking.location_name);
       }
 
       // Case 3: Already consistent
       else {
         logger.info('geofence', `✅ Reconcile: State already consistent`);
-        // NEW: Update currentFenceId based on reconcile result
         set({ currentFenceId: isInside && fence ? fence.id : null });
       }
 
-      // Refresh active session from DB (best-effort)
-      const refreshed = await getGlobalActiveSession(userId);
-      set({ activeSession: refreshed });
+      // V3: Refresh active session from active_tracking
+      set({ activeSession: getActiveTrackingState() });
 
 
 } catch (error) {
@@ -863,20 +841,15 @@ handleGeofenceEvent: async (event) => {
     await trackGeofenceTrigger(userId, coords?.accuracy ?? null);
 
     try {
-      const sessionFlow = useWorkSessionStore.getState();
-      const payloadCoords = coords
-        ? {
-            latitude: coords.coords.latitude,
-            longitude: coords.coords.longitude,
-            accuracy: coords.accuracy ?? undefined,
-          }
-        : undefined;
-
+      // V3: Call exitHandler directly (simplified flow)
       if (event.type === 'enter') {
-        await sessionFlow.handleGeofenceEnter(location.id, location.name, payloadCoords);
+        await onGeofenceEnter(userId, location.id, location.name);
       } else if (event.type === 'exit') {
-        await sessionFlow.handleGeofenceExit(location.id, location.name, payloadCoords);
+        await onGeofenceExit(userId, location.id, location.name);
       }
+
+      // V3: Update active session state
+      set({ activeSession: getActiveTrackingState() });
     } catch (error) {
       logger.error('geofence', 'Error handling geofence event', { error: String(error) });
       
@@ -890,7 +863,7 @@ handleGeofenceEvent: async (event) => {
   },
 
   // ============================================
-  // MANUAL ENTRY
+  // MANUAL ENTRY (V3: uses exitHandler)
   // ============================================
   handleManualEntry: async (locationId) => {
     const userId = useAuthStore.getState().getUserId();
@@ -899,23 +872,16 @@ handleGeofenceEvent: async (event) => {
     const location = await getLocationById(locationId);
     if (!location) throw new Error('Location not found');
 
-    // Check for existing session
-    const existingSession = await getOpenSession(userId, locationId);
-    if (existingSession) {
+    // V3: Check for existing tracking
+    if (hasActiveTracking()) {
       throw new Error('Session already active');
     }
 
-    // V2: Track feature usage
+    // Track feature usage
     await trackFeatureUsed(userId, 'manual_entry');
 
-    // Create manual entry
-    const sessionId = await createEntryRecord({
-      userId,
-      locationId: location.id,
-      locationName: location.name,
-      type: 'manual',
-      color: location.color,
-    });
+    // V3: Use exitHandler to start tracking (same as geofence enter)
+    await onGeofenceEnter(userId, location.id, location.name);
 
     // Get GPS for audit (best effort)
     try {
@@ -928,29 +894,22 @@ handleGeofenceEvent: async (event) => {
           coords.accuracy ?? null,
           location.id,
           location.name,
-          sessionId
+          null // No session ID in V3
         );
       }
     } catch (e) {
       logger.warn('geofence', 'Could not record GPS audit for manual entry');
     }
 
-    // Update state
-    const session = await getGlobalActiveSession(userId);
-    set({ activeSession: session });
-
-    // Notify record store
-    useRecordStore.getState().reloadData?.();
-
-    // Sync
-    await useSyncStore.getState().syncRecordsOnly();
+    // V3: Update state from active_tracking
+    set({ activeSession: getActiveTrackingState(), currentFenceId: location.id });
 
     logger.info('geofence', `✅ Manual entry: ${location.name}`);
-    return sessionId;
+    return location.id; // Return location ID instead of session ID
   },
 
   // ============================================
-  // MANUAL EXIT
+  // MANUAL EXIT (V3: uses exitHandler)
   // ============================================
   handleManualExit: async (locationId) => {
     const userId = useAuthStore.getState().getUserId();
@@ -959,8 +918,9 @@ handleGeofenceEvent: async (event) => {
     const location = await getLocationById(locationId);
     if (!location) throw new Error('Location not found');
 
-    const session = await getOpenSession(userId, locationId);
-    if (!session) {
+    // V3: Check for active tracking
+    const tracking = getActiveTrackingState();
+    if (!tracking || tracking.location_id !== locationId) {
       throw new Error('No active session');
     }
 
@@ -975,25 +935,18 @@ handleGeofenceEvent: async (event) => {
           coords.accuracy ?? null,
           location.id,
           location.name,
-          session.id
+          null // No session ID in V3
         );
       }
     } catch (e) {
       logger.warn('geofence', 'Could not record GPS audit for manual exit');
     }
 
-    // Register exit
-    await registerExit(userId, locationId);
+    // V3: Use exitHandler for immediate exit (no cooldown)
+    await onManualExit(userId, locationId, location.name);
 
-    // Update state
-    const newSession = await getGlobalActiveSession(userId);
-    set({ activeSession: newSession });
-
-    // Notify record store
-    useRecordStore.getState().reloadData?.();
-
-    // Sync
-    await useSyncStore.getState().syncRecordsOnly();
+    // V3: Update state from active_tracking
+    set({ activeSession: getActiveTrackingState(), currentFenceId: null });
 
     logger.info('geofence', `✅ Manual exit: ${location.name}`);
   },
@@ -1007,15 +960,11 @@ handleGeofenceEvent: async (event) => {
 
     await addToSkippedToday(locationId);
 
-    // If there's an active session for this location, end it
-    const session = await getOpenSession(userId, locationId);
-    if (session) {
-      await registerExit(userId, locationId);
-      
-      const newSession = await getGlobalActiveSession(userId);
-      set({ activeSession: newSession });
-      
-      useRecordStore.getState().reloadData?.();
+    // V3: If tracking this location, end it
+    const tracking = getActiveTrackingState();
+    if (tracking && tracking.location_id === locationId) {
+      await onManualExit(userId, locationId, tracking.location_name);
+      set({ activeSession: getActiveTrackingState(), currentFenceId: null });
     }
 
     logger.info('geofence', `😴 Location skipped for today: ${locationId}`);

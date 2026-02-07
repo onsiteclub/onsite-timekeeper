@@ -9,7 +9,23 @@
       "Bash(npx expo install:*)",
       "Bash(git remote:*)",
       "Bash(git remote add:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(gh:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx expo lint:*)",
+      "Bash(npx expo:*)",
+      "Bash(node -e:*)",
+      "Bash(npx eslint:*)",
+      "Bash(npm run typecheck:*)",
+      "Bash(ls:*)",
+      "Bash(timeout:*)",
+      "Bash(ping:*)",
+      "Bash(findstr:*)",
+      "Bash(dir:*)",
+      "Bash(del \"c:\\\\Dev\\\\Onsite-club\\\\onsite-timekeeper\\\\src\\\\stores\\\\sessionActions.ts\")",
+      "Bash(grep:*)"
     ]
   }
 }

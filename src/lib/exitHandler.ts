@@ -1,607 +1,302 @@
 /**
- * Exit Handler - OnSite Timekeeper v2
+ * Tracking Handler - OnSite Timekeeper v3
  *
- * CONFIGURABLE TIMEOUT SYSTEM:
- * - Entry: Wait X minutes (entryTimeoutMinutes) before registering
- * - Exit: Register immediately, apply adjustment (exitAdjustmentMinutes) on last session
- * - End of day: Show summary notification after 45 min without return
- *
- * User can cancel pending entry by leaving before timeout expires.
+ * Geofence flow:
+ * - ENTER: Save to active_tracking (SQLite singleton)
+ * - EXIT: 60s cooldown, then calculate duration and update daily_hours
+ * - RE-ENTRY during cooldown: Cancel exit, continue tracking
  */
 
 import { logger } from './logger';
-import { registerExit, handleSessionMerge, getOpenSession } from './database/records';
-import { createEntryRecord } from './database/records';
+import { db, getToday } from './database/core';
 import { useSyncStore } from '../stores/syncStore';
-import { useRecordStore } from '../stores/recordStore';
 import { useDailyLogStore } from '../stores/dailyLogStore';
-import { showArrivalNotification, showEndOfDayNotification, showPendingEntryNotification, cancelNotification } from './notifications';
-import { db, type RecordDB, calculateDuration, getToday } from './database/core';
-import { useSettingsStore } from '../stores/settingsStore';
-import {
-  upsertDailyHours,
-  addMinutesToDay,
-  getDailyHours,
-  formatTimeHHMM,
-  getDateString,
-} from './database/daily';
+import { showArrivalNotification, showEndOfDayNotification } from './notifications';
+import { upsertDailyHours, getDailyHours, formatTimeHHMM } from './database/daily';
 
 // ============================================
 // CONSTANTS
 // ============================================
 
-const END_OF_DAY_TIMEOUT_MS = 45 * 60 * 1000; // 45 minutes
+const EXIT_COOLDOWN_MS = 60 * 1000; // 60 seconds
 
 // ============================================
-// STATE MANAGEMENT
+// STATE
 // ============================================
 
-interface PendingEntry {
-  userId: string;
+interface PendingExit {
   locationId: string;
   locationName: string;
-  timeoutId: NodeJS.Timeout;
-  notificationId?: string;
-  entryTime: Date;
-}
-
-interface PendingExitNotification {
-  locationId: string;
-  locationName: string;
-  timeoutId: NodeJS.Timeout;
   exitTime: Date;
+  timeoutId: NodeJS.Timeout;
 }
 
-// Map of locationId → PendingEntry (waiting to register)
-const pendingEntries = new Map<string, PendingEntry>();
-
-// Map of locationId → PendingExitNotification (kept for backward compat)
-const pendingExitNotifications = new Map<string, PendingExitNotification>();
-
-// Map for end-of-day timers
-const endOfDayTimers = new Map<string, NodeJS.Timeout>();
+const pendingExits = new Map<string, PendingExit>();
 
 // ============================================
-// EXIT HANDLER
+// ACTIVE TRACKING (SQLite singleton)
 // ============================================
 
-/**
- * Handle geofence exit
- * 1. Cancel any pending entry (user left before timeout)
- * 2. Register exit immediately (no adjustment - adjustment only on final exit)
- * 3. Update daily_hours with session duration
- * 4. Schedule end-of-day check (45 min without return)
- */
-export async function handleExitWithDelay(
-  userId: string,
-  locationId: string,
-  locationName: string
-): Promise<void> {
+export interface ActiveTracking {
+  location_id: string;
+  location_name: string;
+  enter_at: string;
+}
+
+function getActiveTracking(): ActiveTracking | null {
   try {
-    // 0. CANCEL PENDING ENTRY if user left before timeout expired
-    const wasPending = await cancelPendingEntry(locationId);
-    if (wasPending) {
-      logger.info('session', `🚶 User left before entry confirmed: ${locationName}`);
-      // Don't register exit since session was never started
-      return;
-    }
-
-    // Get session duration BEFORE registering exit
-    const session = await getOpenSession(userId, locationId);
-    let sessionDuration = 0;
-    if (session) {
-      sessionDuration = calculateDuration(session.entry_at, new Date().toISOString());
-    }
-
-    // 1. REGISTER EXIT IMMEDIATELY (no adjustment - applied only on final exit)
-    await registerExit(userId, locationId, 0);
-
-    // 2. UPDATE daily_hours with session duration
-    const today = getToday();
-    const exitTime = formatTimeHHMM(new Date());
-
-    if (sessionDuration > 0) {
-      addMinutesToDay(userId, today, sessionDuration, exitTime);
-      logger.info('session', `📅 daily_hours updated: +${sessionDuration}min, last_exit: ${exitTime}`);
-    }
-
-    // Refresh UI state
-    useRecordStore.getState().reloadData?.();
-    useDailyLogStore.getState().reloadToday();
-    useDailyLogStore.getState().resetTracking();
-
-    logger.info('session', `📤 Exit registered: ${locationName}`);
-
-    // 3. SYNC TO SUPABASE (don't block)
-    useSyncStore.getState().syncRecordsOnly().catch(e =>
-      logger.warn('sync', 'Exit sync failed (will retry)', { error: String(e) })
+    return db.getFirstSync<ActiveTracking>(
+      `SELECT location_id, location_name, enter_at FROM active_tracking WHERE id = 'current'`
     );
-
-    // 4. Schedule end-of-day check (45 min without return)
-    scheduleEndOfDayCheck(userId, locationId, locationName);
-
-    logger.info('session', `⏱️ End-of-day check scheduled (45 min): ${locationName}`);
-
-  } catch (error) {
-    logger.error('session', 'Error handling exit', { error: String(error), locationName });
+  } catch {
+    return null;
   }
 }
 
-/**
- * Handle geofence enter - WITH CONFIGURABLE DELAY
- * 1. Cancel end-of-day timer (user returned)
- * 2. Check session merge (immediate if returning)
- * 3. For new sessions: wait entryTimeoutMinutes before registering
- */
-export async function handleEnterWithMerge(
+function setActiveTracking(locationId: string, locationName: string): void {
+  const now = new Date().toISOString();
+  db.runSync(
+    `INSERT OR REPLACE INTO active_tracking (id, location_id, location_name, enter_at, created_at)
+     VALUES ('current', ?, ?, ?, ?)`,
+    [locationId, locationName, now, now]
+  );
+}
+
+function clearActiveTracking(): void {
+  db.runSync(`DELETE FROM active_tracking WHERE id = 'current'`);
+}
+
+// ============================================
+// GEOFENCE ENTER
+// ============================================
+
+export async function onGeofenceEnter(
   userId: string,
   locationId: string,
   locationName: string
 ): Promise<void> {
-  try {
-    // 1. Cancel end-of-day timer (user returned before 45 min)
-    cancelEndOfDayCheck(userId, locationId);
+  logger.info('session', `🚶 ENTER: ${locationName}`);
 
-    // Also cancel legacy pending notification
-    await cancelExitNotification(locationId);
-
-    // 2. Check if we can merge sessions
-    const mergeResult = await handleSessionMerge(userId, locationId, locationName);
-
-    switch (mergeResult) {
-      case 'already_active':
-        logger.info('session', `✅ Session already active: ${locationName}`);
-        useRecordStore.getState().reloadData?.();
-        // Cancel any pending entry (already active)
-        await cancelPendingEntry(locationId);
-        break;
-
-      case 'merged':
-        logger.info('session', `🔄 Session merged silently: ${locationName}`);
-        useRecordStore.getState().reloadData?.();
-
-        // SYNC TO SUPABASE (don't block)
-        useSyncStore.getState().syncRecordsOnly().catch(e =>
-          logger.warn('sync', 'Merge sync failed (will retry)', { error: String(e) })
-        );
-        // Cancel any pending entry (merged)
-        await cancelPendingEntry(locationId);
-        break;
-
-      case 'new_session':
-        // Get entry timeout from settings
-        const entryTimeoutMinutes = useSettingsStore.getState().entryTimeoutMinutes || 0;
-
-        if (entryTimeoutMinutes <= 0) {
-          // IMMEDIATE - no delay
-          await createNewSession(userId, locationId, locationName);
-        } else {
-          // DELAYED - schedule entry after timeout
-          await schedulePendingEntry(userId, locationId, locationName, entryTimeoutMinutes);
-        }
-        break;
-    }
-
-  } catch (error) {
-    logger.error('session', 'Error handling enter', { error: String(error), locationName });
+  // 1. Cancel any pending exit for this location (re-entry during cooldown)
+  const pending = pendingExits.get(locationId);
+  if (pending) {
+    clearTimeout(pending.timeoutId);
+    pendingExits.delete(locationId);
+    logger.info('session', `↩️ Re-entry during cooldown, continuing tracking: ${locationName}`);
+    return; // Continue existing tracking, don't create new
   }
-}
 
-/**
- * Create new session immediately
- */
-async function createNewSession(
-  userId: string,
-  locationId: string,
-  locationName: string
-): Promise<void> {
-  logger.info('session', `📝 Creating new session: ${locationName}`);
+  // 2. Check if already tracking (shouldn't happen, but handle gracefully)
+  const existing = getActiveTracking();
+  if (existing && existing.location_id === locationId) {
+    logger.info('session', `⚠️ Already tracking this location: ${locationName}`);
+    return;
+  }
 
-  // Check if this is the first entry of the day for this location
-  const isFirstEntry = await checkFirstEntryToday(userId, locationId);
+  // 3. If tracking a different location, close that one first
+  if (existing && existing.location_id !== locationId) {
+    logger.info('session', `⚠️ Switching locations: ${existing.location_name} → ${locationName}`);
+    await confirmExit(userId, existing.location_id, existing.location_name, existing.enter_at, new Date());
+  }
+
+  // 4. Save new tracking entry
+  setActiveTracking(locationId, locationName);
+  logger.info('session', `✅ Tracking started: ${locationName}`);
+
+  // 5. Check if this is first entry of the day
   const today = getToday();
-  const entryTime = formatTimeHHMM(new Date());
-
-  // Create new entry record (records table - GPS audit trail)
-  await createEntryRecord({
-    userId,
-    locationId,
-    locationName,
-    type: 'automatic'
-  });
-
-  // UPDATE daily_hours: Set first_entry if this is the first entry of the day
   const existingDaily = getDailyHours(userId, today);
-  if (!existingDaily) {
-    // First GPS entry of the day - create daily_hours record
+  const isFirstEntry = !existingDaily || !existingDaily.first_entry;
+
+  // 6. Update daily_hours with first_entry if needed
+  if (isFirstEntry) {
+    const entryTime = formatTimeHHMM(new Date());
     upsertDailyHours({
       userId,
       date: today,
-      totalMinutes: 0, // Will be updated on exit
+      totalMinutes: existingDaily?.total_minutes || 0,
       locationName,
       locationId,
       verified: true,
       source: 'gps',
       firstEntry: entryTime,
     });
-    logger.info('session', `📅 daily_hours created with first_entry: ${entryTime}`);
-  } else if (!existingDaily.first_entry) {
-    // Daily record exists (manual entry?) but no first_entry - update it
-    upsertDailyHours({
-      userId,
-      date: today,
-      totalMinutes: existingDaily.total_minutes,
-      firstEntry: entryTime,
-      verified: true,
-      source: 'gps',
-    });
-    logger.info('session', `📅 daily_hours updated with GPS first_entry: ${entryTime}`);
+    logger.info('session', `📅 First entry of day: ${entryTime}`);
   }
 
-  // Refresh UI state
-  useRecordStore.getState().reloadData?.();
-  useDailyLogStore.getState().reloadToday();
-
-  // Start tracking in dailyLogStore (for timer UI)
-  useDailyLogStore.getState().startTracking(locationId, locationName);
-
-  // SYNC TO SUPABASE (don't block)
-  useSyncStore.getState().syncRecordsOnly().catch(e =>
-    logger.warn('sync', 'Entry sync failed (will retry)', { error: String(e) })
-  );
-
-  // ONLY notify on FIRST entry of the day
+  // 7. Notification only on first entry of the day
   if (isFirstEntry) {
     await showArrivalNotification(locationName);
-    logger.info('session', `📬 First entry notification: ${locationName}`);
-  } else {
-    logger.info('session', `🔇 Subsequent entry (silent): ${locationName}`);
   }
+
+  // 8. Refresh UI
+  useDailyLogStore.getState().reloadToday();
+  useDailyLogStore.getState().startTracking(locationId, locationName);
 }
 
-/**
- * Schedule pending entry with timeout
- */
-async function schedulePendingEntry(
+// ============================================
+// GEOFENCE EXIT
+// ============================================
+
+export async function onGeofenceExit(
+  userId: string,
+  locationId: string,
+  locationName: string
+): Promise<void> {
+  logger.info('session', `🚶 EXIT: ${locationName}`);
+
+  // 1. Check if we're tracking this location
+  const tracking = getActiveTracking();
+  if (!tracking || tracking.location_id !== locationId) {
+    logger.warn('session', `⚠️ Exit without active tracking: ${locationName}`);
+    return;
+  }
+
+  // 2. Cancel any existing pending exit for this location
+  const existingPending = pendingExits.get(locationId);
+  if (existingPending) {
+    clearTimeout(existingPending.timeoutId);
+  }
+
+  // 3. Schedule exit with 60s cooldown
+  const exitTime = new Date();
+  const timeoutId = setTimeout(async () => {
+    await confirmExit(userId, locationId, locationName, tracking.enter_at, exitTime);
+    pendingExits.delete(locationId);
+  }, EXIT_COOLDOWN_MS);
+
+  pendingExits.set(locationId, {
+    locationId,
+    locationName,
+    exitTime,
+    timeoutId,
+  });
+
+  logger.info('session', `⏳ Exit cooldown started (60s): ${locationName}`);
+}
+
+// ============================================
+// CONFIRM EXIT (after cooldown)
+// ============================================
+
+async function confirmExit(
   userId: string,
   locationId: string,
   locationName: string,
-  timeoutMinutes: number
+  enterAt: string,
+  exitTime: Date
 ): Promise<void> {
-  // Cancel existing pending entry if any
-  await cancelPendingEntry(locationId);
+  logger.info('session', `✅ Exit confirmed: ${locationName}`);
 
-  const timeoutMs = timeoutMinutes * 60 * 1000;
+  // 1. Calculate duration
+  const entryTime = new Date(enterAt);
+  const durationMs = exitTime.getTime() - entryTime.getTime();
+  const durationMinutes = Math.max(0, Math.round(durationMs / 60000));
 
-  logger.info('session', `⏳ Pending entry scheduled: ${locationName} (${timeoutMinutes} min)`);
+  logger.info('session', `⏱️ Duration: ${durationMinutes} minutes`);
 
-  // Show notification about pending entry
-  const notificationId = await showPendingEntryNotification(locationName, timeoutMinutes);
+  // 2. Clear active tracking
+  clearActiveTracking();
 
-  // Schedule the actual entry
-  const timeoutId = setTimeout(async () => {
-    try {
-      // Remove from pending
-      pendingEntries.delete(locationId);
+  // 3. Update daily_hours
+  const today = getToday();
+  const existingDaily = getDailyHours(userId, today);
+  const totalMinutes = (existingDaily?.total_minutes || 0) + durationMinutes;
+  const exitTimeStr = formatTimeHHMM(exitTime);
 
-      // Cancel the notification
-      if (notificationId) {
-        await cancelNotification(notificationId);
-      }
-
-      // Create the session
-      await createNewSession(userId, locationId, locationName);
-
-      logger.info('session', `✅ Pending entry confirmed: ${locationName}`);
-    } catch (error) {
-      logger.error('session', 'Error confirming pending entry', { error: String(error) });
-    }
-  }, timeoutMs);
-
-  // Store pending entry
-  pendingEntries.set(locationId, {
+  upsertDailyHours({
     userId,
-    locationId,
+    date: today,
+    totalMinutes,
     locationName,
-    timeoutId,
-    notificationId: notificationId || undefined,
-    entryTime: new Date(),
+    locationId,
+    verified: true,
+    source: 'gps',
+    firstEntry: existingDaily?.first_entry || formatTimeHHMM(entryTime),
+    lastExit: exitTimeStr,
   });
-}
 
-/**
- * Cancel pending entry (user left before timeout)
- */
-export async function cancelPendingEntry(locationId: string): Promise<boolean> {
-  const pending = pendingEntries.get(locationId);
+  logger.info('session', `📅 daily_hours updated: total=${totalMinutes}min, last_exit=${exitTimeStr}`);
 
-  if (pending) {
-    clearTimeout(pending.timeoutId);
+  // 4. Notification with total hours
+  const hours = Math.floor(totalMinutes / 60);
+  const mins = totalMinutes % 60;
+  await showEndOfDayNotification(hours, mins, locationName);
 
-    if (pending.notificationId) {
-      await cancelNotification(pending.notificationId);
-    }
+  // 5. Refresh UI
+  useDailyLogStore.getState().reloadToday();
+  useDailyLogStore.getState().resetTracking();
 
-    pendingEntries.delete(locationId);
-
-    logger.info('session', `❌ Pending entry cancelled: ${pending.locationName}`);
-    return true;
-  }
-
-  return false;
+  // 6. Sync (non-blocking)
+  useSyncStore.getState().syncNow().catch(e =>
+    logger.warn('sync', 'Exit sync failed (will retry)', { error: String(e) })
+  );
 }
 
 // ============================================
-// NOTIFICATION HELPERS
+// MANUAL EXIT (immediate, no cooldown)
 // ============================================
 
-/**
- * Cancel pending exit notification if exists
- * Returns true if notification was cancelled
- */
-export async function cancelExitNotification(locationId: string): Promise<boolean> {
-  const pending = pendingExitNotifications.get(locationId);
-  
-  if (pending) {
-    clearTimeout(pending.timeoutId);
-    pendingExitNotifications.delete(locationId);
-    
-    logger.debug('session', `❌ Exit notification cancelled: ${pending.locationName}`);
-    return true;
-  }
-  
-  return false;
-}
-
-// ============================================
-// FIRST ENTRY CHECK
-// ============================================
-
-/**
- * Check if this is the first entry of the day for this location
- */
-async function checkFirstEntryToday(userId: string, locationId: string): Promise<boolean> {
-  try {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const todayStr = today.toISOString();
-
-    const existingSession = db.getFirstSync<RecordDB>(
-      `SELECT id FROM records WHERE user_id = ? AND location_id = ? AND entry_at >= ? LIMIT 1`,
-      [userId, locationId, todayStr]
-    );
-
-    return !existingSession;
-  } catch (error) {
-    logger.error('session', 'Error checking first entry', { error: String(error) });
-    return true; // Default to showing notification on error
-  }
-}
-
-// ============================================
-// END OF DAY DETECTION
-// ============================================
-
-/**
- * Schedule end-of-day check (45 min without return)
- */
-function scheduleEndOfDayCheck(userId: string, locationId: string, locationName: string): void {
-  const key = `${userId}_${locationId}`;
-
-  // Cancel existing timer if any
-  if (endOfDayTimers.has(key)) {
-    clearTimeout(endOfDayTimers.get(key)!);
-  }
-
-  // Schedule new timer
-  const timer = setTimeout(async () => {
-    try {
-      // Verify user hasn't returned (no active session)
-      const activeSession = await getOpenSession(userId, locationId);
-      if (!activeSession) {
-        // END OF DAY - Generate summary and notify
-        await generateDailySummary(userId, locationId, locationName);
-      } else {
-        logger.info('session', `⏱️ End-of-day cancelled (session active): ${locationName}`);
-      }
-    } catch (error) {
-      logger.error('session', 'Error in end-of-day check', { error: String(error) });
-    } finally {
-      endOfDayTimers.delete(key);
-    }
-  }, END_OF_DAY_TIMEOUT_MS);
-
-  endOfDayTimers.set(key, timer);
-}
-
-/**
- * Cancel end-of-day check (user returned)
- */
-function cancelEndOfDayCheck(userId: string, locationId: string): void {
-  const key = `${userId}_${locationId}`;
-  if (endOfDayTimers.has(key)) {
-    clearTimeout(endOfDayTimers.get(key)!);
-    endOfDayTimers.delete(key);
-    logger.info('session', `⏱️ End-of-day check cancelled (user returned)`);
-  }
-}
-
-// ============================================
-// DAILY SUMMARY
-// ============================================
-
-interface DailySummary {
-  date: string;
-  locationId: string;
-  locationName: string;
-  firstEntry: string;
-  lastExit: string;
-  totalMinutes: number;
-  totalBreakMinutes: number;
-  sessionsCount: number;
-}
-
-/**
- * Generate daily summary and show end-of-day notification
- * Also finalizes the daily_hours record with exit adjustment applied
- */
-async function generateDailySummary(
+export async function onManualExit(
   userId: string,
   locationId: string,
   locationName: string
-): Promise<DailySummary | null> {
-  try {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const todayStr = today.toISOString().split('T')[0];
+): Promise<void> {
+  logger.info('session', `🛑 MANUAL EXIT: ${locationName}`);
 
-    // Get exit adjustment from settings
-    const exitAdjustment = useSettingsStore.getState().exitAdjustmentMinutes || 10;
-
-    // Fetch all completed sessions for today at this location
-    const sessions = db.getAllSync<RecordDB>(
-      `SELECT * FROM records
-       WHERE user_id = ?
-         AND location_id = ?
-         AND DATE(entry_at) = ?
-         AND exit_at IS NOT NULL
-       ORDER BY entry_at ASC`,
-      [userId, locationId, todayStr]
-    );
-
-    if (sessions.length === 0) {
-      logger.info('session', `📊 No completed sessions for summary: ${locationName}`);
-      return null;
-    }
-
-    // Calculate totals
-    const firstEntry = sessions[0].entry_at;
-    const lastExit = sessions[sessions.length - 1].exit_at!;
-
-    let totalMinutes = 0;
-    let totalBreakMinutes = 0;
-
-    for (let i = 0; i < sessions.length; i++) {
-      const session = sessions[i];
-      let duration = calculateDuration(session.entry_at, session.exit_at);
-
-      // Apply exit adjustment ONLY to the last session
-      if (i === sessions.length - 1) {
-        duration = Math.max(0, duration - exitAdjustment);
-      }
-
-      totalMinutes += Math.max(0, duration - (session.pause_minutes || 0));
-      totalBreakMinutes += session.pause_minutes || 0;
-    }
-
-    const summary: DailySummary = {
-      date: todayStr,
-      locationId,
-      locationName,
-      firstEntry,
-      lastExit,
-      totalMinutes,
-      totalBreakMinutes,
-      sessionsCount: sessions.length,
-    };
-
-    // FINALIZE daily_hours with adjusted totals (applying exit adjustment)
-    const firstEntryTime = formatTimeHHMM(new Date(firstEntry));
-    const lastExitTime = formatTimeHHMM(new Date(lastExit));
-
-    upsertDailyHours({
-      userId,
-      date: todayStr,
-      totalMinutes: totalMinutes,
-      breakMinutes: totalBreakMinutes,
-      locationName,
-      locationId,
-      verified: true,
-      source: 'gps',
-      firstEntry: firstEntryTime,
-      lastExit: lastExitTime,
-    });
-
-    logger.info('session', `📅 daily_hours finalized: ${totalMinutes}min (adjusted -${exitAdjustment}min)`);
-
-    // Show end-of-day notification
-    const hours = Math.floor(totalMinutes / 60);
-    const mins = totalMinutes % 60;
-    await showEndOfDayNotification(hours, mins, locationName);
-
-    logger.info('session', `📊 Daily summary: ${locationName} - ${hours}h ${mins}min`, {
-      sessionsCount: sessions.length,
-      totalBreakMinutes,
-    });
-
-    // Sync to Supabase
-    useSyncStore.getState().syncNow().catch(e =>
-      logger.warn('sync', 'End-of-day sync failed (will retry)', { error: String(e) })
-    );
-
-    return summary;
-  } catch (error) {
-    logger.error('session', 'Error generating daily summary', { error: String(error) });
-    return null;
+  // 1. Check if we're tracking this location
+  const tracking = getActiveTracking();
+  if (!tracking || tracking.location_id !== locationId) {
+    logger.warn('session', `⚠️ Manual exit without active tracking: ${locationName}`);
+    return;
   }
+
+  // 2. Cancel any pending exit for this location
+  const existingPending = pendingExits.get(locationId);
+  if (existingPending) {
+    clearTimeout(existingPending.timeoutId);
+    pendingExits.delete(locationId);
+  }
+
+  // 3. Immediate exit (no cooldown)
+  await confirmExit(userId, locationId, locationName, tracking.enter_at, new Date());
+}
+
+// ============================================
+// RECOVERY (app restart)
+// ============================================
+
+export function getActiveTrackingState(): ActiveTracking | null {
+  return getActiveTracking();
+}
+
+/**
+ * Check if there's active tracking (for UI)
+ */
+export function hasActiveTracking(): boolean {
+  return getActiveTracking() !== null;
+}
+
+/**
+ * Get tracking duration in minutes (for UI timer)
+ */
+export function getTrackingDurationMinutes(): number {
+  const tracking = getActiveTracking();
+  if (!tracking) return 0;
+
+  const entryTime = new Date(tracking.enter_at).getTime();
+  const now = Date.now();
+  return Math.max(0, Math.round((now - entryTime) / 60000));
 }
 
 // ============================================
 // CLEANUP
 // ============================================
 
-/**
- * Cancel all pending timers (app shutdown)
- */
-export function clearAllPendingExitNotifications(): void {
-  // Clear pending entries
-  for (const [_locationId, pending] of pendingEntries.entries()) {
+export function clearAllPendingExits(): void {
+  for (const [_locationId, pending] of pendingExits.entries()) {
     clearTimeout(pending.timeoutId);
-    logger.debug('session', `🧹 Cleared pending entry: ${pending.locationName}`);
   }
-  pendingEntries.clear();
-
-  // Clear legacy pending notifications
-  for (const [_locationId, pending] of pendingExitNotifications.entries()) {
-    clearTimeout(pending.timeoutId);
-    logger.debug('session', `🧹 Cleared pending notification: ${pending.locationName}`);
-  }
-  pendingExitNotifications.clear();
-
-  // Clear end-of-day timers
-  for (const [key, timer] of endOfDayTimers.entries()) {
-    clearTimeout(timer);
-    logger.debug('session', `🧹 Cleared end-of-day timer: ${key}`);
-  }
-  endOfDayTimers.clear();
-
-  logger.info('session', '🧹 All pending timers cleared');
-}
-
-/**
- * Get current pending notifications (for debugging)
- */
-export function getPendingExitNotifications(): { locationId: string; locationName: string; exitTime: Date }[] {
-  return Array.from(pendingExitNotifications.values()).map(pending => ({
-    locationId: pending.locationId,
-    locationName: pending.locationName,
-    exitTime: pending.exitTime,
-  }));
-}
-
-// ============================================
-// ENTRY POINT FOR ENTRY TIMEOUT SYSTEM (deprecated)
-// ============================================
-
-/**
- * @deprecated Use handleEnterWithMerge instead
- * Handle entry with timeout (legacy - kept for backward compatibility)
- */
-export async function handleEntryWithTimeout(
-  userId: string,
-  locationId: string,
-  locationName: string
-): Promise<void> {
-  // Redirect to new simplified flow
-  return handleEnterWithMerge(userId, locationId, locationName);
+  pendingExits.clear();
+  logger.info('session', '🧹 All pending exits cleared');
 }

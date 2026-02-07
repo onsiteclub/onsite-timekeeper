@@ -33,6 +33,8 @@ import { useAuthStore } from './authStore';
 // TYPES
 // ============================================
 
+export type DailyLogType = 'work' | 'rain' | 'snow' | 'sick' | 'dayoff' | 'holiday';
+
 export interface DailyLog {
   date: string;
   totalMinutes: number;
@@ -41,6 +43,7 @@ export interface DailyLog {
   locationId: string | null;
   verified: boolean;
   source: 'gps' | 'manual' | 'edited';
+  type: DailyLogType;
   firstEntry: string | null;
   lastExit: string | null;
   notes: string | null;
@@ -85,6 +88,7 @@ interface DailyLogState {
     breakMinutes?: number;
     locationName?: string;
     locationId?: string;
+    type?: DailyLogType;
     notes?: string;
   }) => Promise<DailyLog | null>;
 
@@ -124,6 +128,7 @@ function entryToLog(entry: DailyHoursEntry): DailyLog {
     locationId: entry.location_id,
     verified: entry.verified,
     source: entry.source,
+    type: entry.type || 'work',
     firstEntry: entry.first_entry,
     lastExit: entry.last_exit,
     notes: entry.notes,
@@ -202,7 +207,7 @@ export const useDailyLogStore = create<DailyLogState>((set, get) => ({
       const endDate = getToday();
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - 6);
-      const startDateStr = startDate.toISOString().split('T')[0];
+      const startDateStr = getDateString(startDate);
 
       const entries = getDailyHoursByPeriod(userId, startDateStr, endDate);
 
@@ -319,6 +324,7 @@ export const useDailyLogStore = create<DailyLogState>((set, get) => ({
         locationId: params.locationId,
         verified: false,
         source: 'manual',
+        type: params.type || 'work',
         notes: params.notes,
       });
 
@@ -425,7 +431,7 @@ export const useDailyLogStore = create<DailyLogState>((set, get) => ({
 
       // Calculate date range for the month
       const startDate = `${year}-${String(month + 1).padStart(2, '0')}-01`;
-      const endDate = new Date(year, month + 1, 0).toISOString().split('T')[0];
+      const endDate = getDateString(new Date(year, month + 1, 0));
 
       const entries = getDailyHoursByPeriod(userId, startDate, endDate);
       const logs = entries.map(entryToLog);

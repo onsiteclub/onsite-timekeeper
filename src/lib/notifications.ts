@@ -168,20 +168,6 @@ export async function configureNotificationCategories(): Promise<void> {
 // GEOFENCE NOTIFICATIONS
 // ============================================
 
-/**
- * @deprecated Use showArrivalNotification() instead
- * Show geofence ENTRY notification (old button-based style)
- * Kept for backward compatibility - now redirects to simple notification
- */
-export async function showEntryNotification(
-  _locationId: string,
-  locationName: string,
-  _timeoutMinutes: number = 5
-): Promise<string> {
-  // DEPRECATED: Redirect to new simple arrival notification
-  logger.debug('notification', 'showEntryNotification deprecated, using showArrivalNotification');
-  return showArrivalNotification(locationName);
-}
 
 /**
  * Show simple informative notification (no buttons)
@@ -241,36 +227,6 @@ export async function showArrivalNotification(locationName: string): Promise<str
   }
 }
 
-/**
- * Show pending entry notification (waiting to register)
- * User has X minutes to leave if they don't want to start session
- */
-export async function showPendingEntryNotification(
-  locationName: string,
-  timeoutMinutes: number
-): Promise<string> {
-  try {
-    const notificationId = await Notifications.scheduleNotificationAsync({
-      content: {
-        title: `⏳ ${locationName}`,
-        body: `You arrived. Timer starts in ${timeoutMinutes} min. Leave to cancel.`,
-        data: {
-          type: 'geofence_enter',
-          locationName,
-        } as GeofenceNotificationData,
-        sound: 'default',
-        priority: Notifications.AndroidNotificationPriority.DEFAULT,
-      },
-      trigger: null,
-    });
-
-    logger.info('notification', `📬 Pending entry notification: ${locationName} (${timeoutMinutes} min)`, { notificationId });
-    return notificationId;
-  } catch (error) {
-    logger.error('notification', '❌ Error showing pending entry notification', { error: String(error), locationName });
-    return '';
-  }
-}
 
 /**
  * Show end of day notification with work summary
@@ -341,45 +297,6 @@ export async function showPauseExpiredNotification(
   }
 }
 
-/**
- * Show auto-action notification (confirmation)
- * NOTE: This is kept for backward compatibility but should not be called
- * in the simplified flow (only entry/exit notifications, no confirmations)
- */
-export async function showAutoActionNotification(
-  locationName: string,
-  action: 'start' | 'stop' | 'pause' | 'resume'
-): Promise<void> {
-  // DISABLED: In simplified flow, we don't show confirmation notifications
-  // This reduces notification spam - only entry and exit notifications are shown
-  logger.debug('notification', `⏭️ Auto-action notification skipped (simplified flow): ${action}`, { locationName });
-  return;
-  
-  /* Original implementation (disabled):
-  try {
-    const actionText = {
-      start: '▶️ Timer started',
-      stop: '⏹️ Timer stopped',
-      pause: '⏸️ Timer paused',
-      resume: '▶️ Timer resumed',
-    };
-
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: actionText[action],
-        body: locationName,
-        data: { type: 'auto_action' } as GeofenceNotificationData,
-        sound: 'default',
-      },
-      trigger: null,
-    });
-
-    logger.info('notification', `📬 Auto-action notification: ${action}`);
-  } catch (error) {
-    logger.error('notification', 'Error showing auto-action notification', { error: String(error) });
-  }
-  */
-}
 
 // ============================================
 // MANAGEMENT

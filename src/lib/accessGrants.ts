@@ -8,11 +8,33 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase, type AccessGrant as AccessGrantType, type PendingToken, type RecordRow } from './supabase';
+import { supabase, type AccessGrant as AccessGrantType, type PendingToken } from './supabase';
 import { logger } from './logger';
 
 // Re-export the type for external use
 export type AccessGrant = AccessGrantType;
+
+// ============================================
+// SHARED DAILY HOURS TYPE (V3)
+// ============================================
+
+export interface SharedDailyHour {
+  id: string;
+  user_id: string;
+  work_date: string; // YYYY-MM-DD
+  total_minutes: number;
+  break_minutes: number;
+  location_name: string | null;
+  location_id: string | null;
+  verified: boolean;
+  source: string;
+  type: string;
+  first_entry: string | null;
+  last_exit: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
 
 // ============================================
 // CONSTANTS
@@ -333,20 +355,20 @@ export async function getGrantedAccess(): Promise<AccessGrant[]> {
 }
 
 /**
- * Get work records from a specific owner (for viewers).
- * Only works if there's an active grant.
+ * Get daily hours from a specific owner (for viewers).
+ * Only works if there's an active grant + RLS policy on daily_hours.
  */
-export async function getSharedRecords(ownerId: string): Promise<RecordRow[]> {
+export async function getSharedRecords(ownerId: string): Promise<SharedDailyHour[]> {
   try {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return [];
 
     // RLS will automatically filter based on active grants
     const { data, error } = await supabase
-      .from('app_timekeeper_entries')
+      .from('daily_hours')
       .select('*')
       .eq('user_id', ownerId)
-      .order('entry_at', { ascending: false })
+      .order('work_date', { ascending: false })
       .limit(100);
 
     if (error) {
@@ -354,24 +376,23 @@ export async function getSharedRecords(ownerId: string): Promise<RecordRow[]> {
       return [];
     }
 
-    // Map to RecordRow interface
     return (data ?? []).map((r: Record<string, unknown>) => ({
       id: r.id as string,
       user_id: r.user_id as string,
-      location_id: r.geofence_id as string,
-      location_name: r.geofence_name as string | null,
-      entry_at: r.entry_at as string,
-      exit_at: r.exit_at as string | null,
-      type: (r.is_manual_entry ? 'manual' : 'automatic') as 'manual' | 'automatic',
-      manually_edited: r.manually_edited as boolean,
-      edit_reason: r.edit_reason as string | null,
-      integrity_hash: r.integrity_hash as string | null,
-      color: null,
-      device_id: r.device_id as string | null,
-      pause_minutes: (r.pause_minutes as number) ?? 0,
+      work_date: r.work_date as string,
+      total_minutes: (r.total_minutes as number) ?? 0,
+      break_minutes: (r.break_minutes as number) ?? 0,
+      location_name: r.location_name as string | null,
+      location_id: r.location_id as string | null,
+      verified: Boolean(r.verified),
+      source: (r.source as string) ?? 'manual',
+      type: (r.type as string) ?? 'work',
+      first_entry: r.first_entry as string | null,
+      last_exit: r.last_exit as string | null,
+      notes: r.notes as string | null,
       created_at: r.created_at as string,
-      synced_at: r.synced_at as string | null,
-    })) as RecordRow[];
+      updated_at: r.updated_at as string,
+    }));
   } catch (error) {
     logger.error('grants', 'Error fetching shared records', { error: String(error) });
     return [];
@@ -384,7 +405,7 @@ export async function getSharedRecords(ownerId: string): Promise<RecordRow[]> {
 export async function getAllSharedRecords(): Promise<{
   ownerId: string;
   ownerName: string | null;
-  records: RecordRow[];
+  records: SharedDailyHour[];
 }[]> {
   try {
     const grants = await getGrantedAccess();

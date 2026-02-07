@@ -14,42 +14,100 @@
 
 ---
 
-## 🏗️ Critical Architecture Rules
+## 🏗️ V3 Architecture
 
-### **GOLDEN RULE: Dependency Chain**
+### **Primary Data Store: daily_hours**
 ```
-workSessionStore ──> backgroundTasks ──> geofencing ──> notifications
-                 └──> syncStore ──> Supabase
+daily_hours (1 record per day)
+    ↑
+    │ GPS triggers via
+    │
+exitHandler ←─── geofenceLogic ←─── backgroundTasks
+    │
+    └─── active_tracking (singleton for current session)
+```
+
+### **Key Concepts:**
+- **daily_hours**: User-facing consolidated view (what appears in UI/reports)
+- **active_tracking**: Temporary singleton during geofence session (cleared on exit)
+- **location_audit**: GPS proof trail for entry/exit events
+- **exitHandler**: 60s cooldown for GPS exits, immediate for manual
+
+### **Dependency Chain**
+```
+locationStore ──> exitHandler ──> daily_hours (SQLite)
+      │                              │
+      └──> dailyLogStore ──> UI     └──> syncStore ──> Supabase
 ```
 
 **When modifying ANY of these, ALWAYS check impact on:**
-1. `src/stores/workSessionStore/` (state management)
-2. `src/services/backgroundTasks/` (geofencing logic)
-3. `src/services/sync/` (Supabase sync)
-4. Related UI components that consume the store
+1. `src/lib/exitHandler.ts` (geofence exit logic)
+2. `src/lib/geofenceLogic.ts` (entry/exit triggers)
+3. `src/stores/dailyLogStore.ts` (UI state)
+4. `src/stores/syncStore.ts` (Supabase sync)
 
 ### **NEVER:**
-- ❌ Modify workSessionStore without checking backgroundTasks usage
-- ❌ Change geofence logic without checking session state impact
+- ❌ Use records table (DELETED in V3)
+- ❌ Use recordStore (DELETED in V3)
 - ❌ Add PII (emails, exact coords) to logs (privacy compliance)
 - ❌ Create duplicate tracking/analytics systems
 - ❌ Skip offline-first patterns in any new feature
 
 ---
 
-## 📱 Screen Structure (v1.1)
+## 📱 Screen Structure
 
 ```
 ┌─────────────────────────────────────────────┐
 │  🏠 Home  │  📊 Reports  │  📍 Locations  │
 └─────────────────────────────────────────────┘
-   index.tsx   reports.tsx      map.tsx
+  index.tsx   reports.tsx      map.tsx
 ```
 
 ### Home Layout (v1.5) - 50/25/25 Split
 - **50%**: Manual entry form (inline, centralized inputs, BIGGER fonts)
 - **25%**: Quick location cards (horizontal scroll)
 - **25%**: Active timer (vertical layout, buttons BELOW timer)
+
+---
+
+## 🗄️ Database Schema (V3)
+
+### SQLite Tables (Local)
+```sql
+-- Primary data store (user-facing)
+daily_hours:
+  id, user_id, date, total_minutes, break_minutes,
+  location_name, location_id, verified, source,
+  first_entry, last_exit, notes, created_at, updated_at, synced_at
+
+-- Geofence zones
+locations:
+  id, user_id, name, latitude, longitude, radius, color,
+  status, deleted_at, last_seen_at, created_at, updated_at, synced_at
+
+-- Current tracking session (singleton, cleared on exit)
+active_tracking:
+  id ('current'), location_id, location_name, enter_at, created_at
+
+-- GPS proof trail
+location_audit:
+  id, user_id, session_id, event_type, location_id, location_name,
+  latitude, longitude, accuracy, occurred_at, created_at, synced_at
+
+-- Analytics (local only)
+analytics_daily: ...
+error_log: ...
+```
+
+### Supabase Tables (Remote)
+```
+daily_hours        → bi-directional sync
+app_timekeeper_geofences → bi-directional sync (locations)
+location_audit     → upload only (proof trail)
+analytics_daily    → marked synced locally
+error_log          → marked synced locally
+```
 
 ---
 
@@ -60,16 +118,11 @@ workSessionStore ──> backgroundTasks ──> geofencing ──> notification
 ```
 /styles/
 ├── index.ts           ← Re-exports everything (backward compatible)
-├── shared.styles.ts   ← Header, badges, modals, cards (17KB)
-├── home.styles.ts     ← fixedStyles v1.5, timer vertical (11KB)
-├── reports.styles.ts  ← Calendar, day modal, export (14KB)
-└── legacy.styles.ts   ← ⚠️ DEPRECATED - don't add new code here
+├── shared.styles.ts   ← Header, badges, modals, cards
+├── home.styles.ts     ← fixedStyles v1.5, timer vertical
+├── reports.styles.ts  ← Calendar, day modal, export
+└── legacy.styles.ts   ← DEPRECATED - don't add new code here
 ```
-
-**When adding new styles:**
-- Put in appropriate module (shared/home/reports)
-- Export from `index.ts`
-- DON'T add to `legacy.styles.ts`
 
 ---
 
@@ -78,13 +131,14 @@ workSessionStore ──> backgroundTasks ──> geofencing ──> notification
 ### Layer 1: Runtime Logging
 **File:** `src/lib/logger.ts`
 - In-memory only (max 500 logs)
-- Categories: auth, gps, geofence, sync, session, ui, boot, heartbeat, ttl, etc.
+- Categories: auth, gps, geofence, sync, session, ui, boot, database, dailyLog
 - **Privacy**: Auto-masks emails and coordinates
 - **NOT persisted** - use for development/debugging only
 
 ### Layer 2: SQLite Persistence
 **Files:** `src/lib/database/`
 ```
+daily.ts      → Daily hours CRUD (user-facing data)
 analytics.ts  → Metrics/KPIs (analytics_daily table)
 errors.ts     → Structured errors (error_log table)
 audit.ts      → GPS proof (location_audit table)
@@ -92,13 +146,15 @@ audit.ts      → GPS proof (location_audit table)
 
 ### Layer 3: Sync
 **File:** `src/stores/syncStore.ts`
-- Uploads to Supabase: analytics_daily, error_log, location_audit
-- Triggers: midnight, app init, manual sync, after important events
+- Bi-directional: locations, daily_hours
+- Upload only: location_audit
+- Local only: analytics_daily, error_log
+- Triggers: midnight, app init, manual sync, after geofence exit
 
 ### Layer 4: Remote Storage
 **Supabase tables:**
-- `analytics_daily` - Aggregated metrics per day
-- `error_log` - Structured errors for debugging
+- `daily_hours` - User work hours (bi-directional)
+- `app_timekeeper_geofences` - Geofence locations (bi-directional)
 - `location_audit` - GPS entry/exit proof
 
 **NEVER create duplicate systems** - use existing layers above
@@ -108,11 +164,11 @@ audit.ts      → GPS proof (location_audit table)
 ## 🛠️ Tech Stack
 
 ### State Management
-- **Zustand** for global state (workSessionStore, syncStore)
+- **Zustand** for global state (dailyLogStore, locationStore, syncStore)
 - **NO Redux** - don't introduce it
 
 ### Storage
-- **SQLite (expo-sqlite)** - Local persistence
+- **SQLite (expo-sqlite)** - Local persistence (source of truth)
 - **Supabase** - Remote sync + auth
 
 ### Location Services
@@ -153,14 +209,15 @@ logger.info('auth', `User ${maskEmail(user.email)} logged in`);
 
 ## 🚨 Known Issues & Gotchas
 
-### Geofencing
-- **Ping-pong prevention**: Hysteresis system in place (don't remove)
-- **TTL verification**: Background heartbeat checks pending actions
+### Geofencing (V3)
+- **Exit cooldown**: 60 seconds via exitHandler (prevents ping-pong)
+- **Manual exit**: Immediate (no cooldown)
 - **Accuracy threshold**: Only trigger if accuracy < 50m
 
-### Session State
-- **Initialization loops**: Fixed in v1.1 (don't reintroduce)
-- **Active session check**: Use `workSessionStore.activeSession` (single source of truth)
+### Session State (V3)
+- **Active session check**: Use `active_tracking` table (singleton)
+- **No session IDs**: V3 uses daily_hours (1 record per day)
+- **Timer state**: `dailyLogStore.tracking` for UI
 
 ### Background Tasks
 - **Headless tasks**: Run when app is killed
@@ -180,7 +237,7 @@ logger.info('auth', `User ${maskEmail(user.email)} logged in`);
 - **Screens**: PascalCase (e.g., `HomeScreen.tsx`)
 - **Components**: PascalCase (e.g., `LocationCard.tsx`)
 - **Utilities**: camelCase (e.g., `formatDuration.ts`)
-- **Stores**: camelCase (e.g., `workSessionStore.ts`)
+- **Stores**: camelCase (e.g., `dailyLogStore.ts`)
 
 ### Imports Order
 ```typescript
@@ -194,7 +251,7 @@ import * as Location from 'expo-location';
 
 // 3. Internal utilities/stores
 import { logger } from '@/lib/logger';
-import { workSessionStore } from '@/stores/workSessionStore';
+import { useDailyLogStore } from '@/stores/dailyLogStore';
 
 // 4. Relative imports
 import { LocationCard } from './LocationCard';
@@ -203,57 +260,64 @@ import styles from './styles';
 
 ---
 
-## 🗂️ Key Files Reference
+## 🗂️ Key Files Reference (V3)
 
 ### Core State
-- `src/stores/workSessionStore/index.ts` - Main session state
+- `src/stores/dailyLogStore.ts` - Primary UI state (daily hours + tracking)
+- `src/stores/locationStore.ts` - Geofences + entry/exit handlers
 - `src/stores/syncStore.ts` - Supabase sync orchestration
 
-### Services
-- `src/services/backgroundTasks/` - Geofencing logic
-- `src/services/supabase/` - Database client
-- `src/services/notifications/` - Push notifications
+### Geofence Logic
+- `src/lib/exitHandler.ts` - Exit confirmation + cooldown
+- `src/lib/geofenceLogic.ts` - Entry/exit processing
+- `src/lib/backgroundTasks.ts` - Background task registration
 
 ### Database
+- `src/lib/database/core.ts` - SQLite init + types
+- `src/lib/database/daily.ts` - daily_hours CRUD
+- `src/lib/database/locations.ts` - Geofence CRUD
+- `src/lib/database/audit.ts` - GPS audit trail
 - `src/lib/database/analytics.ts` - Metrics tracking
 - `src/lib/database/errors.ts` - Error capture
-- `src/lib/database/audit.ts` - GPS audit trail
 
-### Utilities
-- `src/lib/logger.ts` - Runtime logging
-- `src/lib/telemetry.ts` - UI tracking wrapper
+### UI Hooks
+- `src/screens/home/hooks.ts` - Main screen hook (exports LegacySession/ComputedSession)
+- `src/screens/home/helpers.ts` - Date/calendar utilities
 
 ### Screens
-- `src/screens/home/index.tsx` - Main screen (manual entry)
-- `src/screens/home/reports.tsx` - Reports tab
-- `src/screens/home/map.tsx` - Locations tab
+- `app/(tabs)/index.tsx` - Home (manual entry)
+- `app/(tabs)/reports.tsx` - Reports (calendar + chart)
+- `app/(tabs)/map.tsx` - Locations
 
 ---
 
-## 🎯 Current Status (v2.6)
+## 🎯 Current Status (V3)
 
 ### ✅ Completed
-- Home UI v1.5 (50/25/25 layout)
-- Reports UI v1.3 (calendar + bar chart)
-- Styles modularization (v2.5)
+- V3 Architecture (daily_hours as primary store)
+- Records table removed (cleanup complete)
+- Bi-directional sync for daily_hours
+- Exit handler with 60s cooldown
 - Full observability stack (4 layers)
-- Geofencing with ping-pong prevention
-- TTL system for pending actions
+- Reports migrated to dailyLogStore
 
-### 🚧 In Progress
-- Notification tracking improvements
-- PDF/Excel export reports
+### 🚧 Deprecated (V3)
+- ~~workSessionStore~~ → use dailyLogStore + locationStore
+- ~~recordStore~~ → DELETED
+- ~~records table~~ → DELETED
+- ~~heartbeat/TTL system~~ → replaced by exitHandler cooldown
 
-### 📋 Planned
+### 📋 Future
 - Analytics dashboard (Supabase queries)
 - Geofencing as paid feature unlock
+- Multi-location per day support
 
 ---
 
 ## 💡 When Making Changes
 
 ### Before Coding
-1. **Search codebase** for dependencies: `grep -r "functionName"`
+1. **Search codebase** for dependencies
 2. **Check imports** in related files
 3. **Verify store usage** in UI components
 4. **Consider offline implications**
@@ -277,21 +341,26 @@ import styles from './styles';
 When working on specific features, also review:
 
 **Geofencing changes:**
-- `src/services/backgroundTasks/geofencing.ts`
-- `src/stores/workSessionStore/actions.ts`
+- `src/lib/exitHandler.ts`
+- `src/lib/geofenceLogic.ts`
+- `src/stores/locationStore.ts`
 - `app.json` (task registration)
 
-**Session management:**
-- `src/stores/workSessionStore/index.ts`
-- `src/lib/database/records.ts`
+**Daily hours/tracking:**
+- `src/stores/dailyLogStore.ts`
+- `src/lib/database/daily.ts`
+- `src/screens/home/hooks.ts`
+
+**Sync changes:**
 - `src/stores/syncStore.ts`
+- `src/lib/database/` (getUnsynced*, markSynced*, upsertFromSync)
 
 **UI changes:**
 - Component file + `styles/` folder
-- Parent screen state management
+- `src/screens/home/hooks.ts`
 - Related store actions
 
 ---
 
-*Last updated: 2025-01-13 (v2.6)*
+*Last updated: 2026-02-04 (V3)*
 *Auto-loaded by Claude Code for context-aware development*

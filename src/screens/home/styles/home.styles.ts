@@ -46,11 +46,11 @@ export const homeStyles = StyleSheet.create({
   formSection: {
     // No flex - uses natural height
     minHeight: 168,  // +20% (was 140)
-    padding: 18,
-    backgroundColor: withOpacity(colors.border, 0.2),
-    borderRadius: 14,
+    padding: 16,
+    backgroundColor: colors.card,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: withOpacity(colors.border, 0.5),
+    borderColor: colors.border,
     marginBottom: 12,
     justifyContent: 'center',
     ...shadows.sm,

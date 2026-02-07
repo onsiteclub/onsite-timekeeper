@@ -1,8 +1,7 @@
 /**
- * Work Session Store - OnSite Timekeeper (SIMPLIFIED)
- * 
- * Simplified session store that delegates to the new exitHandler system.
- * Only handles entry notifications and skipped locations.
+ * Work Session Store - OnSite Timekeeper v3
+ *
+ * SIMPLIFIED: Delegates to exitHandler. No dedup, no boot gate.
  */
 
 import { create } from 'zustand';
@@ -19,31 +18,23 @@ import {
 } from '../lib/backgroundTasks';
 import type { Coordinates } from '../lib/location';
 
-// Import from refactored modules
-import {
-  setStoreRef,
-  markAppReady,
-  resetBootGate as resetBootGateHelper,
-} from './sessionHelpers';
-
 import {
   handleGeofenceEnterLogic,
   handleGeofenceExitLogic,
 } from './sessionHandlers';
 
 // ============================================
-// STORE INTERFACE (v2 SIMPLIFIED - NO BUTTONS)
+// STORE INTERFACE (v3 SIMPLIFIED)
 // ============================================
 
 interface WorkSessionState {
   isInitialized: boolean;
   skippedToday: string[];
-  lastProcessedEnterLocationId: string | null;
 
   // Actions
   initialize: () => Promise<void>;
 
-  // Geofence handlers (simplified - all automatic)
+  // Geofence handlers (delegated to exitHandler)
   handleGeofenceEnter: (
     locationId: string,
     locationName: string | null,
@@ -56,10 +47,9 @@ interface WorkSessionState {
     coords?: Coordinates & { accuracy?: number }
   ) => Promise<void>;
 
-  // Helpers (simplified)
+  // Helpers
   resetSkippedToday: () => void;
   removeFromSkippedToday: (locationId: string) => void;
-  resetBootGate: () => void;
 }
 
 // ============================================
@@ -67,10 +57,9 @@ interface WorkSessionState {
 // ============================================
 
 export const useWorkSessionStore = create<WorkSessionState>((set, get) => ({
-  // Initial state (simplified)
+  // Initial state (v3 simplified)
   isInitialized: false,
   skippedToday: [],
-  lastProcessedEnterLocationId: null,
 
   // ============================================
   // INITIALIZE
@@ -79,37 +68,28 @@ export const useWorkSessionStore = create<WorkSessionState>((set, get) => ({
     if (get().isInitialized) return;
 
     try {
-      logger.info('boot', '⏱️ Initializing work session store (simplified)...');
+      logger.info('boot', '⏱️ Initializing work session store v3...');
 
       await requestNotificationPermission();
       await configureNotificationCategories();
 
-      // Simplified notification response listener (v2 - no button actions)
-      // All geofence notifications are informative only
+      // Simplified notification response listener
       addResponseListener((response) => {
         const actionIdentifier = response.actionIdentifier;
-        const data = response.notification.request.content.data as GeofenceNotificationData | undefined;
+        const data = response.notification.request.content
+          .data as GeofenceNotificationData | undefined;
 
-        logger.info('notification', `📲 Notification tapped: ${actionIdentifier}`, { type: data?.type });
-
-        // No actions needed - all notifications are informative only
-        // User tapping opens the app (default behavior)
+        logger.info('notification', `📲 Notification tapped: ${actionIdentifier}`, {
+          type: data?.type,
+        });
+        // All notifications are informative - tapping opens app
       });
 
       set({ isInitialized: true });
-      
-      // BOOT GATE: Mark app as ready
-      setStoreRef(get());
-      markAppReady();
-      
-      logger.info('boot', '✅ Work session store initialized (simplified)');
+      logger.info('boot', '✅ Work session store v3 initialized');
     } catch (error) {
       logger.error('session', 'Error initializing', { error: String(error) });
       set({ isInitialized: true });
-      
-      // Even on error, mark as ready to not block events forever
-      setStoreRef(get());
-      markAppReady();
     }
   },
 
@@ -125,14 +105,11 @@ export const useWorkSessionStore = create<WorkSessionState>((set, get) => ({
   },
 
   // ============================================
-  // HELPERS (simplified)
+  // HELPERS
   // ============================================
   resetSkippedToday: () => {
     clearSkippedToday();
-    set({ 
-      skippedToday: [], 
-      lastProcessedEnterLocationId: null,
-    });
+    set({ skippedToday: [] });
     logger.info('session', 'Skipped list reset');
   },
 
@@ -140,12 +117,8 @@ export const useWorkSessionStore = create<WorkSessionState>((set, get) => ({
     const { skippedToday } = get();
     if (skippedToday.includes(locationId)) {
       removeFromSkippedTodayBg(locationId);
-      set({ skippedToday: skippedToday.filter(id => id !== locationId) });
+      set({ skippedToday: skippedToday.filter((id) => id !== locationId) });
       logger.debug('session', `Removed ${locationId} from skippedToday`);
     }
-  },
-  
-  resetBootGate: () => {
-    resetBootGateHelper();
   },
 }));

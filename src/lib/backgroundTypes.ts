@@ -1,9 +1,8 @@
 /**
- * Background Types - OnSite Timekeeper
- * 
+ * Background Types - OnSite Timekeeper v3
+ *
  * Types and constants for background tasks.
- * 
- * NOTE: Re-exports removed - import directly from source modules
+ * SIMPLIFIED: Removed heartbeat system.
  */
 
 import * as Location from 'expo-location';
@@ -13,7 +12,6 @@ import * as Location from 'expo-location';
 // ============================================
 
 export const GEOFENCE_TASK = 'onsite-geofence';
-export const HEARTBEAT_TASK = 'onsite-heartbeat-task';
 export const LOCATION_TASK = 'onsite-location-task';
 
 // ============================================
@@ -24,19 +22,6 @@ export interface GeofenceEvent {
   type: 'enter' | 'exit';
   regionIdentifier: string;
   timestamp: number;
-}
-
-export interface HeartbeatResult {
-  isInsideFence: boolean;
-  fenceId: string | null;
-  fenceName: string | null;
-  location: {
-    latitude: number;
-    longitude: number;
-    accuracy: number | null;
-  } | null;
-  timestamp: number;
-  batteryLevel: number | null;
 }
 
 export interface InternalGeofenceEvent {
@@ -55,7 +40,6 @@ export interface QueuedEvent {
 
 export type GeofenceCallback = (event: GeofenceEvent) => void;
 export type LocationCallback = (location: Location.LocationObject) => void;
-export type HeartbeatCallback = (result: HeartbeatResult) => Promise<void>;
 export type ReconcileCallback = () => Promise<void>;
 
 // ============================================

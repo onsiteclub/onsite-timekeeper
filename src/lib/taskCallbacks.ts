@@ -1,14 +1,14 @@
 /**
- * Task Callbacks - OnSite Timekeeper
- * 
- * Callback registration for geofence, location, heartbeat events.
+ * Task Callbacks - OnSite Timekeeper v3
+ *
+ * Callback registration for geofence and location events.
+ * SIMPLIFIED: No heartbeat.
  */
 
 import { logger } from './logger';
 import type {
   GeofenceCallback,
   LocationCallback,
-  HeartbeatCallback,
   ReconcileCallback,
 } from './backgroundTypes';
 
@@ -18,7 +18,6 @@ import type {
 
 let geofenceCallback: GeofenceCallback | null = null;
 let locationCallback: LocationCallback | null = null;
-let heartbeatCallback: HeartbeatCallback | null = null;
 let reconcileCallback: ReconcileCallback | null = null;
 
 // ============================================
@@ -42,21 +41,6 @@ export function setReconcileCallback(callback: ReconcileCallback): void {
 }
 
 /**
- * Clear all callbacks (used by bootstrap via backgroundTasks)
- */
-export function clearCallbacks(): void {
-  geofenceCallback = null;
-  locationCallback = null;
-  heartbeatCallback = null;
-  reconcileCallback = null;
-  logger.debug('geofence', 'Callbacks cleared');
-}
-
-// ============================================
-// CALLBACK SETTERS (location - exported for bootstrap.ts)
-// ============================================
-
-/**
  * Set location callback (used by bootstrap.ts for GPS-based exit detection)
  */
 export function setLocationCallback(callback: LocationCallback): void {
@@ -65,11 +49,13 @@ export function setLocationCallback(callback: LocationCallback): void {
 }
 
 /**
- * Set heartbeat callback (internal use only)
+ * Clear all callbacks (used by bootstrap via backgroundTasks)
  */
-function setHeartbeatCallback(callback: HeartbeatCallback): void {
-  heartbeatCallback = callback;
-  logger.debug('heartbeat', 'Heartbeat callback registered');
+export function clearCallbacks(): void {
+  geofenceCallback = null;
+  locationCallback = null;
+  reconcileCallback = null;
+  logger.debug('geofence', 'Callbacks cleared');
 }
 
 // ============================================
@@ -91,15 +77,8 @@ export function getLocationCallback(): LocationCallback | null {
 }
 
 /**
- * Get heartbeat callback (used by heartbeatLogic)
- */
-export function getHeartbeatCallback(): HeartbeatCallback | null {
-  return heartbeatCallback;
-}
-
-/**
  * Get reconcile callback (internal use only)
  */
-function getReconcileCallback(): ReconcileCallback | null {
+export function getReconcileCallback(): ReconcileCallback | null {
   return reconcileCallback;
 }

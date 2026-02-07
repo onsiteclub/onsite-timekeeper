@@ -16,13 +16,12 @@ import '../src/lib/backgroundTasks';
 
 import { colors } from '../src/constants/colors';
 import { logger } from '../src/lib/logger';
-import { initDatabase, migrateRecordsToDailyHours } from '../src/lib/database';
+import { initDatabase } from '../src/lib/database';
 import { ErrorBoundary } from '../src/components/ErrorBoundary';
 import { useAuthStore } from '../src/stores/authStore';
 import { useLocationStore } from '../src/stores/locationStore';
-import { useRecordStore } from '../src/stores/recordStore';
+// V3: recordStore removed - using dailyLogStore instead
 import { useDailyLogStore } from '../src/stores/dailyLogStore';
-import { useWorkSessionStore } from '../src/stores/workSessionStore';
 import { useSyncStore } from '../src/stores/syncStore';
 import { useSettingsStore } from '../src/stores/settingsStore';
 import {
@@ -73,25 +72,10 @@ export default function RootLayout() {
     logger.info('boot', '📦 Initializing stores...');
     
     try {
-      // Initialize record store first (loads data)
-      logger.info('boot', '📝 Initializing record store...');
-      await useRecordStore.getState().initialize();
-      logger.info('boot', '✅ Record store initialized');
-
-      // Initialize daily log store (Caderneta Digital)
+      // V3: Initialize daily log store (Caderneta Digital) - primary data store
       logger.info('boot', '📖 Initializing daily log store...');
       await useDailyLogStore.getState().initialize();
       logger.info('boot', '✅ Daily log store initialized');
-
-      // Migrate records to daily_hours (one-time, skips if already done)
-      const currentUser = useAuthStore.getState().user;
-      if (currentUser) {
-        logger.info('boot', '🔄 Running daily_hours migration...');
-        const migrated = migrateRecordsToDailyHours(currentUser.id);
-        if (migrated > 0) {
-          logger.info('boot', `✅ Migrated ${migrated} days to daily_hours`);
-        }
-      }
 
       // Location store (permissions + geofencing)
       await useLocationStore.getState().initialize();

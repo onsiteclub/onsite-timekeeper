@@ -22,6 +22,7 @@ import {
   TextInput,
   StyleSheet,
   Easing,
+  Alert,
 } from 'react-native';
 import MapView, { Marker, Circle, PROVIDER_DEFAULT } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
@@ -234,59 +235,40 @@ export default function MapScreen() {
         onSelectResult={handleSelectSearchResult}
       />
 
-      {/* PERMISSION BANNER - Shows when foreground service killed or location not "Always" */}
-      <MapPermissionBanner />
+      {/* PERMISSION BANNER - Absolutely positioned to not interfere with layout */}
+      <View style={onboardingStyles.permissionBannerWrapper} pointerEvents="box-none">
+        <MapPermissionBanner />
+      </View>
 
-      {/* MY LOCATION BUTTON */}
-      <TouchableOpacity style={styles.myLocationButton} onPress={handleGoToMyLocation}>
+      {/* MY LOCATION BUTTON - with explicit elevation for Android */}
+      <TouchableOpacity
+        style={[styles.myLocationButton, { elevation: 10, zIndex: 100 }]}
+        onPress={handleGoToMyLocation}
+        activeOpacity={0.7}
+      >
         <Ionicons name="locate" size={24} color={colors.primary} />
       </TouchableOpacity>
 
-      {/* MONITORING BUTTON */}
+      {/* MONITORING BUTTON - with explicit elevation for Android */}
       <TouchableOpacity
-        style={[styles.monitorButton, isMonitoringActive && styles.monitorButtonActive]}
+        style={[styles.monitorButton, isMonitoringActive && styles.monitorButtonActive, { elevation: 10, zIndex: 100 }]}
         onPress={handleToggleMonitoring}
+        activeOpacity={0.7}
       >
         <Text style={[styles.monitorText, isMonitoringActive && styles.monitorTextActive]}>
           {isMonitoringActive ? '🟢 Monitoring' : '⚪ Monitoring OFF'}
         </Text>
       </TouchableOpacity>
 
-      {/* PULSING CIRCLE OVERLAY - Always visible for adding new locations */}
+      {/* FAB button to add location */}
       {!showNameModal && (
-        <View style={onboardingStyles.circleOverlayContainer} pointerEvents="box-none">
-          {/* Pulsing circle - touchable */}
-          <TouchableOpacity
-            style={onboardingStyles.circleHitArea}
-            onPress={handleOnboardingCirclePress}
-            activeOpacity={0.8}
-          >
-            <Animated.View
-              style={[
-                onboardingStyles.pulsingCircle,
-                {
-                  transform: [{ scale: pulseAnim }],
-                  opacity: opacityAnim,
-                }
-              ]}
-            />
-            {/* Center dot */}
-            <View style={onboardingStyles.centerDot} />
-            {/* Plus icon */}
-            <View style={onboardingStyles.plusIconContainer}>
-              <Ionicons name="add" size={32} color={colors.primary} />
-            </View>
-          </TouchableOpacity>
-
-          {/* Instruction text */}
-          <View style={onboardingStyles.instructionContainer}>
-            <Text style={onboardingStyles.instructionText}>
-              {locations.length === 0
-                ? 'Position your workplace in the circle, then tap to add'
-                : 'Tap to add a new location'}
-            </Text>
-          </View>
-        </View>
+        <TouchableOpacity
+          style={onboardingStyles.fab}
+          onPress={handleOnboardingCirclePress}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="add" size={28} color={colors.white} />
+        </TouchableOpacity>
       )}
 
       {/* SUCCESS TOAST (after first location added) */}
@@ -457,7 +439,7 @@ export default function MapScreen() {
                   style={styles.optionsActionItem}
                   onPress={() => {
                     handleCloseRadiusModal();
-                    // TODO: Open edit name modal
+                    Alert.alert('Coming Soon', 'Edit name will be available in a future update.');
                   }}
                 >
                   <Ionicons name="pencil-outline" size={20} color={colors.text} />
@@ -470,7 +452,7 @@ export default function MapScreen() {
                   style={styles.optionsActionItem}
                   onPress={() => {
                     handleCloseRadiusModal();
-                    // TODO: Open color picker
+                    Alert.alert('Coming Soon', 'Color picker will be available in a future update.');
                   }}
                 >
                   <Ionicons name="color-palette-outline" size={20} color={colors.text} />
@@ -483,7 +465,7 @@ export default function MapScreen() {
                   style={styles.optionsActionItem}
                   onPress={() => {
                     handleCloseRadiusModal();
-                    // TODO: Toggle pause state
+                    Alert.alert('Coming Soon', 'Pause tracking will be available in a future update.');
                   }}
                 >
                   <Ionicons name="pause-circle-outline" size={20} color={colors.text} />
@@ -534,58 +516,69 @@ export default function MapScreen() {
 // ONBOARDING STYLES
 // ============================================
 const onboardingStyles = StyleSheet.create({
-  // Container for the pulsing circle overlay
-  circleOverlayContainer: {
-    ...StyleSheet.absoluteFillObject,
+  // Permission banner wrapper - absolutely positioned to not interfere with layout
+  permissionBannerWrapper: {
+    position: 'absolute',
+    top: 120,
+    left: 0,
+    right: 0,
+    zIndex: 50,
+    elevation: 5,
+  },
+  // Crosshair container - centered on screen (visual indicator only)
+  crosshairContainer: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    width: 40,
+    height: 40,
+    marginLeft: -20,
+    marginTop: -20,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  // Touchable hit area
-  circleHitArea: {
-    width: CIRCLE_SIZE,
-    height: CIRCLE_SIZE,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  // The pulsing blue circle
-  pulsingCircle: {
+  crosshairHorizontal: {
     position: 'absolute',
-    width: CIRCLE_SIZE,
-    height: CIRCLE_SIZE,
-    borderRadius: CIRCLE_SIZE / 2,
-    backgroundColor: colors.primary,
-    borderWidth: 3,
-    borderColor: colors.primary,
-  },
-  // Center dot
-  centerDot: {
-    position: 'absolute',
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+    width: 40,
+    height: 2,
     backgroundColor: colors.primary,
   },
-  // Plus icon container
-  plusIconContainer: {
+  crosshairVertical: {
     position: 'absolute',
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    width: 2,
+    height: 40,
+    backgroundColor: colors.primary,
+  },
+  crosshairDot: {
+    position: 'absolute',
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.primary,
+  },
+  // FAB button - fixed position at bottom right
+  fab: {
+    position: 'absolute',
+    bottom: 120,
+    right: 16,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 8,
   },
   // Instruction container
   instructionContainer: {
     position: 'absolute',
-    bottom: -80,
-    left: 20,
-    right: 20,
+    bottom: 100,
+    left: 16,
+    right: 80,
   },
   instructionText: {
     fontSize: 15,

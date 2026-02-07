@@ -32,12 +32,11 @@ import DateTimePicker from '@react-native-community/datetimepicker'; // Keep for
 import { Card } from '../../src/components/ui/Button';
 import { colors } from '../../src/constants/colors';
 import type { WorkLocation } from '../../src/stores/locationStore';
-import type { ComputedSession } from '../../src/lib/database';
 
-import { useHomeScreen } from '../../src/screens/home/hooks';
+// V3: ComputedSession now comes from hooks.ts (was removed from database)
+import { useHomeScreen, type ComputedSession } from '../../src/screens/home/hooks';
 import { ShareModal } from '../../src/components/ShareModal';
 import { styles, fixedStyles } from '../../src/screens/home/styles';
-import { HomePermissionBanner } from '../../src/components/PermissionBanner';
 import { AnimatedRing } from '../../src/components/AnimatedRing';
 
 // Helper to format date
@@ -408,9 +407,9 @@ export default function HomeScreen() {
 
     const durationMinutes = Math.round((exitDate.getTime() - entryDate.getTime()) / 60000);
 
+    // V3: LegacySession format (simplified)
     const tempSession: ComputedSession = {
       id: 'temp-' + Date.now(),
-      user_id: userId || '',
       location_id: manualLocationId || '',
       location_name: selectedLocation?.name || 'Unknown Location',
       entry_at: entryDate.toISOString(),
@@ -421,11 +420,7 @@ export default function HomeScreen() {
       pause_minutes: pauseMin,
       duration_minutes: durationMinutes,
       status: 'finished',
-      integrity_hash: null,
       color: selectedLocation?.color || '#4A90D9',
-      device_id: null,
-      created_at: new Date().toISOString(),
-      synced_at: null,
     };
 
     setSessionsToShare([tempSession]);
@@ -436,21 +431,25 @@ export default function HomeScreen() {
     <View style={{ flex: 1, backgroundColor: '#F3F4F6' }}>
       {/* Status bar strip - gray background behind system status bar */}
       <StatusBar barStyle="dark-content" backgroundColor="#F3F4F6" />
-      <View style={{
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        height: Constants.statusBarHeight || 28,
-        backgroundColor: '#F3F4F6',
-        zIndex: 1,
-      }} />
+      <View
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          height: Constants.statusBarHeight || 28,
+          backgroundColor: '#F3F4F6',
+          zIndex: 1,
+        }}
+      />
 
       <View style={fixedStyles.container}>
         <ScrollView
           style={{ flex: 1 }}
           contentContainerStyle={{ flexGrow: 1 }}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
         >
       {/* HEADER */}
       <View style={fixedStyles.header}>
@@ -476,8 +475,9 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      {/* PERMISSION BANNER */}
-      <HomePermissionBanner />
+      {/* PERMISSION BANNER - Removed: notifications are NOT required for geofencing.
+         Only foreground service killed + location "Always" banners are useful.
+         See PermissionBanner.tsx for the full component if needed. */}
 
       {/* LOGO TOOLTIP MODAL */}
       <Modal

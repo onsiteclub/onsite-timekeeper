@@ -29,8 +29,9 @@
  * REFACTORED: All PT names converted to EN
  */
 
-import { ComputedSession, formatDuration } from './database';
+import { formatDuration } from './database';
 import type { DailyHoursEntry } from './database/daily';
+import type { ComputedSession } from '../screens/home/hooks';
 
 // ============================================
 // CONSTANTS

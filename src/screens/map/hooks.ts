@@ -121,6 +121,15 @@ export function useMapScreen() {
     }
   }, [currentLocation, mapReady]);
 
+  // FIX: Update mapCenter when currentLocation changes (for onboarding circle)
+  // This ensures the circle is tappable even if user hasn't panned the map
+  useEffect(() => {
+    if (currentLocation?.latitude && currentLocation?.longitude && !mapCenter) {
+      logger.debug('ui', '📍 Setting initial mapCenter from GPS');
+      setMapCenter({ lat: currentLocation.latitude, lng: currentLocation.longitude });
+    }
+  }, [currentLocation, mapCenter]);
+
   // ============================================
   // HELPERS
   // ============================================
@@ -235,7 +244,16 @@ export function useMapScreen() {
 
   // Handler for clicking the onboarding circle (creates location at map center)
   const handleOnboardingCirclePress = useCallback(() => {
-    if (!mapCenter) return;
+    logger.info('ui', '🔵 Onboarding circle TAP received', {
+      hasMapCenter: !!mapCenter,
+      mapCenter: mapCenter ? `${mapCenter.lat.toFixed(4)}, ${mapCenter.lng.toFixed(4)}` : 'null',
+      hasCurrentLocation: !!currentLocation,
+    });
+
+    if (!mapCenter) {
+      logger.warn('ui', '⚠️ mapCenter is null - cannot add location');
+      return;
+    }
 
     Keyboard.dismiss();
     logger.debug('ui', '🔵 Onboarding circle pressed - creating temp pin at map center', {
@@ -248,7 +266,7 @@ export function useMapScreen() {
     setNewLocationRadius(DEFAULT_RADIUS);
     setNameInputError(false);
     setShowNameModal(true);
-  }, [mapCenter]);
+  }, [mapCenter, currentLocation]);
 
   const handleMapLongPress = useCallback((e: any) => {
     Keyboard.dismiss();

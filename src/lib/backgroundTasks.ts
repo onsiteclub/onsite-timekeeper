@@ -1,19 +1,15 @@
 /**
- * Background Tasks - OnSite Timekeeper v2
- * 
- * Geofencing + Adaptive Heartbeat with SAFE register/unregister.
- * 
- * REFACTORED: Logic split into backgroundTypes, taskCallbacks, geofenceLogic, heartbeatLogic
- * 
+ * Background Tasks - OnSite Timekeeper v3
+ *
+ * Geofencing + Location tracking (SIMPLIFIED - no heartbeat).
+ *
  * NOTE: TaskManager.defineTask MUST be at global scope in this file!
  */
 
 import * as TaskManager from 'expo-task-manager';
 import * as Location from 'expo-location';
-import * as BackgroundFetch from 'expo-background-fetch';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { logger } from './logger';
-// NOTE: Removed pendingTTL dependency - heartbeat is now simplified
 import {
   setBackgroundUserId as _setBackgroundUserId,
   clearBackgroundUserId as _clearBackgroundUserId,
@@ -22,7 +18,6 @@ import {
 // Import from refactored modules
 import {
   GEOFENCE_TASK,
-  HEARTBEAT_TASK,
   LOCATION_TASK,
   BACKGROUND_USER_KEY,
 } from './backgroundTypes';
@@ -35,14 +30,6 @@ import {
 } from './taskCallbacks';
 
 import { processGeofenceEvent } from './geofenceLogic';
-
-import {
-  isTaskRegistered,
-  safeUnregisterTask,
-  safeRegisterHeartbeat,
-  maybeUpdateHeartbeatInterval,
-  runHeartbeat,
-} from './heartbeatLogic';
 
 // Re-export from backgroundHelpers (used by stores)
 export {
@@ -78,7 +65,7 @@ export async function setBackgroundUserId(userId: string): Promise<void> {
     logger.debug('boot', `UserId unchanged, skipping save: ${userId.substring(0, 8)}...`);
     return;
   }
-  
+
   lastUserIdSaved = userId;
   await AsyncStorage.setItem(BACKGROUND_USER_KEY, userId);
   await _setBackgroundUserId(userId);
@@ -138,15 +125,8 @@ TaskManager.defineTask(GEOFENCE_TASK, async ({ data, error }) => {
   }
 });
 
-TaskManager.defineTask(HEARTBEAT_TASK, async () => {
-  try {
-    await runHeartbeat();
-    return BackgroundFetch.BackgroundFetchResult.NewData;
-  } catch (error) {
-    logger.error('heartbeat', 'Heartbeat task error', { error: String(error) });
-    return BackgroundFetch.BackgroundFetchResult.Failed;
-  }
-});
+// Dedup: prevent duplicate location events within short window
+let lastLocationTimestamp = 0;
 
 TaskManager.defineTask(LOCATION_TASK, async ({ data, error }) => {
   if (error) {
@@ -155,11 +135,17 @@ TaskManager.defineTask(LOCATION_TASK, async ({ data, error }) => {
   }
 
   const locationData = data as { locations: Location.LocationObject[] };
-  
+
   if (!locationData?.locations?.length) return;
 
   const location = locationData.locations[0];
-  
+
+  // Dedup: skip if same timestamp as last update (duplicate invocation)
+  if (location.timestamp === lastLocationTimestamp) {
+    return;
+  }
+  lastLocationTimestamp = location.timestamp;
+
   logger.debug('gps', 'Background location update', {
     lat: location.coords.latitude.toFixed(6),
     lng: location.coords.longitude.toFixed(6),
@@ -175,34 +161,7 @@ TaskManager.defineTask(LOCATION_TASK, async ({ data, error }) => {
   }
 });
 
-logger.info('boot', '📋 Background tasks V2 loaded (simplified)', {
+logger.info('boot', '📋 Background tasks V3 loaded (simplified, no heartbeat)', {
   geofence: GEOFENCE_TASK,
-  heartbeat: HEARTBEAT_TASK,
+  location: LOCATION_TASK,
 });
-
-// ============================================
-// PUBLIC API (used by bootstrap.ts) - SIMPLIFIED
-// ============================================
-
-export async function startHeartbeat(): Promise<void> {
-  const registered = await isTaskRegistered(HEARTBEAT_TASK);
-  
-  if (registered) {
-    logger.info('heartbeat', 'Heartbeat already active');
-    return;
-  }
-  
-  // Use simple 15 minute interval for sync-only heartbeat
-  const interval = 15 * 60; // 15 minutes
-  await safeRegisterHeartbeat(interval);
-}
-
-export async function stopHeartbeat(): Promise<void> {
-  await safeUnregisterTask(HEARTBEAT_TASK);
-  logger.info('heartbeat', 'Heartbeat stopped');
-}
-
-export async function updateHeartbeatInterval(): Promise<void> {
-  // Simplified: no adaptive intervals, just use fixed 15 min for sync
-  logger.debug('heartbeat', 'Using simplified heartbeat - no interval updates');
-}

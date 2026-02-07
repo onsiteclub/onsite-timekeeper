@@ -366,6 +366,13 @@ export async function startBackgroundLocation(): Promise<boolean> {
       return false;
     }
 
+    // Stop existing listener first to prevent duplicate registrations
+    const wasRunning = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
+    if (wasRunning) {
+      logger.info('gps', '🔄 Stopping existing background location before restart');
+      await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
+    }
+
     logger.info('gps', '🔄 Starting background location');
 
     await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {

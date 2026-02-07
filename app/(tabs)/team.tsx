@@ -34,10 +34,10 @@ import {
   getArchivedIds,
   archiveRecords,
   type AccessGrant,
+  type SharedDailyHour,
 } from '../../src/lib/accessGrants';
 import { QRCodeGenerator, QRCodeScanner } from '../../src/components/sharing';
 import { useAuthStore } from '../../src/stores/authStore';
-import type { RecordRow } from '../../src/lib/supabase';
 
 // ============================================
 // HELPERS
@@ -49,13 +49,9 @@ function formatDuration(minutes: number): string {
   return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
 }
 
-function calculateTotalMinutes(records: RecordRow[]): number {
+function calculateTotalMinutes(records: SharedDailyHour[]): number {
   return records.reduce((total, record) => {
-    if (!record.entry_at) return total;
-    const entry = new Date(record.entry_at);
-    const exit = record.exit_at ? new Date(record.exit_at) : new Date();
-    const diff = Math.floor((exit.getTime() - entry.getTime()) / (1000 * 60));
-    return total + diff - (record.pause_minutes || 0);
+    return total + (record.total_minutes - record.break_minutes);
   }, 0);
 }
 
@@ -65,7 +61,7 @@ function calculateTotalMinutes(records: RecordRow[]): number {
 
 interface WorkerBarProps {
   name: string;
-  records: RecordRow[];
+  records: SharedDailyHour[];
   archivedIds: Set<string>;
   expanded: boolean;
   onToggle: () => void;
@@ -91,8 +87,6 @@ function WorkerBar({
   const archivedRecords = records.filter(r => archivedIds.has(r.id));
   const pendingMinutes = calculateTotalMinutes(pendingRecords);
 
-  const isWorking = pendingRecords.some(r => !r.exit_at);
-
   const toggleSelect = (id: string) => {
     setSelectedIds(prev => {
       const next = new Set(prev);
@@ -109,25 +103,29 @@ function WorkerBar({
   };
 
   const handleArchiveAll = () => {
-    const ids = pendingRecords.filter(r => r.exit_at).map(r => r.id);
+    const ids = pendingRecords.map(r => r.id);
     if (ids.length === 0) return;
     onArchive(ids);
     setSelectedIds(new Set());
   };
 
   const formatRecordDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleDateString('en-US', {
+    // work_date is YYYY-MM-DD, parse as local date
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const date = new Date(year, month - 1, day);
+    return date.toLocaleDateString('en-US', {
       day: '2-digit',
       month: 'short',
     });
   };
 
-  const formatRecordTime = (dateStr: string) => {
-    return new Date(dateStr).toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-    });
+  const formatTimeRange = (record: SharedDailyHour): string => {
+    const parts: string[] = [];
+    if (record.first_entry) parts.push(record.first_entry);
+    if (record.last_exit) parts.push(record.last_exit);
+    if (parts.length === 2) return `${parts[0]} - ${parts[1]}`;
+    if (parts.length === 1) return parts[0];
+    return formatDuration(record.total_minutes);
   };
 
   return (
@@ -135,7 +133,7 @@ function WorkerBar({
       {/* Compact Bar */}
       <TouchableOpacity style={styles.compactBar} onPress={onToggle}>
         <View style={styles.barLeft}>
-          <View style={[styles.avatar, isWorking && styles.avatarActive]}>
+          <View style={styles.avatar}>
             <Text style={styles.avatarText}>{name[0]?.toUpperCase() || '?'}</Text>
           </View>
           <Text style={styles.barName} numberOfLines={1}>{name}</Text>
@@ -168,28 +166,25 @@ function WorkerBar({
                 <TouchableOpacity
                   key={record.id}
                   style={styles.recordRow}
-                  onPress={() => record.exit_at && toggleSelect(record.id)}
-                  activeOpacity={record.exit_at ? 0.6 : 1}
+                  onPress={() => toggleSelect(record.id)}
+                  activeOpacity={0.6}
                 >
                   <View style={styles.checkboxArea}>
-                    {record.exit_at ? (
-                      <Ionicons
-                        name={selectedIds.has(record.id) ? 'checkbox' : 'square-outline'}
-                        size={20}
-                        color={selectedIds.has(record.id) ? colors.primary : colors.textMuted}
-                      />
-                    ) : (
-                      <View style={styles.activeDot} />
-                    )}
+                    <Ionicons
+                      name={selectedIds.has(record.id) ? 'checkbox' : 'square-outline'}
+                      size={20}
+                      color={selectedIds.has(record.id) ? colors.primary : colors.textMuted}
+                    />
                   </View>
-                  <Text style={styles.recordDate}>{formatRecordDate(record.entry_at)}</Text>
+                  <Text style={styles.recordDate}>{formatRecordDate(record.work_date)}</Text>
                   <Text style={styles.recordTime}>
-                    {formatRecordTime(record.entry_at)}
-                    {' - '}
-                    {record.exit_at ? formatRecordTime(record.exit_at) : 'Now'}
+                    {formatTimeRange(record)}
+                  </Text>
+                  <Text style={styles.recordHours}>
+                    {formatDuration(record.total_minutes)}
                   </Text>
                   <Text style={styles.recordLocation} numberOfLines={1}>
-                    {record.location_name || 'Unknown'}
+                    {record.location_name || ''}
                   </Text>
                 </TouchableOpacity>
               ))}
@@ -240,14 +235,15 @@ function WorkerBar({
               {showArchived && archivedRecords.map(record => (
                 <View key={record.id} style={styles.archivedRow}>
                   <Ionicons name="archive-outline" size={14} color={colors.textMuted} />
-                  <Text style={styles.archivedDate}>{formatRecordDate(record.entry_at)}</Text>
+                  <Text style={styles.archivedDate}>{formatRecordDate(record.work_date)}</Text>
                   <Text style={styles.archivedTime}>
-                    {formatRecordTime(record.entry_at)}
-                    {' - '}
-                    {record.exit_at ? formatRecordTime(record.exit_at) : 'Now'}
+                    {formatTimeRange(record)}
+                  </Text>
+                  <Text style={styles.archivedHours}>
+                    {formatDuration(record.total_minutes)}
                   </Text>
                   <Text style={styles.archivedLocation} numberOfLines={1}>
-                    {record.location_name || 'Unknown'}
+                    {record.location_name || ''}
                   </Text>
                 </View>
               ))}
@@ -272,7 +268,7 @@ function WorkerBar({
 export default function TeamScreen() {
   const { user } = useAuthStore();
   const [workers, setWorkers] = useState<
-    { ownerId: string; ownerName: string | null; records: RecordRow[] }[]
+    { ownerId: string; ownerName: string | null; records: SharedDailyHour[] }[]
   >([]);
   const [archivedMap, setArchivedMap] = useState<Record<string, Set<string>>>({});
   const [loading, setLoading] = useState(true);
@@ -685,10 +681,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  avatarActive: {
-    borderWidth: 2,
-    borderColor: colors.success,
-  },
   avatarText: {
     fontSize: 14,
     fontWeight: '700',
@@ -739,12 +731,6 @@ const styles = StyleSheet.create({
     width: 24,
     alignItems: 'center',
   },
-  activeDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.success,
-  },
   recordDate: {
     fontSize: 13,
     color: colors.textSecondary,
@@ -754,6 +740,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.text,
     flex: 1,
+  },
+  recordHours: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.primary,
+    minWidth: 48,
+    textAlign: 'right',
   },
   recordLocation: {
     fontSize: 12,
@@ -817,6 +810,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: colors.textMuted,
     flex: 1,
+  },
+  archivedHours: {
+    fontSize: 12,
+    color: colors.textMuted,
+    minWidth: 48,
+    textAlign: 'right',
   },
   archivedLocation: {
     fontSize: 11,

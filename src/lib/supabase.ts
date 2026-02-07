@@ -108,7 +108,6 @@ export function getSupabaseConfig() {
 // ============================================
 
 export type LocationStatus = 'active' | 'deleted' | 'pending_delete';
-export type RecordType = 'automatic' | 'manual';
 export type AuditEventType = 'entry' | 'exit' | 'dispute' | 'correction';
 export type AdminRole = 'admin' | 'super_admin' | 'viewer';
 
@@ -193,34 +192,6 @@ export interface Database {
           last_seen_at?: string;
         };
         Update: Partial<Database['public']['Tables']['locations']['Insert']>;
-      };
-
-      // ============================================
-      // RECORDS (Work Sessions)
-      // ============================================
-      records: {
-        Row: {
-          id: string;
-          user_id: string;
-          location_id: string;
-          location_name: string | null;
-          entry_at: string;
-          exit_at: string | null;
-          type: RecordType;
-          manually_edited: boolean;
-          edit_reason: string | null;
-          integrity_hash: string | null;
-          color: string | null;
-          device_id: string | null;
-          pause_minutes: number;
-          created_at: string;
-          synced_at: string | null;
-        };
-        Insert: Omit<Database['public']['Tables']['records']['Row'], 'id' | 'created_at'> & {
-          id?: string;
-          created_at?: string;
-        };
-        Update: Partial<Database['public']['Tables']['records']['Insert']>;
       };
 
       // ============================================
@@ -317,7 +288,6 @@ export interface Database {
 
 export type Tables = Database['public']['Tables'];
 export type LocationRow = Tables['locations']['Row'];
-export type RecordRow = Tables['records']['Row'];
 export type AnalyticsRow = Tables['analytics_daily']['Row'];
 export type ErrorLogRow = Tables['log_errors']['Row'];
 export type AuditRow = Tables['log_locations']['Row'];

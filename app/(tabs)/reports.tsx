@@ -27,12 +27,13 @@ import Constants from 'expo-constants';
 
 import { Card } from '../../src/components/ui/Button';
 import { colors, withOpacity, shadows } from '../../src/constants/colors';
-import type { ComputedSession } from '../../src/lib/database';
 
-import { useHomeScreen } from '../../src/screens/home/hooks';
+// V3: ComputedSession now comes from hooks.ts (was removed from database)
+import { useHomeScreen, type ComputedSession } from '../../src/screens/home/hooks';
 import { styles } from '../../src/screens/home/styles';
 import { WEEKDAYS_SHORT, getDayKey, isSameDay } from '../../src/screens/home/helpers';
 import { generateAndShareTimesheetPDF } from '../../src/lib/timesheetPdf';
+import { logger } from '../../src/lib/logger';
 import { Alert } from 'react-native';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -145,15 +146,28 @@ function WeeklyBarChart({
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
-  // Auto-scroll to last week (most recent) on mount
+  // Auto-scroll to the week containing today (or last week if not in this month)
   useEffect(() => {
     if (scrollViewRef.current && weeksData.length > 0) {
-      // Small delay to ensure layout is complete
+      const today = new Date();
+      let targetIndex = weeksData.length - 1; // default: last week
+
+      // Find which week contains today
+      for (let i = 0; i < weeksData.length; i++) {
+        if (weeksData[i].days.some(d => isSameDay(d.date, today))) {
+          targetIndex = i;
+          break;
+        }
+      }
+
+      const cardWidth = SCREEN_WIDTH - 64 + 12; // weekCard width + marginRight
+      const scrollTo = targetIndex * cardWidth;
+
       setTimeout(() => {
-        scrollViewRef.current?.scrollToEnd({ animated: true });
+        scrollViewRef.current?.scrollTo({ x: scrollTo, animated: true });
       }, 100);
     }
-  }, []); // Only run on mount
+  }, [weeksData]); // Re-scroll when data or month changes
 
   return (
     <View style={chartStyles.container}>
@@ -296,11 +310,12 @@ export default function ReportsScreen() {
   // RELOAD DATA ON TAB FOCUS
   // ============================================
   // FIX: When navigating from Home to Reports, reload data to show new records
+  // FIX: Always navigate to current month so chart shows current week
   useFocusEffect(
     useCallback(() => {
-      // Reload data when this screen gains focus
+      goToCurrentMonth();
       onRefresh();
-    }, []) // Empty deps - onRefresh handles its own dependencies
+    }, []) // Empty deps - functions read from store directly
   );
 
   // Sessions for chart - always use month sessions
@@ -459,27 +474,23 @@ export default function ReportsScreen() {
 
   // Handle date range selection (Airbnb style)
   const handleDateRangeSelect = async (date: Date) => {
-    console.log('[Reports] handleDateRangeSelect called:', {
-      date: date.toISOString(),
-      dateRangeMode,
-      rangeStartDate: rangeStartDate?.toISOString(),
-      rangeEndDate: rangeEndDate?.toISOString()
+    logger.debug('ui', 'handleDateRangeSelect called', {
+      dateRangeMode: String(dateRangeMode),
+      hasStart: String(!!rangeStartDate),
+      hasEnd: String(!!rangeEndDate),
     });
 
     if (!dateRangeMode) {
-      console.log('[Reports] Not in date range mode, returning');
       return;
     }
 
     if (!rangeStartDate || (rangeStartDate && rangeEndDate)) {
       // First selection or reset
-      console.log('[Reports] Setting start date:', date.toDateString());
       setRangeStartDate(date);
       setRangeEndDate(null);
       setRangeSessions([]);
     } else {
       // Second selection
-      console.log('[Reports] Setting end date:', date.toDateString());
       let startDate = rangeStartDate;
       let endDate = date;
 
@@ -499,17 +510,15 @@ export default function ReportsScreen() {
       endTime.setHours(23, 59, 59, 999);
 
       try {
-        console.log('[Reports] Fetching sessions from', startTime.toISOString(), 'to', endTime.toISOString());
         const sessions = await getSessionsByPeriod(startTime.toISOString(), endTime.toISOString());
-        console.log('[Reports] Got sessions:', sessions?.length || 0);
         const completedSessions = sessions.filter((s: ComputedSession) => s.exit_at);
-        console.log('[Reports] Completed sessions:', completedSessions.length);
+        logger.debug('ui', 'Date range sessions loaded', { total: String(sessions?.length || 0), completed: String(completedSessions.length) });
         setRangeSessions(completedSessions);
 
         // Open export modal after selecting range
         setTimeout(() => setShowExportModal(true), 300);
       } catch (err) {
-        console.log('[Reports] Error fetching sessions:', err);
+        logger.error('ui', 'Error fetching date range sessions', { error: String(err) });
       }
     }
   };
@@ -665,15 +674,18 @@ export default function ReportsScreen() {
     <View style={{ flex: 1, backgroundColor: '#F3F4F6' }}>
       {/* Status bar strip - gray background behind system status bar */}
       <StatusBar barStyle="dark-content" backgroundColor="#F3F4F6" />
-      <View style={{
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        height: Constants.statusBarHeight || 28,
-        backgroundColor: '#F3F4F6',
-        zIndex: 1,
-      }} />
+      <View
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          height: Constants.statusBarHeight || 28,
+          backgroundColor: '#F3F4F6',
+          zIndex: 1,
+        }}
+      />
 
       <View style={reportStyles.container}>
         {/* HEADER */}
@@ -717,7 +729,6 @@ export default function ReportsScreen() {
             style={reportStyles.exportRangeBtn}
             activeOpacity={0.7}
             onPress={() => {
-              console.log('[Reports] Select Dates button pressed');
               setDateRangeMode(true);
             }}
           >
@@ -773,6 +784,7 @@ export default function ReportsScreen() {
         style={reportStyles.contentArea}
         contentContainerStyle={reportStyles.contentAreaScroll}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
           {/* MONTH VIEW - with swipe gesture */}
           <View {...panResponder.panHandlers}>
@@ -838,7 +850,6 @@ export default function ReportsScreen() {
                         rangePosition === 'single' && reportStyles.monthDayRangeSingle,
                       ]}
                       onPress={() => {
-                        console.log('[Reports] Day pressed:', dayKey, 'dateRangeMode:', dateRangeMode);
                         if (dateRangeMode) {
                           handleDateRangeSelect(date);
                         } else {

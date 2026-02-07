@@ -1,28 +1,21 @@
 /**
- * Bootstrap - OnSite Timekeeper v2
- * 
- * SINGLETON listener initialization.
- * This is the ONLY place that registers callbacks.
- * 
- * FIX: Now calls locationStore.handleGeofenceEvent() to update currentFenceId
+ * Bootstrap - OnSite Timekeeper v3
+ *
+ * Singleton listener initialization for geofence events.
  */
 
 import { AppState, type AppStateStatus } from 'react-native';
 import { logger } from './logger';
 import { useLocationStore } from '../stores/locationStore';
 import {
-  startHeartbeat,
-  stopHeartbeat,
   setGeofenceCallback,
   setReconcileCallback,
   setLocationCallback,
   clearCallbacks,
-  updateHeartbeatInterval,
   setBackgroundUserId,
   clearBackgroundUserId,
 } from './backgroundTasks';
 import { getBackgroundUserId, checkInsideFence } from './backgroundHelpers';
-import { useWorkSessionStore } from '../stores/workSessionStore';
 import type * as Location from 'expo-location';
 
 // ============================================
@@ -36,13 +29,8 @@ let appStateSubscription: ReturnType<typeof AppState.addEventListener> | null = 
 // APP STATE HANDLER
 // ============================================
 
-async function handleAppStateChange(nextState: AppStateStatus): Promise<void> {
+function handleAppStateChange(nextState: AppStateStatus): void {
   logger.debug('boot', `📱 AppState: ${nextState}`);
-  
-  if (nextState === 'active') {
-    // Update heartbeat interval when app becomes active
-    await updateHeartbeatInterval();
-  }
 }
 
 // ============================================
@@ -51,10 +39,7 @@ async function handleAppStateChange(nextState: AppStateStatus): Promise<void> {
 
 function handleGeofenceEvent(event: { type: 'enter' | 'exit'; regionIdentifier: string; timestamp: number }): void {
   logger.info('geofence', `🎯 Geofence event: ${event.type} @ ${event.regionIdentifier}`);
-  
-  // FIX: Call locationStore.handleGeofenceEvent() which:
-  // 1. Updates currentFenceId (for START button)
-  // 2. Calls workSessionStore for notification flow
+
   const locationStore = useLocationStore.getState();
   locationStore.handleGeofenceEvent(event);
 }
@@ -66,7 +51,6 @@ function handleGeofenceEvent(event: { type: 'enter' | 'exit'; regionIdentifier: 
 async function handleReconcile(): Promise<void> {
   logger.info('geofence', '🔄 Reconcile triggered');
 
-  // FIX: Call locationStore.reconcileState() which handles currentFenceId
   const locationStore = useLocationStore.getState();
   await locationStore.reconcileState();
 }
@@ -75,40 +59,28 @@ async function handleReconcile(): Promise<void> {
 // LOCATION UPDATE CALLBACK (GPS-based exit detection)
 // ============================================
 
-/**
- * Handle continuous GPS updates to detect exit from geofence.
- * Called every 50m or 60s by LOCATION_TASK.
- * This provides reliable exit detection even with screen off.
- */
 async function handleLocationUpdate(location: Location.LocationObject): Promise<void> {
   try {
     const { coords } = location;
     const locationStore = useLocationStore.getState();
     const currentFenceId = locationStore.currentFenceId;
 
-    // If not inside any fence, nothing to check
     if (!currentFenceId) {
       return;
     }
 
-    // Get user ID for fence check
     const userId = await getBackgroundUserId();
     if (!userId) {
       logger.debug('gps', 'No userId for location update, skipping');
       return;
     }
 
-    // Check if still inside the fence using hysteresis
     const result = await checkInsideFence(
       coords.latitude,
       coords.longitude,
-      userId,
-      true, // useHysteresis for exit
-      'heartbeat', // source
-      coords.accuracy ?? undefined
+      userId
     );
 
-    // If outside the fence, trigger exit event
     if (!result.isInside) {
       logger.info('gps', `📍 GPS detected exit from fence: ${currentFenceId}`, {
         lat: coords.latitude.toFixed(6),
@@ -116,7 +88,6 @@ async function handleLocationUpdate(location: Location.LocationObject): Promise<
         accuracy: coords.accuracy?.toFixed(0) ?? 'N/A',
       });
 
-      // Trigger exit via locationStore (same path as native geofence)
       locationStore.handleGeofenceEvent({
         type: 'exit',
         regionIdentifier: currentFenceId,
@@ -141,30 +112,24 @@ export async function initializeListeners(): Promise<void> {
     logger.debug('boot', '⚠️ Listeners already initialized - skipping');
     return;
   }
-  
+
   logger.info('boot', '🎧 Initializing singleton listeners...');
-  
+
   try {
-    // Register callbacks (ONCE!)
     setGeofenceCallback(handleGeofenceEvent);
     setReconcileCallback(handleReconcile);
-    setLocationCallback(handleLocationUpdate); // GPS-based exit detection
+    setLocationCallback(handleLocationUpdate);
 
-    // AppState listener (ONCE!)
     if (appStateSubscription) {
       appStateSubscription.remove();
     }
     appStateSubscription = AppState.addEventListener('change', handleAppStateChange);
-    
-    // Start heartbeat
-    await startHeartbeat();
-    
+
     listenersInitialized = true;
     logger.info('boot', '✅ Singleton listeners ready');
-    
+
   } catch (error) {
     logger.error('boot', 'Failed to initialize listeners', { error: String(error) });
-    // Mark as initialized to prevent infinite retries
     listenersInitialized = true;
   }
 }
@@ -173,17 +138,16 @@ export async function initializeListeners(): Promise<void> {
 // CLEANUP LISTENERS
 // ============================================
 
-export async function cleanupListeners(): Promise<void> {
+export function cleanupListeners(): void {
   logger.info('boot', '🧹 Cleaning up listeners...');
-  
+
   if (appStateSubscription) {
     appStateSubscription.remove();
     appStateSubscription = null;
   }
-  
+
   clearCallbacks();
-  await stopHeartbeat();
-  
+
   listenersInitialized = false;
   logger.info('boot', '✅ Listeners cleanup complete');
 }
@@ -195,16 +159,15 @@ export async function cleanupListeners(): Promise<void> {
 export async function onUserLogin(userId: string): Promise<void> {
   logger.info('boot', `👤 User logged in: ${userId.substring(0, 8)}...`);
   await setBackgroundUserId(userId);
-  await updateHeartbeatInterval();
 }
 
 export async function onUserLogout(): Promise<void> {
   logger.info('boot', '👤 User logging out...');
   await clearBackgroundUserId();
 
-  // Clear any pending session state
-  const { clearAllPendingExitNotifications } = await import('./exitHandler');
-  clearAllPendingExitNotifications();
+  // Clear any pending exit timers
+  const { clearAllPendingExits } = await import('./exitHandler');
+  clearAllPendingExits();
 }
 
 // ============================================
@@ -215,10 +178,7 @@ export function areListenersInitialized(): boolean {
   return listenersInitialized;
 }
 
-/**
- * Force re-initialization (use with caution)
- */
 export async function forceReinitialize(): Promise<void> {
-  await cleanupListeners();
+  cleanupListeners();
   await initializeListeners();
 }

@@ -17,12 +17,7 @@ type LogCategory =
   | 'session'
   | 'ui'
   | 'boot'
-  | 'heartbeat'
-  | 'record'
-  | 'registro'    // Legacy (Portuguese)
   | 'telemetry'
-  | 'ttl'
-  | 'pingpong'
   | 'permissions'
   | 'settings'
   | 'grants'      // QR code device linking
@@ -65,12 +60,7 @@ const categoryColor: Record<LogCategory, string> = {
   session: '\x1b[95m',     // light magenta
   ui: '\x1b[94m',          // light blue
   boot: '\x1b[96m',        // light cyan
-  heartbeat: '\x1b[93m',   // light yellow
-  record: '\x1b[92m',      // light green
-  registro: '\x1b[92m',    // light green (Legacy)
   telemetry: '\x1b[90m',   // gray
-  ttl: '\x1b[93m',         // light yellow
-  pingpong: '\x1b[95m',    // light magenta
   permissions: '\x1b[36m', // cyan
   settings: '\x1b[37m',    // white
   grants: '\x1b[94m',      // light blue (QR code linking)
