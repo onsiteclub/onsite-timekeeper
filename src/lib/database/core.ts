@@ -369,6 +369,14 @@ export async function initDatabase(): Promise<void> {
       // Column already exists, ignore
     }
 
+    // Migration: Add deleted_at column for soft-delete sync support
+    try {
+      db.execSync(`ALTER TABLE daily_hours ADD COLUMN deleted_at TEXT`);
+      logger.debug('database', 'Added deleted_at column to daily_hours');
+    } catch {
+      // Column already exists, ignore
+    }
+
     // ============================================
     // ACTIVE TRACKING TABLE (Singleton for current geofence session)
     // ============================================

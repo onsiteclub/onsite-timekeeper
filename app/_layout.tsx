@@ -16,6 +16,7 @@ import '../src/lib/backgroundTasks';
 
 import { colors } from '../src/constants/colors';
 import { logger } from '../src/lib/logger';
+import { initSentry, setUser as setSentryUser, clearUser as clearSentryUser } from '../src/lib/sentry';
 import { initDatabase } from '../src/lib/database';
 import { ErrorBoundary } from '../src/components/ErrorBoundary';
 import { useAuthStore } from '../src/stores/authStore';
@@ -133,6 +134,9 @@ export default function RootLayout() {
       logger.info('boot', '🚀 Starting OnSite Timekeeper v2...');
 
       try {
+        // 0. Sentry (as early as possible, before any async ops)
+        initSentry();
+
         // 1. Database
         await initDatabase();
         logger.info('boot', '✅ Database initialized');
@@ -218,6 +222,7 @@ export default function RootLayout() {
       const currentUser = useAuthStore.getState().user;
       if (currentUser && userSessionRef.current !== currentUser.id) {
         await onUserLogin(currentUser.id);
+        setSentryUser(currentUser.id);
         userSessionRef.current = currentUser.id;
       }
     });
@@ -227,6 +232,7 @@ export default function RootLayout() {
   useEffect(() => {
     if (isReady && !isAuthenticated && userSessionRef.current) {
       logger.info('boot', '🚪 Logout detected - cleaning up...');
+      clearSentryUser();
       onUserLogout().then(() => {
         userSessionRef.current = null;
         setStoresInitialized(false);

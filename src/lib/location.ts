@@ -11,8 +11,13 @@
  */
 
 import * as Location from 'expo-location';
+import { Platform } from 'react-native';
 import { logger } from './logger';
 import { LOCATION_TASK, GEOFENCE_TASK } from './backgroundTypes';
+
+// Platform-aware geofence limits
+export const GEOFENCE_LIMIT = Platform.OS === 'ios' ? 20 : 100;
+export const GEOFENCE_WARN_THRESHOLD = Math.floor(GEOFENCE_LIMIT * 0.8);
 
 // Internal aliases (shorter names for this file)
 const LOCATION_TASK_NAME = LOCATION_TASK;
@@ -278,6 +283,16 @@ export async function startGeofencing(regions: GeofenceRegion[]): Promise<boolea
         logger.warn('geofence', 'No background permission for geofencing');
         return false;
       }
+    }
+
+    // Platform geofence limit check
+    if (regions.length > GEOFENCE_LIMIT) {
+      logger.warn('geofence', `Geofence count (${regions.length}) exceeds platform limit (${GEOFENCE_LIMIT}). Truncating.`);
+      regions = regions.slice(0, GEOFENCE_LIMIT);
+    }
+
+    if (regions.length >= GEOFENCE_WARN_THRESHOLD) {
+      logger.warn('geofence', `Approaching geofence limit: ${regions.length}/${GEOFENCE_LIMIT}`);
     }
 
     logger.info('geofence', `🎯 Starting geofencing for ${regions.length} region(s)`);

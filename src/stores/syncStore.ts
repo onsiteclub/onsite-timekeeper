@@ -49,7 +49,9 @@ import {
 } from '../lib/database';
 import {
   getUnsyncedDailyHours,
+  getDeletedDailyHoursForSync,
   markDailyHoursSynced,
+  purgeDeletedDailyHours,
   upsertDailyHoursFromSync,
   type DailyHoursEntry,
 } from '../lib/database/daily';
@@ -495,6 +497,35 @@ async function uploadDailyHours(userId: string): Promise<{ count: number; errors
   } catch (error) {
     logger.error('sync', '[SYNC:daily_hours] Error', { error: String(error) });
     errors.push(String(error));
+  }
+
+  // Sync deletions: delete from Supabase, then purge local tombstones
+  try {
+    const deleted = getDeletedDailyHoursForSync(userId);
+    if (deleted.length > 0) {
+      logger.info('sync', `[SYNC:daily_hours] ${deleted.length} deletions to sync`);
+      for (const day of deleted) {
+        try {
+          const { error } = await supabase
+            .from('daily_hours')
+            .delete()
+            .eq('user_id', userId)
+            .eq('work_date', day.date);
+
+          if (error) {
+            errors.push(`Delete ${day.date}: ${error.message}`);
+          } else {
+            purgeDeletedDailyHours(userId, day.date);
+            count++;
+            logger.debug('sync', `[SYNC:daily_hours] Deleted from Supabase: ${day.date}`);
+          }
+        } catch (e) {
+          errors.push(`Delete ${day.date}: ${e}`);
+        }
+      }
+    }
+  } catch (error) {
+    logger.error('sync', '[SYNC:daily_hours] Delete sync error', { error: String(error) });
   }
 
   return { count, errors };

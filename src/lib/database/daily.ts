@@ -110,7 +110,7 @@ export function getDateString(date: Date | string): string {
 export function getDailyHours(userId: string, date: string): DailyHoursEntry | null {
   try {
     const record = db.getFirstSync<DailyHoursDB>(
-      `SELECT * FROM daily_hours WHERE user_id = ? AND date = ?`,
+      `SELECT * FROM daily_hours WHERE user_id = ? AND date = ? AND deleted_at IS NULL`,
       [userId, date]
     );
 
@@ -140,7 +140,7 @@ export function getDailyHoursByPeriod(
   try {
     const records = db.getAllSync<DailyHoursDB>(
       `SELECT * FROM daily_hours
-       WHERE user_id = ? AND date >= ? AND date <= ?
+       WHERE user_id = ? AND date >= ? AND date <= ? AND deleted_at IS NULL
        ORDER BY date ASC`,
       [userId, startDate, endDate]
     );
@@ -158,7 +158,7 @@ export function getDailyHoursByPeriod(
 export function getAllDailyHours(userId: string): DailyHoursEntry[] {
   try {
     const records = db.getAllSync<DailyHoursDB>(
-      `SELECT * FROM daily_hours WHERE user_id = ? ORDER BY date DESC`,
+      `SELECT * FROM daily_hours WHERE user_id = ? AND deleted_at IS NULL ORDER BY date DESC`,
       [userId]
     );
 
@@ -175,7 +175,7 @@ export function getAllDailyHours(userId: string): DailyHoursEntry[] {
 export function getUnsyncedDailyHours(userId: string): DailyHoursEntry[] {
   try {
     const records = db.getAllSync<DailyHoursDB>(
-      `SELECT * FROM daily_hours WHERE user_id = ? AND synced_at IS NULL ORDER BY date ASC`,
+      `SELECT * FROM daily_hours WHERE user_id = ? AND synced_at IS NULL AND deleted_at IS NULL ORDER BY date ASC`,
       [userId]
     );
 
@@ -436,12 +436,16 @@ export function addMinutesToDay(
 // ============================================
 
 /**
- * Delete daily hours for a specific date
+ * Soft-delete daily hours for a specific date
+ * Sets deleted_at and clears synced_at so deletion syncs to Supabase
  */
 export function deleteDailyHours(userId: string, date: string): boolean {
   try {
-    db.runSync(`DELETE FROM daily_hours WHERE user_id = ? AND date = ?`, [userId, date]);
-    logger.info('database', `[daily_hours] DELETED ${date}`);
+    db.runSync(
+      `UPDATE daily_hours SET deleted_at = ?, updated_at = ?, synced_at = NULL WHERE user_id = ? AND date = ?`,
+      [now(), now(), userId, date]
+    );
+    logger.info('database', `[daily_hours] SOFT-DELETED ${date}`);
     return true;
   } catch (error) {
     logger.error('database', '[daily_hours] DELETE error', { error: String(error) });
@@ -450,16 +454,49 @@ export function deleteDailyHours(userId: string, date: string): boolean {
 }
 
 /**
- * Delete daily hours by record ID (UUID)
+ * Soft-delete daily hours by record ID (UUID)
  */
 export function deleteDailyHoursById(userId: string, id: string): boolean {
   try {
-    db.runSync(`DELETE FROM daily_hours WHERE user_id = ? AND id = ?`, [userId, id]);
-    logger.info('database', `[daily_hours] DELETED by id ${id.substring(0, 8)}...`);
+    db.runSync(
+      `UPDATE daily_hours SET deleted_at = ?, updated_at = ?, synced_at = NULL WHERE user_id = ? AND id = ?`,
+      [now(), now(), userId, id]
+    );
+    logger.info('database', `[daily_hours] SOFT-DELETED by id ${id.substring(0, 8)}...`);
     return true;
   } catch (error) {
     logger.error('database', '[daily_hours] DELETE BY ID error', { error: String(error) });
     return false;
+  }
+}
+
+/**
+ * Get soft-deleted records pending sync (need to be deleted from Supabase)
+ */
+export function getDeletedDailyHoursForSync(userId: string): DailyHoursEntry[] {
+  try {
+    const records = db.getAllSync<DailyHoursDB>(
+      `SELECT * FROM daily_hours WHERE user_id = ? AND deleted_at IS NOT NULL AND synced_at IS NULL`,
+      [userId]
+    );
+    return records.map(toEntry);
+  } catch (error) {
+    logger.error('database', '[daily_hours] GET DELETED FOR SYNC error', { error: String(error) });
+    return [];
+  }
+}
+
+/**
+ * Hard-delete a record after successful Supabase deletion (cleanup tombstone)
+ */
+export function purgeDeletedDailyHours(userId: string, date: string): void {
+  try {
+    db.runSync(
+      `DELETE FROM daily_hours WHERE user_id = ? AND date = ? AND deleted_at IS NOT NULL`,
+      [userId, date]
+    );
+  } catch (error) {
+    logger.error('database', '[daily_hours] PURGE error', { error: String(error) });
   }
 }
 
@@ -486,10 +523,16 @@ export function markDailyHoursSynced(userId: string, date: string): void {
  */
 export function upsertDailyHoursFromSync(record: DailyHoursDB): void {
   try {
-    const existing = db.getFirstSync<{ id: string }>(
-      `SELECT id FROM daily_hours WHERE user_id = ? AND date = ?`,
+    const existing = db.getFirstSync<{ id: string; deleted_at: string | null }>(
+      `SELECT id, deleted_at FROM daily_hours WHERE user_id = ? AND date = ?`,
       [record.user_id, record.date]
     );
+
+    // Skip if locally deleted (tombstone exists, pending sync)
+    if (existing?.deleted_at) {
+      logger.debug('database', `[daily_hours] SKIP upsert from sync (locally deleted): ${record.date}`);
+      return;
+    }
 
     if (existing) {
       db.runSync(
@@ -506,7 +549,7 @@ export function upsertDailyHoursFromSync(record: DailyHoursDB): void {
           notes = ?,
           updated_at = ?,
           synced_at = ?
-        WHERE user_id = ? AND date = ?`,
+        WHERE user_id = ? AND date = ? AND deleted_at IS NULL`,
         [
           record.total_minutes,
           record.break_minutes,

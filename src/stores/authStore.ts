@@ -26,14 +26,15 @@ export interface AuthState {
   isLoading: boolean;
   isInitialized: boolean;
   error: string | null;
-  
+
   // Actions
   initialize: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   signUp: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   signOut: () => Promise<void>;
+  deleteAccount: () => Promise<{ success: boolean; error?: string }>;
   refreshSession: () => Promise<void>;
-  
+
   // Helpers
   getUserId: () => string | null;
   getUserEmail: () => string | null;
@@ -264,13 +265,69 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     } catch (error) {
       logger.error('auth', 'Sign out error', { error: String(error) });
-      
+
       // Force clear state even on error
-      set({ 
-        session: null, 
-        user: null, 
+      set({
+        session: null,
+        user: null,
         isLoading: false,
       });
+    }
+  },
+
+  // ============================================
+  // DELETE ACCOUNT
+  // ============================================
+  deleteAccount: async () => {
+    set({ isLoading: true, error: null });
+
+    try {
+      logger.warn('auth', '🗑️ Account deletion initiated');
+
+      // 1. Stop geofencing and background tasks
+      const { onUserLogout } = await import('../lib/bootstrap');
+      await onUserLogout();
+
+      // 2. Stop location monitoring
+      try {
+        const { useLocationStore } = await import('./locationStore');
+        await useLocationStore.getState().stopMonitoring();
+      } catch {
+        // May fail if not monitoring, continue
+      }
+
+      // 3. Clear all local SQLite data
+      const { resetDatabase } = await import('../lib/database');
+      await resetDatabase();
+
+      // 4. Call Supabase RPC to delete remote data + auth user
+      if (isSupabaseConfigured()) {
+        const { error } = await supabase.rpc('delete_user_account');
+        if (error) {
+          logger.error('auth', 'RPC delete_user_account failed', { error: error.message });
+          // Continue anyway - local data is already cleared
+        }
+      }
+
+      // 5. Clear background userId
+      await clearBackgroundUserId();
+
+      // 6. Clear auth state
+      set({
+        session: null,
+        user: null,
+        isLoading: false,
+        error: null,
+      });
+
+      logger.info('auth', '✅ Account deleted successfully');
+      return { success: true };
+
+    } catch (error) {
+      const errorMsg = String(error);
+      logger.error('auth', 'Account deletion failed', { error: errorMsg });
+      set({ isLoading: false, error: errorMsg });
+      return { success: false, error: errorMsg };
     }
   },
 

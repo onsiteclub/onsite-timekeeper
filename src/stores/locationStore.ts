@@ -15,6 +15,7 @@ import { create } from 'zustand';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { logger } from '../lib/logger';
+import { Platform } from 'react-native';
 import {
   requestAllPermissions,
   getCurrentLocation,
@@ -23,8 +24,9 @@ import {
   startBackgroundLocation,
   stopBackgroundLocation,
   isGeofencingActive as checkGeofencingActive,
+  GEOFENCE_LIMIT,
   type LocationResult,
-} from '../lib/location';
+} from '../lib/location'; // meters
 import {
   // Location CRUD
   createLocation,
@@ -65,6 +67,10 @@ import { useSyncStore } from './syncStore';
 // NOTE: WorkSessionStore removed in V3 - now using exitHandler directly
 import { useDailyLogStore } from './dailyLogStore';
 import { useSettingsStore } from './settingsStore';
+
+// Radius bounds
+const MIN_RADIUS = 50;  // meters
+const MAX_RADIUS = 1000;
 
 // ============================================
 // CONSTANTS
@@ -327,9 +333,21 @@ export const useLocationStore = create<LocationState>((set, get) => ({
     const userId = useAuthStore.getState().getUserId();
     if (!userId) throw new Error('User not authenticated');
 
+    // Validate radius bounds
+    if (radius < MIN_RADIUS || radius > MAX_RADIUS) {
+      throw new Error(`Radius must be between ${MIN_RADIUS}m and ${MAX_RADIUS}m`);
+    }
+
     // Get minimum distance setting
     const minDistance = useSettingsStore.getState().distanciaMinimaLocais;
     const existingLocations = get().locations;
+
+    // Check geofence platform limit
+    if (existingLocations.length >= GEOFENCE_LIMIT) {
+      throw new Error(
+        `Maximum of ${GEOFENCE_LIMIT} locations reached on ${Platform.OS === 'ios' ? 'iOS' : 'Android'}. Please delete a location first.`
+      );
+    }
 
     // Track closest location for audit logging
     let closestLocation: { name: string; distance: number; minimum: number } | null = null;

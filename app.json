@@ -23,8 +23,7 @@
         "UIBackgroundModes": [
           "location",
           "fetch",
-          "remote-notification",
-          "audio"
+          "remote-notification"
         ]
       }
     },
@@ -83,9 +82,16 @@
           "android": {
             "kotlinVersion": "1.9.25",
             "compileSdkVersion": 35,
-            "targetSdkVersion": 34,
+            "targetSdkVersion": 35,
             "minSdkVersion": 24
           }
+        }
+      ],
+      [
+        "@sentry/react-native/expo",
+        {
+          "organization": "onsite-club",
+          "project": "react-native"
         }
       ]
     ],

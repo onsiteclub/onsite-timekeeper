@@ -59,6 +59,16 @@ export class ErrorBoundary extends Component<Props, State> {
       componentStack: errorInfo.componentStack || 'No component stack',
     });
 
+    // Report to Sentry (production)
+    try {
+      const Sentry = require('@sentry/react-native');
+      Sentry.captureException(error, {
+        extra: { componentStack: errorInfo.componentStack },
+      });
+    } catch {
+      // Sentry not available
+    }
+
     this.setState({ errorInfo });
 
     // Call optional callback

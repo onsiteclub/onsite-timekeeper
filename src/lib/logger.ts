@@ -235,6 +235,17 @@ function log(
 
   // Notify listeners (DevMonitor)
   notifyListeners(entry);
+
+  // Send errors to Sentry (production only)
+  if (level === 'error' && !__DEV__) {
+    try {
+      const { captureException } = require('./sentry');
+      const sentryError = new Error(`[${category}] ${safeMessage}`);
+      captureException(sentryError, safeMetadata);
+    } catch {
+      // Sentry not initialized yet, ignore
+    }
+  }
 }
 
 /**

@@ -14,9 +14,13 @@ import {
   Switch,
   Alert,
   Linking,
+  Modal,
+  TextInput,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import Constants from 'expo-constants';
 import { colors, withOpacity } from '../../src/constants/colors';
 import { useAuthStore } from '../../src/stores/authStore';
 import {
@@ -161,8 +165,10 @@ function SwitchRow({ label, value, onChange, hint }: SwitchRowProps) {
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { user, signOut } = useAuthStore();
+  const { user, signOut, deleteAccount, isLoading } = useAuthStore();
   const settings = useSettingsStore();
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteInput, setDeleteInput] = useState('');
 
   const handleSignOut = async () => {
     Alert.alert(
@@ -198,7 +204,41 @@ export default function SettingsScreen() {
     );
   };
 
-  // Avatar management handlers
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      'Delete Account',
+      'This will permanently delete your account and ALL your data (work hours, locations, audit trail). This action CANNOT be undone.\n\nAre you sure you want to continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Continue',
+          style: 'destructive',
+          onPress: () => {
+            setDeleteInput('');
+            setShowDeleteModal(true);
+          },
+        },
+      ]
+    );
+  };
+
+  const confirmDeleteAccount = async () => {
+    if (deleteInput !== 'DELETE') {
+      Alert.alert('Error', 'Please type DELETE to confirm.');
+      return;
+    }
+
+    setShowDeleteModal(false);
+    setDeleteInput('');
+
+    const result = await deleteAccount();
+    if (result.success) {
+      router.replace('/');
+    } else {
+      Alert.alert('Error', result.error || 'Failed to delete account. Please try again.');
+    }
+  };
+
   // Get user initials for avatar
   const getUserInitials = () => {
     const email = user?.email || '';
@@ -346,7 +386,7 @@ export default function SettingsScreen() {
 
         <View style={styles.versionRow}>
           <Text style={styles.versionLabel}>Version</Text>
-          <Text style={styles.versionValue}>2.0.0</Text>
+          <Text style={styles.versionValue}>{Constants.expoConfig?.version || '1.0.0'}</Text>
         </View>
       </AccordionSection>
 
@@ -365,9 +405,68 @@ export default function SettingsScreen() {
           <Ionicons name="log-out-outline" size={20} color={colors.error} />
           <Text style={styles.dangerText}>Sign out</Text>
         </TouchableOpacity>
+
+        <View style={styles.divider} />
+
+        <TouchableOpacity style={styles.dangerRow} onPress={handleDeleteAccount}>
+          <Ionicons name="trash-outline" size={20} color={colors.error} />
+          <Text style={styles.dangerText}>Delete account</Text>
+        </TouchableOpacity>
       </AccordionSection>
 
       <View style={styles.footer} />
+
+      {/* Delete Account Confirmation Modal */}
+      <Modal
+        visible={showDeleteModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowDeleteModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Ionicons name="warning" size={40} color={colors.error} style={styles.modalIcon} />
+            <Text style={styles.modalTitle}>Delete Account</Text>
+            <Text style={styles.modalMessage}>
+              Type <Text style={styles.modalBold}>DELETE</Text> below to permanently delete your account and all data.
+            </Text>
+            <TextInput
+              style={styles.modalInput}
+              value={deleteInput}
+              onChangeText={setDeleteInput}
+              placeholder="Type DELETE to confirm"
+              placeholderTextColor={colors.textTertiary}
+              autoCapitalize="characters"
+              autoCorrect={false}
+            />
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={styles.modalCancelButton}
+                onPress={() => {
+                  setShowDeleteModal(false);
+                  setDeleteInput('');
+                }}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.modalDeleteButton,
+                  deleteInput !== 'DELETE' && styles.modalDeleteButtonDisabled,
+                ]}
+                onPress={confirmDeleteAccount}
+                disabled={deleteInput !== 'DELETE' || isLoading}
+              >
+                {isLoading ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={styles.modalDeleteText}>Delete Forever</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
     </ScrollView>
   );
@@ -611,5 +710,90 @@ const styles = StyleSheet.create({
 
   footer: {
     height: 40,
+  },
+
+  // Delete Account Modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  modalContent: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    padding: 24,
+    width: '100%',
+    maxWidth: 400,
+    alignItems: 'center',
+  },
+  modalIcon: {
+    marginBottom: 12,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 8,
+  },
+  modalMessage: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 16,
+  },
+  modalBold: {
+    fontWeight: '700',
+    color: colors.error,
+  },
+  modalInput: {
+    width: '100%',
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 16,
+    color: colors.text,
+    textAlign: 'center',
+    letterSpacing: 2,
+    marginBottom: 20,
+    backgroundColor: colors.background,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+  },
+  modalCancelButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  modalCancelText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: colors.text,
+  },
+  modalDeleteButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    backgroundColor: colors.error,
+  },
+  modalDeleteButtonDisabled: {
+    opacity: 0.4,
+  },
+  modalDeleteText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#fff',
   },
 });

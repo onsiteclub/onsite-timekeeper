@@ -262,17 +262,26 @@ export async function processGeofenceEvent(event: InternalGeofenceEvent): Promis
   const fence = fenceCache.get(regionId);
   const fenceName = fence?.name || 'Unknown';
 
-  // GPS accuracy check (just log warning, don't block)
+  // GPS accuracy gate - skip events with poor accuracy
   try {
     const currentLocation = await Location.getLastKnownPositionAsync({
       maxAge: 10000,
       requiredAccuracy: 100,
     });
-    if (currentLocation?.coords.accuracy && currentLocation.coords.accuracy > 50) {
-      logger.warn('geofence', `⚠️ LOW GPS ACCURACY: ${currentLocation.coords.accuracy.toFixed(0)}m`);
+    if (currentLocation?.coords.accuracy) {
+      const accuracy = currentLocation.coords.accuracy;
+      const threshold = eventType === 'exit' ? 80 : 100;
+      if (accuracy > threshold) {
+        logger.warn('geofence', `🚫 SKIPPED ${eventType} (accuracy ${accuracy.toFixed(0)}m > ${threshold}m): ${fenceName}`);
+        return;
+      }
+      if (accuracy > 50) {
+        logger.warn('geofence', `⚠️ LOW GPS ACCURACY: ${accuracy.toFixed(0)}m for ${eventType}: ${fenceName}`);
+      }
     }
   } catch {
-    // Ignore GPS errors
+    // Could not check GPS accuracy, proceed normally
+    logger.debug('geofence', 'Could not check GPS accuracy, proceeding');
   }
 
   // Log event

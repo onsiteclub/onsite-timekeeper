@@ -292,7 +292,7 @@ function TermsContent() {
       <Text style={styles.paragraph}>OnSite Timekeeper is a mobile application designed to help users track their work hours. The App provides:</Text>
       <Text style={styles.bulletItem}>• Manual time entry - Record work hours by manually entering start and end times</Text>
       <Text style={styles.bulletItem}>• Location-based tracking - Save work locations for quick access</Text>
-      <Text style={styles.bulletItem}>• Geofencing (Premium) - Automatically detect arrival and departure from work locations</Text>
+      <Text style={styles.bulletItem}>• Geofencing - Automatically detect arrival and departure from work locations</Text>
       <Text style={styles.bulletItem}>• Reports and exports - Generate timesheets in various formats</Text>
       <Text style={styles.bulletItem}>• Team sharing - Share your timesheet with employers or managers</Text>
 
@@ -316,26 +316,20 @@ function TermsContent() {
       <Text style={styles.subTitle}>3.3 Account Security</Text>
       <Text style={styles.paragraph}>We implement industry-standard security measures, but you acknowledge that no system is completely secure. We are not liable for any loss resulting from unauthorized access to your account due to your failure to protect your credentials.</Text>
 
-      <Text style={styles.sectionTitle}>4. Subscription Plans and Payments</Text>
+      <Text style={styles.sectionTitle}>4. Service Plans</Text>
 
-      <Text style={styles.subTitle}>4.1 Free Plan</Text>
-      <Text style={styles.paragraph}>The basic version of OnSite Timekeeper is free and includes manual time entry, basic reporting, up to 3 saved locations, and local data storage.</Text>
-
-      <Text style={styles.subTitle}>4.2 Premium Plan</Text>
-      <Text style={styles.paragraph}>Premium features are available through a paid subscription:</Text>
-      <Text style={styles.bulletItem}>• Automatic geofencing (entry/exit detection)</Text>
-      <Text style={styles.bulletItem}>• Unlimited saved locations</Text>
+      <Text style={styles.subTitle}>4.1 Free Service</Text>
+      <Text style={styles.paragraph}>OnSite Timekeeper is currently offered as a free service. All features are available at no cost, including:</Text>
+      <Text style={styles.bulletItem}>• Manual time entry and reporting</Text>
+      <Text style={styles.bulletItem}>• Location-based geofencing</Text>
       <Text style={styles.bulletItem}>• Cloud backup and sync</Text>
-      <Text style={styles.bulletItem}>• Advanced reports and exports</Text>
-      <Text style={styles.bulletItem}>• Priority customer support</Text>
+      <Text style={styles.bulletItem}>• Reports and exports</Text>
+      <Text style={styles.bulletItem}>• Team sharing</Text>
 
-      <Text style={styles.subTitle}>4.3 Payment Terms</Text>
+      <Text style={styles.subTitle}>4.2 Future Changes</Text>
       <Text style={styles.paragraph}>
-        If you subscribe to a Premium plan, payment is processed through the App Store (Apple) or Google Play, subscriptions automatically renew unless cancelled, prices may change with 30 days notice, and refunds are subject to the respective store's refund policy.
+        We reserve the right to introduce paid features or subscription plans in the future. If we do, we will provide at least 30 days notice. Any features that are free at the time you start using them will continue to function as described.
       </Text>
-
-      <Text style={styles.subTitle}>4.4 Cancellation</Text>
-      <Text style={styles.paragraph}>You may cancel your subscription at any time through your device's subscription settings. Cancellation takes effect at the end of the current billing period.</Text>
 
       <Text style={styles.sectionTitle}>5. Acceptable Use</Text>
 
@@ -513,8 +507,7 @@ function TermsContent() {
 
       <View style={styles.summaryBox}>
         <Text style={styles.summaryTitle}>Summary of Key Points:</Text>
-        <Text style={styles.summaryItem}>✓ Free basic version with manual time entry</Text>
-        <Text style={styles.summaryItem}>✓ Premium features available via subscription</Text>
+        <Text style={styles.summaryItem}>✓ All features currently available at no cost</Text>
         <Text style={styles.summaryItem}>✓ GPS/geofencing has inherent accuracy limitations</Text>
         <Text style={styles.summaryItem}>✓ You own your data and can export/delete it anytime</Text>
         <Text style={styles.summaryItem}>✓ App is a tool, not an official timekeeping system</Text>

@@ -34,8 +34,11 @@ export async function createLocation(params: CreateLocationParams): Promise<stri
   const id = generateUUID();
   const timestamp = now();
 
+  // Safety clamp radius (primary validation is in locationStore)
+  const safeRadius = Math.min(1000, Math.max(50, params.radius || 100));
+
   try {
-    logger.info('database', `[DB:locations] INSERT - name: ${params.name}, radius: ${params.radius || 100}`);
+    logger.info('database', `[DB:locations] INSERT - name: ${params.name}, radius: ${safeRadius}`);
     db.runSync(
       `INSERT INTO locations (id, user_id, name, latitude, longitude, radius, color, status, last_seen_at, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -45,7 +48,7 @@ export async function createLocation(params: CreateLocationParams): Promise<stri
         params.name,
         params.latitude,
         params.longitude,
-        params.radius || 100,
+        safeRadius,
         params.color || '#3B82F6',
         'active',
         timestamp,
