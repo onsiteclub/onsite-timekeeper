@@ -449,6 +449,20 @@ export function deleteDailyHours(userId: string, date: string): boolean {
   }
 }
 
+/**
+ * Delete daily hours by record ID (UUID)
+ */
+export function deleteDailyHoursById(userId: string, id: string): boolean {
+  try {
+    db.runSync(`DELETE FROM daily_hours WHERE user_id = ? AND id = ?`, [userId, id]);
+    logger.info('database', `[daily_hours] DELETED by id ${id.substring(0, 8)}...`);
+    return true;
+  } catch (error) {
+    logger.error('database', '[daily_hours] DELETE BY ID error', { error: String(error) });
+    return false;
+  }
+}
+
 // ============================================
 // SYNC OPERATIONS
 // ============================================

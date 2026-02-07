@@ -140,6 +140,7 @@ export {
   updateDailyHours,
   addMinutesToDay,
   deleteDailyHours,
+  deleteDailyHoursById,
   // Sync
   getUnsyncedDailyHours,
   markDailyHoursSynced,

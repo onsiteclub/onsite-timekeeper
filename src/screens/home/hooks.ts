@@ -29,7 +29,7 @@ import {
 import { useDailyLogStore } from '../../stores/dailyLogStore';
 import { useSyncStore } from '../../stores/syncStore';
 import { useSettingsStore } from '../../stores/settingsStore';
-import { formatDuration, getDailyHoursByPeriod, upsertDailyHours, updateDailyHours, deleteDailyHours, getToday } from '../../lib/database';
+import { formatDuration, getDailyHoursByPeriod, upsertDailyHours, updateDailyHours, deleteDailyHours, deleteDailyHoursById, getToday } from '../../lib/database';
 import type { DailyHoursEntry } from '../../lib/database/daily';
 import { getActiveTrackingState, type ActiveTracking } from '../../lib/exitHandler';
 import { generateCompleteReport } from '../../lib/reports';
@@ -226,14 +226,14 @@ export function useHomeScreen() {
     reloadToday();
   };
 
-  // V3: Delete record (deletes the daily entry)
+  // V3: Delete record (deletes the daily entry by date or UUID)
   const deleteRecord = async (sessionId: string) => {
     if (!userId) throw new Error('User not authenticated');
-    // sessionId in V3 is actually the daily_hours id or date
-    // For simplicity, we try to parse as date first
-    const dateMatch = sessionId.match(/^\d{4}-\d{2}-\d{2}$/);
-    if (dateMatch) {
+    const isDate = /^\d{4}-\d{2}-\d{2}$/.test(sessionId);
+    if (isDate) {
       deleteDailyHours(userId, sessionId);
+    } else {
+      deleteDailyHoursById(userId, sessionId);
     }
     reloadToday();
   };
