@@ -96,6 +96,15 @@ export async function onGeofenceEnter(
   // 3. If tracking a different location, close that one first
   if (existing && existing.location_id !== locationId) {
     logger.info('session', `⚠️ Switching locations: ${existing.location_name} → ${locationName}`);
+
+    // Cancel pending exit for the OLD location (prevents timeout from clearing new tracking)
+    const oldPending = pendingExits.get(existing.location_id);
+    if (oldPending) {
+      clearTimeout(oldPending.timeoutId);
+      pendingExits.delete(existing.location_id);
+      logger.info('session', `🧹 Cancelled pending exit for old location: ${existing.location_name}`);
+    }
+
     await confirmExit(userId, existing.location_id, existing.location_name, existing.enter_at, new Date());
   }
 
@@ -187,6 +196,14 @@ async function confirmExit(
   exitTime: Date
 ): Promise<void> {
   logger.info('session', `✅ Exit confirmed: ${locationName}`);
+
+  // 0. Guard: if a different location is now being tracked, this is a stale exit
+  //    (the exit was already handled by onGeofenceEnter's location switch)
+  const currentTracking = getActiveTracking();
+  if (currentTracking && currentTracking.location_id !== locationId) {
+    logger.warn('session', `⚠️ Stale exit for ${locationName}, now tracking ${currentTracking.location_name} — skipping`);
+    return;
+  }
 
   // 1. Calculate duration
   const entryTime = new Date(enterAt);

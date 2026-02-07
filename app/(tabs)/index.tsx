@@ -521,7 +521,7 @@ export default function HomeScreen() {
               style={fixedStyles.emptyLocations}
               onPress={() => router.push('/(tabs)/map')}
             >
-              <Ionicons name="location-outline" size={18} color={colors.textMuted} />
+              <Ionicons name="add-circle-outline" size={20} color="#FFFFFF" />
               <Text style={fixedStyles.emptyLocationsText}>Add location</Text>
             </TouchableOpacity>
             <Text style={onboardingStyles.onboardingHint}>
@@ -680,15 +680,24 @@ export default function HomeScreen() {
             )}
             <Text style={viewerStyles.dateText}>{formatDateWithDay(manualDate)}</Text>
           </View>
-          <TouchableOpacity
-            style={[viewerStyles.editBtn, isEditing && viewerStyles.editBtnActive]}
-            onPress={() => setIsEditing(!isEditing)}
-          >
-            <Ionicons name={isEditing ? "close" : "pencil"} size={14} color={isEditing ? colors.white : colors.primary} />
-            <Text style={[viewerStyles.editBtnText, isEditing && viewerStyles.editBtnTextActive]}>
-              {isEditing ? 'Cancel' : 'Edit'}
-            </Text>
-          </TouchableOpacity>
+          <View style={viewerStyles.headerButtons}>
+            <TouchableOpacity
+              style={viewerStyles.viewHoursBtn}
+              onPress={() => router.push('/(tabs)/reports')}
+            >
+              <Ionicons name="calendar-outline" size={14} color={colors.textSecondary} />
+              <Text style={viewerStyles.viewHoursBtnText}>View Hours</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[viewerStyles.editBtn, isEditing && viewerStyles.editBtnActive]}
+              onPress={() => setIsEditing(!isEditing)}
+            >
+              <Ionicons name={isEditing ? "close" : "pencil"} size={14} color={isEditing ? colors.white : colors.primary} />
+              <Text style={[viewerStyles.editBtnText, isEditing && viewerStyles.editBtnTextActive]}>
+                {isEditing ? 'Cancel' : 'Edit'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* READ-ONLY VIEW (default) */}
@@ -1096,11 +1105,32 @@ const viewerStyles = StyleSheet.create({
     fontWeight: '600',
     color: colors.text,
   },
+  headerButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  viewHoursBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    backgroundColor: `${colors.textSecondary}15`,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: `${colors.textSecondary}30`,
+  },
+  viewHoursBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
   editBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    paddingVertical: 8,  // Larger
+    paddingVertical: 8,
     paddingHorizontal: 14,
     backgroundColor: `${colors.primary}15`,
     borderRadius: 10,

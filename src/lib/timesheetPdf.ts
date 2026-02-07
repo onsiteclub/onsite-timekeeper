@@ -517,6 +517,31 @@ function generateWhatsAppTable(
 }
 
 // ============================================
+// SESSION FILTER
+// ============================================
+
+/**
+ * Filter sessions to only completed ones within the period.
+ * Adjusts periodEnd to end-of-day (23:59:59.999) so sessions
+ * on the last day of the range are included.
+ */
+function filterSessionsInPeriod(
+  sessions: ComputedSession[],
+  options: TimesheetOptions
+): ComputedSession[] {
+  const periodStart = new Date(options.periodStart);
+  periodStart.setHours(0, 0, 0, 0);
+  const periodEnd = new Date(options.periodEnd);
+  periodEnd.setHours(23, 59, 59, 999);
+
+  return sessions.filter(s => {
+    if (!s.exit_at) return false;
+    const entryDate = new Date(s.entry_at);
+    return entryDate >= periodStart && entryDate <= periodEnd;
+  });
+}
+
+// ============================================
 // PUBLIC API
 // ============================================
 
@@ -530,11 +555,7 @@ export async function generateAndShareTimesheetPDF(
 ): Promise<void> {
   try {
     // Filter only completed sessions within period
-    const filteredSessions = sessions.filter(s => {
-      if (!s.exit_at) return false;
-      const entryDate = new Date(s.entry_at);
-      return entryDate >= options.periodStart && entryDate <= options.periodEnd;
-    });
+    const filteredSessions = filterSessionsInPeriod(sessions, options);
 
     // Check if expo-print is available
     if (!Print) {
@@ -607,11 +628,7 @@ export async function generateAndShareTimesheet(
   options: TimesheetOptions
 ): Promise<void> {
   try {
-    const filteredSessions = sessions.filter(s => {
-      if (!s.exit_at) return false;
-      const entryDate = new Date(s.entry_at);
-      return entryDate >= options.periodStart && entryDate <= options.periodEnd;
-    });
+    const filteredSessions = filterSessionsInPeriod(sessions, options);
 
     const textReport = generateSimpleTable(filteredSessions, options);
 
@@ -633,11 +650,7 @@ export async function generateTimesheetFileUri(
   options: TimesheetOptions
 ): Promise<string> {
   // Filter only completed sessions within period
-  const filteredSessions = sessions.filter(s => {
-    if (!s.exit_at) return false;
-    const entryDate = new Date(s.entry_at);
-    return entryDate >= options.periodStart && entryDate <= options.periodEnd;
-  });
+  const filteredSessions = filterSessionsInPeriod(sessions, options);
 
   if (filteredSessions.length === 0) {
     throw new Error('No completed sessions in this period');
@@ -663,11 +676,7 @@ export function getTimesheetText(
   options: TimesheetOptions
 ): string {
   // Filter only completed sessions within period
-  const filteredSessions = sessions.filter(s => {
-    if (!s.exit_at) return false;
-    const entryDate = new Date(s.entry_at);
-    return entryDate >= options.periodStart && entryDate <= options.periodEnd;
-  });
+  const filteredSessions = filterSessionsInPeriod(sessions, options);
 
   if (filteredSessions.length === 0) {
     return 'No completed sessions in this period';
