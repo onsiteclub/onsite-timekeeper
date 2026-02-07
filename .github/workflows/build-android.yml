@@ -68,8 +68,8 @@ jobs:
       - name: Build APK with Gradle
         working-directory: android
         env:
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN || '' }}
-        run: ./gradlew assembleRelease --no-daemon --stacktrace -PsentryAutoUploadSourceMap=false
+          SENTRY_DISABLE_AUTO_UPLOAD: 'true'
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
