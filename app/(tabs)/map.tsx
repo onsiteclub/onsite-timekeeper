@@ -228,6 +228,14 @@ export default function MapScreen() {
         )}
       </MapView>
 
+      {/* CENTER PIN - Shows where new location will be placed */}
+      {!showNameModal && !showRadiusModal && (
+        <View style={onboardingStyles.crosshairContainer} pointerEvents="none">
+          <Ionicons name="location" size={36} color={colors.primary} style={{ marginTop: -36 }} />
+          <View style={onboardingStyles.crosshairDot} />
+        </View>
+      )}
+
       {/* SEARCH BOX - Memoized component */}
       <SearchBox
         currentLatitude={currentLocation?.latitude}
