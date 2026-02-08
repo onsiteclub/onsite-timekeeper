@@ -700,31 +700,30 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* READ-ONLY VIEW (default) */}
+        {/* READ-ONLY VIEW (default) - same grid layout as edit mode */}
         {!isEditing ? (
           <View style={viewerStyles.readOnlyView}>
-            <View style={viewerStyles.timeDisplayRow}>
-              <View style={viewerStyles.timeBlock}>
-                <Text style={viewerStyles.timeBlockLabel}>Entry</Text>
+            <View style={ucStyles.timesGrid}>
+              <View style={ucStyles.timeCol}>
+                <Text style={ucStyles.timeLabel}>Entry</Text>
                 <Text style={viewerStyles.timeBlockValue}>
                   {manualEntryH && manualEntryM ? `${manualEntryH}:${manualEntryM} ${entryPeriod}` : '--:--'}
                 </Text>
               </View>
-              <Ionicons name="arrow-forward" size={16} color={colors.textMuted} />
-              <View style={viewerStyles.timeBlock}>
-                <Text style={viewerStyles.timeBlockLabel}>Exit</Text>
+              <View style={ucStyles.timeCol}>
+                <Text style={ucStyles.timeLabel}>Exit</Text>
                 <Text style={viewerStyles.timeBlockValue}>
                   {manualExitH && manualExitM ? `${manualExitH}:${manualExitM} ${exitPeriod}` : '--:--'}
                 </Text>
               </View>
-              <View style={viewerStyles.timeBlock}>
-                <Text style={viewerStyles.timeBlockLabel}>Break</Text>
-                <Text style={viewerStyles.timeBlockValue}>{manualPause ? `${manualPause}m` : '0m'}</Text>
+              <View style={ucStyles.timeCol}>
+                <Text style={ucStyles.timeLabel}>Break</Text>
+                <Text style={viewerStyles.timeBlockValue}>{manualPause ? `${manualPause} min` : '--'}</Text>
               </View>
             </View>
-            <View style={viewerStyles.totalDisplay}>
-              <Ionicons name="time-outline" size={16} color={colors.primary} />
-              <Text style={viewerStyles.totalText}>Total: {totalHours}</Text>
+            <View style={ucStyles.totalRow}>
+              <Text style={ucStyles.totalLabel}>Total</Text>
+              <Text style={ucStyles.totalValue}>{totalHours}</Text>
             </View>
           </View>
         ) : (
@@ -768,120 +767,124 @@ export default function HomeScreen() {
               </View>
             )}
 
-            {/* ENTRY TIME - Text inputs with AM/PM */}
-            <View style={fixedStyles.timeRow}>
-              <Text style={fixedStyles.timeLabel}>Entry</Text>
-              <View style={homeInputStyles.timeInputGroup}>
-                <TextInput
-                  style={homeInputStyles.timeInput}
-                  value={manualEntryH}
-                  onChangeText={handleEntryHourChange}
-                  keyboardType="number-pad"
-                  placeholder="HH"
-                  placeholderTextColor={colors.textMuted}
-                  maxLength={2}
-                  selectTextOnFocus
-                />
-                <Text style={homeInputStyles.timeSeparator}>:</Text>
-                <TextInput
-                  style={homeInputStyles.timeInput}
-                  value={manualEntryM}
-                  onChangeText={(t) => setManualEntryM(t.replace(/[^0-9]/g, '').slice(0, 2))}
-                  keyboardType="number-pad"
-                  placeholder="MM"
-                  placeholderTextColor={colors.textMuted}
-                  maxLength={2}
-                  selectTextOnFocus
-                />
-                <View style={homeInputStyles.ampmToggle}>
+            {/* Time Inputs - 3 column grid (same as Reports uc card) */}
+            <View style={ucStyles.timesGrid}>
+              {/* Entry */}
+              <View style={ucStyles.timeCol}>
+                <Text style={ucStyles.timeLabel}>Entry</Text>
+                <View style={ucStyles.timeInputRow}>
+                  <TextInput
+                    style={ucStyles.timeInput}
+                    value={manualEntryH}
+                    onChangeText={handleEntryHourChange}
+                    keyboardType="number-pad"
+                    placeholder="HH"
+                    maxLength={2}
+                    placeholderTextColor={colors.textMuted}
+                    selectTextOnFocus
+                  />
+                  <Text style={ucStyles.timeSep}>:</Text>
+                  <TextInput
+                    style={ucStyles.timeInput}
+                    value={manualEntryM}
+                    onChangeText={(t) => setManualEntryM(t.replace(/[^0-9]/g, '').slice(0, 2))}
+                    keyboardType="number-pad"
+                    placeholder="MM"
+                    maxLength={2}
+                    placeholderTextColor={colors.textMuted}
+                    selectTextOnFocus
+                  />
+                </View>
+                <View style={ucStyles.amPmRow}>
                   <TouchableOpacity
-                    style={[homeInputStyles.ampmBtn, entryPeriod === 'AM' && homeInputStyles.ampmBtnActive]}
+                    style={[ucStyles.amPmBtn, entryPeriod === 'AM' && ucStyles.amPmBtnActive]}
                     onPress={() => setEntryPeriod('AM')}
                   >
-                    <Text style={[homeInputStyles.ampmText, entryPeriod === 'AM' && homeInputStyles.ampmTextActive]}>AM</Text>
+                    <Text style={[ucStyles.amPmText, entryPeriod === 'AM' && ucStyles.amPmTextActive]}>AM</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[homeInputStyles.ampmBtn, entryPeriod === 'PM' && homeInputStyles.ampmBtnActive]}
+                    style={[ucStyles.amPmBtn, entryPeriod === 'PM' && ucStyles.amPmBtnActive]}
                     onPress={() => setEntryPeriod('PM')}
                   >
-                    <Text style={[homeInputStyles.ampmText, entryPeriod === 'PM' && homeInputStyles.ampmTextActive]}>PM</Text>
+                    <Text style={[ucStyles.amPmText, entryPeriod === 'PM' && ucStyles.amPmTextActive]}>PM</Text>
                   </TouchableOpacity>
                 </View>
               </View>
-            </View>
 
-            {/* EXIT TIME - Text inputs with AM/PM */}
-            <View style={fixedStyles.timeRow}>
-              <Text style={fixedStyles.timeLabel}>Exit</Text>
-              <View style={homeInputStyles.timeInputGroup}>
-                <TextInput
-                  style={homeInputStyles.timeInput}
-                  value={manualExitH}
-                  onChangeText={handleExitHourChange}
-                  keyboardType="number-pad"
-                  placeholder="HH"
-                  placeholderTextColor={colors.textMuted}
-                  maxLength={2}
-                  selectTextOnFocus
-                />
-                <Text style={homeInputStyles.timeSeparator}>:</Text>
-                <TextInput
-                  style={homeInputStyles.timeInput}
-                  value={manualExitM}
-                  onChangeText={(t) => setManualExitM(t.replace(/[^0-9]/g, '').slice(0, 2))}
-                  keyboardType="number-pad"
-                  placeholder="MM"
-                  placeholderTextColor={colors.textMuted}
-                  maxLength={2}
-                  selectTextOnFocus
-                />
-                <View style={homeInputStyles.ampmToggle}>
+              {/* Exit */}
+              <View style={ucStyles.timeCol}>
+                <Text style={ucStyles.timeLabel}>Exit</Text>
+                <View style={ucStyles.timeInputRow}>
+                  <TextInput
+                    style={ucStyles.timeInput}
+                    value={manualExitH}
+                    onChangeText={handleExitHourChange}
+                    keyboardType="number-pad"
+                    placeholder="HH"
+                    maxLength={2}
+                    placeholderTextColor={colors.textMuted}
+                    selectTextOnFocus
+                  />
+                  <Text style={ucStyles.timeSep}>:</Text>
+                  <TextInput
+                    style={ucStyles.timeInput}
+                    value={manualExitM}
+                    onChangeText={(t) => setManualExitM(t.replace(/[^0-9]/g, '').slice(0, 2))}
+                    keyboardType="number-pad"
+                    placeholder="MM"
+                    maxLength={2}
+                    placeholderTextColor={colors.textMuted}
+                    selectTextOnFocus
+                  />
+                </View>
+                <View style={ucStyles.amPmRow}>
                   <TouchableOpacity
-                    style={[homeInputStyles.ampmBtn, exitPeriod === 'AM' && homeInputStyles.ampmBtnActive]}
+                    style={[ucStyles.amPmBtn, exitPeriod === 'AM' && ucStyles.amPmBtnActive]}
                     onPress={() => setExitPeriod('AM')}
                   >
-                    <Text style={[homeInputStyles.ampmText, exitPeriod === 'AM' && homeInputStyles.ampmTextActive]}>AM</Text>
+                    <Text style={[ucStyles.amPmText, exitPeriod === 'AM' && ucStyles.amPmTextActive]}>AM</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[homeInputStyles.ampmBtn, exitPeriod === 'PM' && homeInputStyles.ampmBtnActive]}
+                    style={[ucStyles.amPmBtn, exitPeriod === 'PM' && ucStyles.amPmBtnActive]}
                     onPress={() => setExitPeriod('PM')}
                   >
-                    <Text style={[homeInputStyles.ampmText, exitPeriod === 'PM' && homeInputStyles.ampmTextActive]}>PM</Text>
+                    <Text style={[ucStyles.amPmText, exitPeriod === 'PM' && ucStyles.amPmTextActive]}>PM</Text>
                   </TouchableOpacity>
                 </View>
               </View>
-            </View>
 
-            {/* BREAK - Dropdown with presets */}
-            <View style={fixedStyles.timeRow}>
-              <Text style={fixedStyles.timeLabel}>Break</Text>
-              {showBreakCustomInput ? (
-                <View style={fixedStyles.timeInputGroup}>
-                  <TextInput
-                    style={fixedStyles.breakInput}
-                    placeholder="0"
-                    placeholderTextColor={colors.textMuted}
-                    value={manualPause}
-                    onChangeText={(t) => setManualPause(t.replace(/[^0-9]/g, '').slice(0, 3))}
-                    keyboardType="number-pad"
-                    maxLength={3}
-                    selectTextOnFocus
-                    autoFocus
-                    onBlur={() => setShowBreakCustomInput(false)}
-                  />
-                  <Text style={fixedStyles.breakUnit}>min</Text>
-                </View>
-              ) : (
-                <TouchableOpacity
-                  style={fixedStyles.breakDropdownButton}
-                  onPress={() => setShowBreakDropdown(!showBreakDropdown)}
-                >
-                  <Text style={fixedStyles.breakDropdownText}>
-                    {manualPause ? `${manualPause} min` : 'None'}
-                  </Text>
-                  <Ionicons name="chevron-down" size={16} color={colors.textSecondary} />
-                </TouchableOpacity>
-              )}
+              {/* Break */}
+              <View style={ucStyles.timeCol}>
+                <Text style={ucStyles.timeLabel}>Break</Text>
+                {showBreakCustomInput ? (
+                  <>
+                    <TextInput
+                      style={ucStyles.breakInput}
+                      placeholder="0"
+                      placeholderTextColor={colors.textMuted}
+                      value={manualPause}
+                      onChangeText={(t) => setManualPause(t.replace(/[^0-9]/g, '').slice(0, 3))}
+                      keyboardType="number-pad"
+                      maxLength={3}
+                      selectTextOnFocus
+                      autoFocus
+                      onBlur={() => setShowBreakCustomInput(false)}
+                    />
+                    <Text style={ucStyles.breakUnit}>min</Text>
+                  </>
+                ) : (
+                  <TouchableOpacity
+                    style={ucStyles.breakDropdownBtn}
+                    onPress={() => setShowBreakDropdown(!showBreakDropdown)}
+                  >
+                    <Text style={ucStyles.breakDropdownText}>
+                      {manualPause ? manualPause : '0'}
+                    </Text>
+                    <Ionicons name="chevron-down" size={12} color={colors.textSecondary} />
+                  </TouchableOpacity>
+                )}
+                <Text style={ucStyles.breakUnit}>min</Text>
+              </View>
             </View>
 
             {/* Break Dropdown Menu */}
@@ -927,24 +930,23 @@ export default function HomeScreen() {
               </View>
             )}
 
-            {/* TOTAL HOURS - Simplified text */}
-            <View style={fixedStyles.totalRowSimple}>
-              <Text style={fixedStyles.totalSimple}>
-                Total: <Text style={fixedStyles.totalSimpleValue}>{totalHours}</Text>
-              </Text>
+            {/* Total */}
+            <View style={ucStyles.totalRow}>
+              <Text style={ucStyles.totalLabel}>Total</Text>
+              <Text style={ucStyles.totalValue}>{totalHours}</Text>
             </View>
 
-            {/* Save Changes Button - only when editing */}
+            {/* Save Changes Button */}
             <TouchableOpacity
-              style={[fixedStyles.saveButton, { backgroundColor: colors.success }]}
+              style={ucStyles.saveBtn}
               onPress={() => {
                 handleSaveAndShare();
                 setIsEditing(false);
                 showToast('Hours saved successfully!');
               }}
             >
-              <Ionicons name="checkmark-circle" size={20} color={colors.white} />
-              <Text style={fixedStyles.saveButtonText}>Save Changes</Text>
+              <Ionicons name="checkmark-circle" size={20} color={colors.buttonPrimaryText} />
+              <Text style={ucStyles.saveBtnText}>Save</Text>
             </TouchableOpacity>
           </>
         )}
@@ -1017,54 +1019,136 @@ const toastStyles = StyleSheet.create({
 });
 
 // Time input styles (simple text inputs instead of picker)
-const homeInputStyles = StyleSheet.create({
-  timeInputGroup: {
+// Unified Card styles - mirrors Reports uc* styles exactly
+const ucStyles = StyleSheet.create({
+  timesGrid: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  timeCol: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  timeLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 6,
+  },
+  timeInputRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
   },
   timeInput: {
-    width: 48,
-    height: 44,
-    backgroundColor: colors.surfaceMuted,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: colors.border,
-    textAlign: 'center',
-    fontSize: 20,
-    fontWeight: '600',
-    color: colors.text,
-    paddingHorizontal: 4,
-  },
-  timeSeparator: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: colors.textSecondary,
-  },
-  // AM/PM Toggle
-  ampmToggle: {
-    flexDirection: 'row',
-    marginLeft: 8,
-    backgroundColor: colors.surfaceMuted,
-    borderRadius: 8,
-    padding: 2,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  ampmBtn: {
+    width: 38,
     paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderRadius: 6,
+    fontSize: 18,
+    fontWeight: '600',
+    textAlign: 'center',
+    backgroundColor: colors.card,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    color: colors.text,
   },
-  ampmBtnActive: {
+  timeSep: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: colors.text,
+    marginHorizontal: 2,
+  },
+  amPmRow: {
+    flexDirection: 'row',
+    marginTop: 6,
+    borderRadius: 6,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  amPmBtn: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    backgroundColor: colors.card,
+  },
+  amPmBtnActive: {
     backgroundColor: colors.primary,
   },
-  ampmText: {
-    fontSize: 12,
+  amPmText: {
+    fontSize: 11,
     fontWeight: '600',
     color: colors.textSecondary,
   },
-  ampmTextActive: {
+  amPmTextActive: {
+    color: colors.buttonPrimaryText,
+  },
+  breakInput: {
+    width: 52,
+    paddingVertical: 8,
+    fontSize: 18,
+    fontWeight: '600',
+    textAlign: 'center',
+    backgroundColor: colors.card,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    color: colors.text,
+  },
+  breakUnit: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: colors.textSecondary,
+    marginTop: 4,
+  },
+  breakDropdownBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: colors.card,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  breakDropdownText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  totalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 14,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  totalLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  totalValue: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.primary,
+  },
+  saveBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 13,
+    borderRadius: 12,
+    backgroundColor: colors.primary,
+    marginTop: 12,
+  },
+  saveBtnText: {
+    fontSize: 15,
+    fontWeight: '600',
     color: colors.buttonPrimaryText,
   },
 });

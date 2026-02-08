@@ -250,16 +250,13 @@ export default function ReportsScreen() {
     dayModalSessions,
     closeDayModal,
 
-    selectedSessions,
-    toggleSelectSession,
-    selectAllSessions,
-    deselectAllSessions,
+    // Inline editing (unified day card)
+    isEditingInline,
+    setIsEditingInline,
+    setManualDate,
+    setEditingSessionId,
+    saveAbsenceForDate,
 
-    // Session editing
-    openEditSession,
-    editingSessionId,
-
-    refreshing,
     onRefresh,
 
     goToPreviousMonth,
@@ -270,15 +267,9 @@ export default function ReportsScreen() {
     getSessionsForDay,
     getTotalMinutesForDay,
 
-    openManualEntry,
     handleDeleteFromModal,
-    handleExport,
-    handleExportFromModal,
 
-    // Manual entry modal state
-    showManualModal,
-    setShowManualModal,
-    manualDate,
+    // Manual entry form state (used inline in day card)
     manualLocationId,
     setManualLocationId,
     manualEntryH,
@@ -291,14 +282,11 @@ export default function ReportsScreen() {
     setManualExitM,
     manualPause,
     setManualPause,
-    manualEntryMode,
     setManualEntryMode,
-    manualAbsenceType,
     setManualAbsenceType,
     handleSaveManual,
 
     locations,
-    formatDateRange,
     formatMonthYear,
     formatTimeAMPM,
     formatDuration,
@@ -397,6 +385,79 @@ export default function ReportsScreen() {
   };
 
   // ============================================
+  // INLINE EDIT HELPERS (unified day card)
+  // ============================================
+
+  const toDisplay12 = (h24: number) => {
+    if (h24 === 0) return { h: '12', period: 'AM' as const };
+    if (h24 === 12) return { h: '12', period: 'PM' as const };
+    if (h24 > 12) return { h: String(h24 - 12).padStart(2, '0'), period: 'PM' as const };
+    return { h: String(h24).padStart(2, '0'), period: 'AM' as const };
+  };
+
+  const startInlineAdd = () => {
+    if (!selectedDayForModal) return;
+    setManualDate(selectedDayForModal);
+    setManualLocationId(locations[0]?.id || '');
+    setManualEntryH('08');
+    setManualEntryM('00');
+    setManualExitH('05');
+    setManualExitM('00');
+    setManualPause('');
+    setManualEntryMode('hours');
+    setManualAbsenceType(null);
+    setEditingSessionId(null);
+    setEntryPeriod('AM');
+    setExitPeriod('PM');
+    setIsEditingInline(true);
+    setShowAbsenceOptions(false);
+  };
+
+  const startInlineEdit = (session: ComputedSession) => {
+    const entryDate = new Date(session.entry_at);
+    const exitDate = session.exit_at ? new Date(session.exit_at) : new Date();
+
+    setManualDate(entryDate);
+    setManualLocationId(session.location_id);
+
+    const entry12 = toDisplay12(entryDate.getHours());
+    const exit12 = toDisplay12(exitDate.getHours());
+
+    setManualEntryH(entry12.h);
+    setManualEntryM(String(entryDate.getMinutes()).padStart(2, '0'));
+    setEntryPeriod(entry12.period);
+    setManualExitH(exit12.h);
+    setManualExitM(String(exitDate.getMinutes()).padStart(2, '0'));
+    setExitPeriod(exit12.period);
+    setManualPause(session.pause_minutes ? String(session.pause_minutes) : '');
+    setManualEntryMode('hours');
+    setManualAbsenceType(null);
+    setEditingSessionId(session.id);
+    setIsEditingInline(true);
+    setShowAbsenceOptions(false);
+  };
+
+  const cancelInlineEdit = () => {
+    setIsEditingInline(false);
+    setEditingSessionId(null);
+    setShowAbsenceOptions(false);
+  };
+
+  // Live total calculation while editing
+  const liveEditTotal = useMemo(() => {
+    if (!isEditingInline) return '';
+    const entryH24 = get24Hour(manualEntryH, entryPeriod);
+    const entryMins = parseInt(manualEntryM, 10) || 0;
+    const exitH24 = get24Hour(manualExitH, exitPeriod);
+    const exitMins = parseInt(manualExitM, 10) || 0;
+    const pause = parseInt(manualPause, 10) || 0;
+
+    const totalMins = (exitH24 * 60 + exitMins) - (entryH24 * 60 + entryMins) - pause;
+    if (totalMins <= 0 || isNaN(totalMins)) return '--';
+    return formatDuration(totalMins);
+  }, [isEditingInline, manualEntryH, manualEntryM, manualExitH, manualExitM, manualPause, entryPeriod, exitPeriod]);
+
+  // ============================================
   // AGGREGATE SESSIONS BY LOCATION FOR DAY MODAL
   // ============================================
   const aggregatedLocations = useMemo((): AggregatedLocation[] => {
@@ -460,10 +521,13 @@ export default function ReportsScreen() {
   // Animation values for morph transition
   const modalScale = useRef(new Animated.Value(0)).current;
   const modalOpacity = useRef(new Animated.Value(0)).current;
-  const [pressedDayKey, setPressedDayKey] = useState<string | null>(null);
+  const [, setPressedDayKey] = useState<string | null>(null);
 
   // PDF export loading state
   const [isExporting, setIsExporting] = useState(false);
+
+  // Absence options toggle (for inline day card)
+  const [showAbsenceOptions, setShowAbsenceOptions] = useState(false);
 
   // Date range selection state (Airbnb style)
   const [dateRangeMode, setDateRangeMode] = useState(false);
@@ -893,23 +957,27 @@ export default function ReportsScreen() {
         onRequestClose={closeDayModal}
       >
         <Animated.View
-          style={[
-            styles.dayModalOverlay,
-            { opacity: modalOpacity }
-          ]}
+          style={{
+            flex: 1,
+            backgroundColor: 'rgba(16, 24, 40, 0.6)',
+            justifyContent: 'center' as const,
+            alignItems: 'center' as const,
+            paddingHorizontal: 16,
+            opacity: modalOpacity,
+          }}
         >
           <Animated.View
-            style={[
-              styles.dayModalContainer,
-              {
-                transform: [
-                  { scale: modalScale },
-                ],
-              }
-            ]}
+            style={{
+              width: '100%',
+              height: '65%',
+              backgroundColor: colors.backgroundSecondary,
+              borderRadius: 20,
+              overflow: 'hidden' as const,
+              transform: [{ scale: modalScale }],
+            }}
           >
-            {/* Header - Two lines: Date on top, action icons below */}
-            <View style={reportStyles.dayModalHeaderV2}>
+            {/* Header: Date + Close */}
+            <View style={reportStyles.ucHeader}>
               <Text style={reportStyles.dayModalTitleV2}>
                 {selectedDayForModal?.toLocaleDateString('en-US', {
                   weekday: 'long',
@@ -918,253 +986,52 @@ export default function ReportsScreen() {
                   year: 'numeric'
                 })}
               </Text>
-              <View style={reportStyles.dayModalActionsRow}>
-                {/* Add */}
-                <TouchableOpacity
-                  style={reportStyles.dayModalActionBtn}
-                  onPress={() => selectedDayForModal && openManualEntry(selectedDayForModal)}
-                >
-                  <Ionicons name="add-circle-outline" size={26} color={colors.success || '#22C55E'} />
-                  <Text style={reportStyles.dayModalActionLabel}>Add</Text>
-                </TouchableOpacity>
-                {/* Edit */}
-                <TouchableOpacity
-                  style={[reportStyles.dayModalActionBtn, selectedSessions.size !== 1 && reportStyles.dayModalActionBtnDisabled]}
-                  onPress={() => {
-                    if (selectedSessions.size === 1) {
-                      const sessionId = Array.from(selectedSessions)[0];
-                      const session = dayModalSessions.find(s => s.id === sessionId);
-                      if (session) openEditSession(session);
-                    }
-                  }}
-                  disabled={selectedSessions.size !== 1}
-                >
-                  <Ionicons name="pencil-outline" size={26} color={selectedSessions.size !== 1 ? colors.textMuted : colors.primary} />
-                  <Text style={[reportStyles.dayModalActionLabel, selectedSessions.size !== 1 && reportStyles.dayModalActionLabelDisabled]}>Edit</Text>
-                </TouchableOpacity>
-                {/* Delete */}
-                <TouchableOpacity
-                  style={[reportStyles.dayModalActionBtn, selectedSessions.size === 0 && reportStyles.dayModalActionBtnDisabled]}
-                  onPress={handleDeleteFromModal}
-                  disabled={selectedSessions.size === 0}
-                >
-                  <Ionicons name="trash-outline" size={26} color={selectedSessions.size === 0 ? colors.textMuted : colors.error || '#EF4444'} />
-                  <Text style={[reportStyles.dayModalActionLabel, selectedSessions.size === 0 && reportStyles.dayModalActionLabelDisabled]}>Delete</Text>
-                </TouchableOpacity>
-                {/* Close */}
-                <TouchableOpacity
-                  style={reportStyles.dayModalActionBtnClose}
-                  onPress={closeDayModal}
-                >
-                  <Ionicons name="close" size={26} color={colors.white} />
-                  <Text style={reportStyles.dayModalActionLabelClose}>Close</Text>
-                </TouchableOpacity>
-              </View>
+              <TouchableOpacity
+                style={reportStyles.ucCloseBtn}
+                onPress={closeDayModal}
+              >
+                <Ionicons name="close" size={22} color={colors.textSecondary} />
+              </TouchableOpacity>
             </View>
 
-            {/* No break warning banner */}
-            {aggregatedLocations.length >= 1 &&
+            {/* No break warning (view mode only) */}
+            {!isEditingInline && aggregatedLocations.length >= 1 &&
               aggregatedLocations.every(agg => agg.totalBreakMinutes === 0) && (
               <View style={reportStyles.noBreakBanner}>
-                <Ionicons name="alert-circle" size={16} color={colors.error || '#EF4444'} />
+                <Ionicons name="cafe-outline" size={16} color={colors.warning || '#F59E0B'} />
                 <Text style={reportStyles.noBreakBannerText}>
-                  No break registered for this day
+                  Don't forget to include your break!
                 </Text>
-              </View>
-            )}
-
-            {/* Selection hint */}
-            {aggregatedLocations.length >= 1 && (
-              <View style={reportStyles.selectionHintBar}>
-                <Text style={reportStyles.selectionHintText}>
-                  {selectedSessions.size > 0
-                    ? `${selectedSessions.size} selected`
-                    : 'Tap to select'}
-                </Text>
-                {selectedSessions.size > 0 ? (
-                  <TouchableOpacity onPress={deselectAllSessions}>
-                    <Text style={reportStyles.selectionHintBtn}>Clear</Text>
-                  </TouchableOpacity>
-                ) : (
-                  <TouchableOpacity onPress={selectAllSessions}>
-                    <Text style={reportStyles.selectionHintBtn}>Select All</Text>
-                  </TouchableOpacity>
-                )}
               </View>
             )}
 
             <ScrollView
-              style={styles.dayModalSessionsList}
-              contentContainerStyle={styles.dayModalSessionsContent}
+              style={{ flex: 1 }}
+              contentContainerStyle={reportStyles.ucScrollContent}
             >
-              {aggregatedLocations.length === 0 ? (
-                <View style={styles.dayModalEmpty}>
-                  <Ionicons name="document-text-outline" size={48} color={colors.textMuted} />
-                  <Text style={styles.dayModalEmptyText}>No completed sessions</Text>
-                  <TouchableOpacity
-                    style={styles.dayModalAddBtn}
-                    onPress={() => selectedDayForModal && openManualEntry(selectedDayForModal)}
-                  >
-                    <Text style={styles.dayModalAddBtnText}>Add Manual Entry</Text>
-                  </TouchableOpacity>
-                </View>
-              ) : (
-                aggregatedLocations.map((agg: AggregatedLocation) => {
-                  // Check if all sessions in this location are selected
-                  const allSelected = agg.sessions.every(s => selectedSessions.has(s.id));
-                  const someSelected = agg.sessions.some(s => selectedSessions.has(s.id));
-
-                  return (
-                    <TouchableOpacity
-                      key={agg.locationId}
-                      style={[
-                        styles.dayModalSession,
-                        someSelected && reportStyles.sessionItemSelected
-                      ]}
-                      onPress={() => {
-                        // Toggle selection for all sessions in this location
-                        for (const s of agg.sessions) {
-                          toggleSelectSession(s.id);
-                        }
-                      }}
-                      activeOpacity={0.7}
-                    >
-                      <View style={[
-                        reportStyles.sessionCheckbox,
-                        allSelected && reportStyles.sessionCheckboxSelected
-                      ]}>
-                        {allSelected && <Ionicons name="checkmark" size={18} color={colors.white} />}
-                      </View>
-                      <View style={[reportStyles.sessionColorBar, { backgroundColor: agg.color }]} />
-                      <View style={styles.dayModalSessionInfo}>
-                        <View style={styles.dayModalSessionHeader}>
-                          <Text style={styles.dayModalSessionLocation}>{agg.locationName}</Text>
-                          {agg.sessionsCount > 1 && (
-                            <View style={reportStyles.sessionCountBadge}>
-                              <Text style={reportStyles.sessionCountText}>{agg.sessionsCount}x</Text>
-                            </View>
-                          )}
-                        </View>
-
-                        <Text style={[
-                          styles.dayModalSessionTime,
-                          agg.isEdited && styles.dayModalSessionTimeEdited
-                        ]}>
-                          {agg.isEdited ? '✏️ ' : ''}
-                          {formatTimeAMPM(agg.firstEntry)} → {formatTimeAMPM(agg.lastExit)}
-                        </Text>
-
-                        {agg.totalBreakMinutes > 0 && (
-                          <Text style={styles.dayModalSessionPause}>☕ {agg.totalBreakMinutes}min break</Text>
-                        )}
-
-                        <Text style={styles.dayModalSessionTotal}>{formatDuration(agg.totalMinutes)}</Text>
-                      </View>
-                    </TouchableOpacity>
-                  );
-                })
-              )}
-            </ScrollView>
-
-            {aggregatedLocations.length > 0 && (
-              <View style={styles.dayModalTotalBar}>
-                <Text style={styles.dayModalTotalLabel}>Day Total</Text>
-                <Text style={styles.dayModalTotalValue}>
-                  {formatDuration(
-                    aggregatedLocations.reduce((acc, agg) => acc + agg.totalMinutes, 0)
-                  )}
-                </Text>
-              </View>
-            )}
-
-          </Animated.View>
-        </Animated.View>
-      </Modal>
-
-      {/* ============================================ */}
-      {/* MANUAL ENTRY MODAL */}
-      {/* ============================================ */}
-      <Modal
-        visible={showManualModal}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setShowManualModal(false)}
-      >
-        <View style={styles.dayModalContainer}>
-          <View style={styles.dayModalContent}>
-            {/* Header */}
-            <View style={styles.dayModalHeader}>
-              <Text style={styles.dayModalTitle}>
-                {editingSessionId ? 'Edit Entry' : 'Add Manual Entry'}
-              </Text>
-              <Text style={styles.dayModalSubtitle}>
-                {manualDate ? formatDateRange(manualDate, manualDate) : ''}
-              </Text>
-              <View style={styles.dayModalHeaderBtns}>
-                <TouchableOpacity
-                  style={[styles.dayModalHeaderBtn, styles.dayModalCloseHeaderBtn]}
-                  onPress={() => setShowManualModal(false)}
-                >
-                  <Ionicons name="close" size={22} color={colors.white} />
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            <ScrollView style={styles.dayModalScroll}>
-              {/* Mode Toggle */}
-              <View style={reportStyles.modeToggle}>
-                <TouchableOpacity
-                  style={[
-                    reportStyles.modeButton,
-                    manualEntryMode === 'hours' && reportStyles.modeButtonActive,
-                  ]}
-                  onPress={() => setManualEntryMode('hours')}
-                >
-                  <Text style={[
-                    reportStyles.modeButtonText,
-                    manualEntryMode === 'hours' && reportStyles.modeButtonTextActive,
-                  ]}>Log Hours</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    reportStyles.modeButton,
-                    manualEntryMode === 'absence' && reportStyles.modeButtonActive,
-                  ]}
-                  onPress={() => setManualEntryMode('absence')}
-                >
-                  <Text style={[
-                    reportStyles.modeButtonText,
-                    manualEntryMode === 'absence' && reportStyles.modeButtonTextActive,
-                  ]}>Absence</Text>
-                </TouchableOpacity>
-              </View>
-
-              {manualEntryMode === 'hours' ? (
-                <>
+              {isEditingInline ? (
+                /* ===== EDIT MODE ===== */
+                <View style={reportStyles.ucCard}>
                   {/* Location Picker */}
-                  <View style={reportStyles.inputGroup}>
-                    <Text style={reportStyles.inputLabel}>Location</Text>
+                  <View style={reportStyles.ucLocationRow}>
+                    <Ionicons name="location" size={18} color={colors.primary} />
                     {locations.length === 0 ? (
                       <TouchableOpacity
                         style={reportStyles.noLocationsContainer}
                         onPress={() => {
-                          setShowManualModal(false);
+                          closeDayModal();
                           router.push('/(tabs)/map');
                         }}
                       >
-                        <Ionicons name="location-outline" size={24} color={colors.textMuted} />
                         <Text style={reportStyles.noLocationsText}>Register a location first</Text>
-                        <View style={reportStyles.noLocationsBtn}>
-                          <Ionicons name="add" size={20} color={colors.white} />
-                          <Text style={reportStyles.noLocationsBtnText}>Go to Locations</Text>
-                        </View>
                       </TouchableOpacity>
                     ) : (
-                      <View style={reportStyles.pickerContainer}>
+                      <View style={reportStyles.ucPickerWrap}>
                         <Picker
                           selectedValue={manualLocationId}
                           onValueChange={setManualLocationId}
                           style={reportStyles.picker}
+                          dropdownIconColor={colors.textSecondary}
                         >
                           {locations.map((loc: any) => (
                             <Picker.Item key={loc.id} label={loc.name} value={loc.id} />
@@ -1174,122 +1041,212 @@ export default function ReportsScreen() {
                     )}
                   </View>
 
-                  {/* Entry Time */}
-                  <View style={reportStyles.inputGroup}>
-                    <Text style={reportStyles.inputLabel}>Entry Time</Text>
-                    <View style={reportStyles.timeRow}>
-                      <TextInput
-                        style={reportStyles.timeInput}
-                        value={manualEntryH}
-                        onChangeText={handleEntryHourChange}
-                        keyboardType="number-pad"
-                        placeholder="HH"
-                        maxLength={2}
-                        placeholderTextColor={colors.textMuted}
-                      />
-                      <Text style={reportStyles.timeSeparator}>:</Text>
-                      <TextInput
-                        style={reportStyles.timeInput}
-                        value={manualEntryM}
-                        onChangeText={setManualEntryM}
-                        keyboardType="number-pad"
-                        placeholder="MM"
-                        maxLength={2}
-                        placeholderTextColor={colors.textMuted}
-                      />
-                      <View style={reportStyles.ampmToggle}>
+                  {/* Time Inputs */}
+                  <View style={reportStyles.ucTimesGrid}>
+                    {/* Entry */}
+                    <View style={reportStyles.ucTimeCol}>
+                      <Text style={reportStyles.ucTimeLabel}>Entry</Text>
+                      <View style={reportStyles.ucTimeInputRow}>
+                        <TextInput
+                          style={reportStyles.ucTimeInput}
+                          value={manualEntryH}
+                          onChangeText={handleEntryHourChange}
+                          keyboardType="number-pad"
+                          placeholder="HH"
+                          maxLength={2}
+                          placeholderTextColor={colors.textMuted}
+                        />
+                        <Text style={reportStyles.ucTimeSep}>:</Text>
+                        <TextInput
+                          style={reportStyles.ucTimeInput}
+                          value={manualEntryM}
+                          onChangeText={setManualEntryM}
+                          keyboardType="number-pad"
+                          placeholder="MM"
+                          maxLength={2}
+                          placeholderTextColor={colors.textMuted}
+                        />
+                      </View>
+                      <View style={reportStyles.ucAmPmRow}>
                         <TouchableOpacity
-                          style={[reportStyles.ampmBtn, entryPeriod === 'AM' && reportStyles.ampmBtnActive]}
+                          style={[reportStyles.ucAmPmBtn, entryPeriod === 'AM' && reportStyles.ucAmPmBtnActive]}
                           onPress={() => setEntryPeriod('AM')}
                         >
-                          <Text style={[reportStyles.ampmText, entryPeriod === 'AM' && reportStyles.ampmTextActive]}>AM</Text>
+                          <Text style={[reportStyles.ucAmPmText, entryPeriod === 'AM' && reportStyles.ucAmPmTextActive]}>AM</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
-                          style={[reportStyles.ampmBtn, entryPeriod === 'PM' && reportStyles.ampmBtnActive]}
+                          style={[reportStyles.ucAmPmBtn, entryPeriod === 'PM' && reportStyles.ucAmPmBtnActive]}
                           onPress={() => setEntryPeriod('PM')}
                         >
-                          <Text style={[reportStyles.ampmText, entryPeriod === 'PM' && reportStyles.ampmTextActive]}>PM</Text>
+                          <Text style={[reportStyles.ucAmPmText, entryPeriod === 'PM' && reportStyles.ucAmPmTextActive]}>PM</Text>
                         </TouchableOpacity>
                       </View>
                     </View>
-                  </View>
 
-                  {/* Exit Time */}
-                  <View style={reportStyles.inputGroup}>
-                    <Text style={reportStyles.inputLabel}>Exit Time</Text>
-                    <View style={reportStyles.timeRow}>
-                      <TextInput
-                        style={reportStyles.timeInput}
-                        value={manualExitH}
-                        onChangeText={handleExitHourChange}
-                        keyboardType="number-pad"
-                        placeholder="HH"
-                        maxLength={2}
-                        placeholderTextColor={colors.textMuted}
-                      />
-                      <Text style={reportStyles.timeSeparator}>:</Text>
-                      <TextInput
-                        style={reportStyles.timeInput}
-                        value={manualExitM}
-                        onChangeText={setManualExitM}
-                        keyboardType="number-pad"
-                        placeholder="MM"
-                        maxLength={2}
-                        placeholderTextColor={colors.textMuted}
-                      />
-                      <View style={reportStyles.ampmToggle}>
+                    {/* Exit */}
+                    <View style={reportStyles.ucTimeCol}>
+                      <Text style={reportStyles.ucTimeLabel}>Exit</Text>
+                      <View style={reportStyles.ucTimeInputRow}>
+                        <TextInput
+                          style={reportStyles.ucTimeInput}
+                          value={manualExitH}
+                          onChangeText={handleExitHourChange}
+                          keyboardType="number-pad"
+                          placeholder="HH"
+                          maxLength={2}
+                          placeholderTextColor={colors.textMuted}
+                        />
+                        <Text style={reportStyles.ucTimeSep}>:</Text>
+                        <TextInput
+                          style={reportStyles.ucTimeInput}
+                          value={manualExitM}
+                          onChangeText={setManualExitM}
+                          keyboardType="number-pad"
+                          placeholder="MM"
+                          maxLength={2}
+                          placeholderTextColor={colors.textMuted}
+                        />
+                      </View>
+                      <View style={reportStyles.ucAmPmRow}>
                         <TouchableOpacity
-                          style={[reportStyles.ampmBtn, exitPeriod === 'AM' && reportStyles.ampmBtnActive]}
+                          style={[reportStyles.ucAmPmBtn, exitPeriod === 'AM' && reportStyles.ucAmPmBtnActive]}
                           onPress={() => setExitPeriod('AM')}
                         >
-                          <Text style={[reportStyles.ampmText, exitPeriod === 'AM' && reportStyles.ampmTextActive]}>AM</Text>
+                          <Text style={[reportStyles.ucAmPmText, exitPeriod === 'AM' && reportStyles.ucAmPmTextActive]}>AM</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
-                          style={[reportStyles.ampmBtn, exitPeriod === 'PM' && reportStyles.ampmBtnActive]}
+                          style={[reportStyles.ucAmPmBtn, exitPeriod === 'PM' && reportStyles.ucAmPmBtnActive]}
                           onPress={() => setExitPeriod('PM')}
                         >
-                          <Text style={[reportStyles.ampmText, exitPeriod === 'PM' && reportStyles.ampmTextActive]}>PM</Text>
+                          <Text style={[reportStyles.ucAmPmText, exitPeriod === 'PM' && reportStyles.ucAmPmTextActive]}>PM</Text>
                         </TouchableOpacity>
                       </View>
                     </View>
+
+                    {/* Break */}
+                    <View style={reportStyles.ucTimeCol}>
+                      <Text style={reportStyles.ucTimeLabel}>Break</Text>
+                      <TextInput
+                        style={reportStyles.ucBreakInput}
+                        value={manualPause}
+                        onChangeText={setManualPause}
+                        keyboardType="number-pad"
+                        placeholder="0"
+                        placeholderTextColor={colors.textMuted}
+                      />
+                      <Text style={reportStyles.ucBreakUnit}>min</Text>
+                    </View>
                   </View>
 
-                  {/* Break Time */}
-                  <View style={reportStyles.inputGroup}>
-                    <Text style={reportStyles.inputLabel}>Break (minutes)</Text>
-                    <TextInput
-                      style={reportStyles.input}
-                      value={manualPause}
-                      onChangeText={setManualPause}
-                      keyboardType="number-pad"
-                      placeholder="0"
-                      placeholderTextColor={colors.textMuted}
-                    />
+                  {/* Live Total */}
+                  <View style={reportStyles.ucTotalRow}>
+                    <Text style={reportStyles.ucTotalLabel}>Total</Text>
+                    <Text style={reportStyles.ucTotalValue}>{liveEditTotal}</Text>
                   </View>
+                </View>
+              ) : aggregatedLocations.length > 0 ? (
+                /* ===== VIEW MODE - HAS DATA ===== */
+                <>
+                  {aggregatedLocations.map((agg) => (
+                    <View key={agg.locationId} style={reportStyles.ucCard}>
+                      {/* Location */}
+                      <View style={reportStyles.ucLocationRow}>
+                        <View style={[reportStyles.ucLocationDot, { backgroundColor: agg.color }]} />
+                        <Text style={reportStyles.ucLocationName}>{agg.locationName}</Text>
+                        {agg.isEdited && <Text style={reportStyles.ucEditedBadge}>Edited</Text>}
+                        {agg.sessionsCount > 1 && (
+                          <View style={reportStyles.sessionCountBadge}>
+                            <Text style={reportStyles.sessionCountText}>{agg.sessionsCount}x</Text>
+                          </View>
+                        )}
+                      </View>
+
+                      {/* Times Row */}
+                      <View style={reportStyles.ucTimesGrid}>
+                        <View style={reportStyles.ucTimeCol}>
+                          <Text style={reportStyles.ucTimeLabel}>Entry</Text>
+                          <Text style={reportStyles.ucTimeValue}>{formatTimeAMPM(agg.firstEntry)}</Text>
+                        </View>
+                        <View style={reportStyles.ucTimeCol}>
+                          <Text style={reportStyles.ucTimeLabel}>Exit</Text>
+                          <Text style={reportStyles.ucTimeValue}>{formatTimeAMPM(agg.lastExit)}</Text>
+                        </View>
+                        <View style={reportStyles.ucTimeCol}>
+                          <Text style={reportStyles.ucTimeLabel}>Break</Text>
+                          <Text style={reportStyles.ucTimeValue}>
+                            {agg.totalBreakMinutes > 0 ? `${agg.totalBreakMinutes} min` : '--'}
+                          </Text>
+                        </View>
+                      </View>
+
+                      {/* Total */}
+                      <View style={reportStyles.ucTotalRow}>
+                        <Text style={reportStyles.ucTotalLabel}>Total</Text>
+                        <Text style={reportStyles.ucTotalValue}>{formatDuration(agg.totalMinutes)}</Text>
+                      </View>
+                    </View>
+                  ))}
+
+                  {/* Day Total (multi-location only) */}
+                  {aggregatedLocations.length > 1 && (
+                    <View style={reportStyles.ucDayTotal}>
+                      <Text style={reportStyles.ucDayTotalLabel}>Day Total</Text>
+                      <Text style={reportStyles.ucDayTotalValue}>
+                        {formatDuration(aggregatedLocations.reduce((acc, agg) => acc + agg.totalMinutes, 0))}
+                      </Text>
+                    </View>
+                  )}
                 </>
               ) : (
-                /* Absence Mode */
-                <View style={reportStyles.absenceContainer}>
-                  <Text style={reportStyles.inputLabel}>Select Reason</Text>
+                /* ===== VIEW MODE - EMPTY DAY ===== */
+                <View style={reportStyles.ucCard}>
+                  <View style={reportStyles.ucLocationRow}>
+                    <View style={[reportStyles.ucLocationDot, { backgroundColor: colors.textMuted }]} />
+                    <Text style={reportStyles.ucLocationNameMuted}>--</Text>
+                  </View>
+                  <View style={reportStyles.ucTimesGrid}>
+                    <View style={reportStyles.ucTimeCol}>
+                      <Text style={reportStyles.ucTimeLabel}>Entry</Text>
+                      <Text style={reportStyles.ucTimeValueMuted}>--:--</Text>
+                    </View>
+                    <View style={reportStyles.ucTimeCol}>
+                      <Text style={reportStyles.ucTimeLabel}>Exit</Text>
+                      <Text style={reportStyles.ucTimeValueMuted}>--:--</Text>
+                    </View>
+                    <View style={reportStyles.ucTimeCol}>
+                      <Text style={reportStyles.ucTimeLabel}>Break</Text>
+                      <Text style={reportStyles.ucTimeValueMuted}>--</Text>
+                    </View>
+                  </View>
+                  <View style={reportStyles.ucTotalRow}>
+                    <Text style={reportStyles.ucTotalLabel}>Total</Text>
+                    <Text style={reportStyles.ucTotalValueMuted}>--</Text>
+                  </View>
+                </View>
+              )}
+
+              {/* Absence Options (toggled by Log Absence button) */}
+              {showAbsenceOptions && !isEditingInline && (
+                <View style={reportStyles.ucAbsenceSection}>
+                  <Text style={reportStyles.ucAbsenceTitle}>Select Reason</Text>
                   {[
-                    { key: 'rain', label: '🌧️ Rain Day', icon: 'rainy' },
-                    { key: 'snow', label: '❄️ Snow Day', icon: 'snow' },
-                    { key: 'sick', label: '🤒 Sick Day', icon: 'medical' },
-                    { key: 'day_off', label: '🏖️ Day Off', icon: 'calendar' },
-                    { key: 'holiday', label: '🎉 Holiday', icon: 'gift' },
+                    { key: 'rain', label: '🌧️ Rain Day' },
+                    { key: 'snow', label: '❄️ Snow Day' },
+                    { key: 'sick', label: '🤒 Sick Day' },
+                    { key: 'day_off', label: '🏖️ Day Off' },
+                    { key: 'holiday', label: '🎉 Holiday' },
                   ].map((option) => (
                     <TouchableOpacity
                       key={option.key}
-                      style={[
-                        reportStyles.absenceOption,
-                        manualAbsenceType === option.key && reportStyles.absenceOptionSelected,
-                      ]}
-                      onPress={() => setManualAbsenceType(option.key)}
+                      style={reportStyles.absenceOption}
+                      onPress={async () => {
+                        if (selectedDayForModal) {
+                          await saveAbsenceForDate(selectedDayForModal, option.key);
+                          setShowAbsenceOptions(false);
+                        }
+                      }}
                     >
                       <Text style={reportStyles.absenceOptionText}>{option.label}</Text>
-                      {manualAbsenceType === option.key && (
-                        <Ionicons name="checkmark-circle" size={20} color={colors.primary} />
-                      )}
                     </TouchableOpacity>
                   ))}
                 </View>
@@ -1297,22 +1254,57 @@ export default function ReportsScreen() {
             </ScrollView>
 
             {/* Footer Buttons */}
-            <View style={reportStyles.manualModalFooter}>
-              <TouchableOpacity
-                style={reportStyles.manualModalCancelBtn}
-                onPress={() => setShowManualModal(false)}
-              >
-                <Text style={reportStyles.manualModalCancelBtnText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={reportStyles.manualModalSaveBtn}
-                onPress={handleSaveManualWithAmPm}
-              >
-                <Text style={reportStyles.manualModalSaveBtnText}>Save</Text>
-              </TouchableOpacity>
+            <View style={reportStyles.ucFooter}>
+              {isEditingInline ? (
+                <>
+                  <TouchableOpacity style={reportStyles.ucFooterBtnSecondary} onPress={cancelInlineEdit}>
+                    <Text style={reportStyles.ucFooterBtnSecondaryText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={reportStyles.ucFooterBtnPrimary} onPress={handleSaveManualWithAmPm}>
+                    <Text style={reportStyles.ucFooterBtnPrimaryText}>Save</Text>
+                  </TouchableOpacity>
+                </>
+              ) : aggregatedLocations.length > 0 ? (
+                <>
+                  <TouchableOpacity
+                    style={reportStyles.ucFooterBtnSecondary}
+                    onPress={() => {
+                      const session = aggregatedLocations[0]?.sessions[0];
+                      if (session) startInlineEdit(session);
+                    }}
+                  >
+                    <Ionicons name="pencil-outline" size={18} color={colors.text} />
+                    <Text style={reportStyles.ucFooterBtnSecondaryText}>Edit</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={reportStyles.ucFooterBtnDanger}
+                    onPress={handleDeleteFromModal}
+                  >
+                    <Ionicons name="trash-outline" size={18} color={colors.error || '#EF4444'} />
+                    <Text style={reportStyles.ucFooterBtnDangerText}>Delete</Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <>
+                  <TouchableOpacity style={reportStyles.ucFooterBtnPrimary} onPress={startInlineAdd}>
+                    <Ionicons name="add-circle-outline" size={18} color={colors.buttonPrimaryText} />
+                    <Text style={reportStyles.ucFooterBtnPrimaryText}>Add Hours</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[reportStyles.ucFooterBtnSecondary, showAbsenceOptions && { borderColor: colors.primary }]}
+                    onPress={() => setShowAbsenceOptions(!showAbsenceOptions)}
+                  >
+                    <Ionicons name="calendar-outline" size={18} color={showAbsenceOptions ? colors.primary : colors.text} />
+                    <Text style={[reportStyles.ucFooterBtnSecondaryText, showAbsenceOptions && { color: colors.primary }]}>
+                      Log Absence
+                    </Text>
+                  </TouchableOpacity>
+                </>
+              )}
             </View>
-          </View>
-        </View>
+
+          </Animated.View>
+        </Animated.View>
       </Modal>
 
       {/* ============================================ */}
@@ -1580,17 +1572,17 @@ const reportStyles = StyleSheet.create({
     gap: 8,
     paddingVertical: 10,
     paddingHorizontal: 14,
-    backgroundColor: withOpacity(colors.error || '#EF4444', 0.1),
+    backgroundColor: withOpacity(colors.warning || '#F59E0B', 0.1),
     borderRadius: 8,
     marginHorizontal: 16,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: withOpacity(colors.error || '#EF4444', 0.3),
+    borderColor: withOpacity(colors.warning || '#F59E0B', 0.2),
   },
   noBreakBannerText: {
     fontSize: 13,
     fontWeight: '500',
-    color: colors.error || '#EF4444',
+    color: colors.warning || '#F59E0B',
     flex: 1,
   },
 
@@ -2270,6 +2262,288 @@ const reportStyles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: colors.text,
+  },
+
+  // ============================================
+  // UNIFIED DAY CARD STYLES (uc*)
+  // ============================================
+
+  ucHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  ucCloseBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.surfaceMuted,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  ucScrollContent: {
+    padding: 16,
+    gap: 12,
+  },
+  ucCard: {
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  ucLocationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 14,
+  },
+  ucPickerWrap: {
+    flex: 1,
+    backgroundColor: colors.card,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: 'hidden',
+  },
+  ucTimesGrid: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  ucTimeCol: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  ucTimeLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 6,
+  },
+  ucTimeInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  ucTimeInput: {
+    width: 38,
+    paddingVertical: 8,
+    fontSize: 18,
+    fontWeight: '600',
+    textAlign: 'center',
+    backgroundColor: colors.card,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    color: colors.text,
+  },
+  ucTimeSep: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: colors.text,
+    marginHorizontal: 2,
+  },
+  ucAmPmRow: {
+    flexDirection: 'row',
+    marginTop: 6,
+    borderRadius: 6,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  ucAmPmBtn: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    backgroundColor: colors.card,
+  },
+  ucAmPmBtnActive: {
+    backgroundColor: colors.primary,
+  },
+  ucAmPmText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  ucAmPmTextActive: {
+    color: colors.buttonPrimaryText,
+  },
+  ucBreakInput: {
+    width: 52,
+    paddingVertical: 8,
+    fontSize: 18,
+    fontWeight: '600',
+    textAlign: 'center',
+    backgroundColor: colors.card,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    color: colors.text,
+  },
+  ucBreakUnit: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: colors.textSecondary,
+    marginTop: 4,
+  },
+  ucTotalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 14,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  ucTotalLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  ucTotalValue: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.primary,
+  },
+  ucTotalValueMuted: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.textMuted,
+  },
+  ucLocationDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  ucLocationName: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.text,
+    flex: 1,
+  },
+  ucLocationNameMuted: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.textMuted,
+    flex: 1,
+  },
+  ucEditedBadge: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    backgroundColor: withOpacity(colors.textSecondary, 0.15),
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  ucTimeValue: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  ucTimeValueMuted: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.textMuted,
+  },
+  ucDayTotal: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  ucDayTotalLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  ucDayTotalValue: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: colors.primary,
+  },
+  ucAbsenceSection: {
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: 10,
+  },
+  ucAbsenceTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  ucFooter: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  ucFooterBtnPrimary: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 13,
+    borderRadius: 12,
+    backgroundColor: colors.primary,
+  },
+  ucFooterBtnPrimaryText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.buttonPrimaryText,
+  },
+  ucFooterBtnSecondary: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 13,
+    borderRadius: 12,
+    backgroundColor: colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  ucFooterBtnSecondaryText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  ucFooterBtnDanger: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 13,
+    borderRadius: 12,
+    backgroundColor: withOpacity(colors.error || '#EF4444', 0.1),
+    borderWidth: 1,
+    borderColor: withOpacity(colors.error || '#EF4444', 0.3),
+  },
+  ucFooterBtnDangerText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.error || '#EF4444',
   },
 });
 

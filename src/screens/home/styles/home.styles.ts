@@ -45,15 +45,17 @@ export const homeStyles = StyleSheet.create({
   // ============================================
   formSection: {
     // No flex - uses natural height
-    minHeight: 168,  // +20% (was 140)
+    minHeight: 168,
     padding: 16,
     backgroundColor: colors.card,
     borderRadius: 18,
     borderWidth: 1,
     borderColor: colors.border,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.primary,
     marginBottom: 12,
     justifyContent: 'center',
-    ...shadows.sm,
+    ...shadows.md,
   },
   formHeader: {
     flexDirection: 'row',

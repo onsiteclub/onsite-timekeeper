@@ -291,6 +291,9 @@ export function useHomeScreen() {
   // NEW: Edit mode tracking
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
 
+  // NEW: Inline editing mode (unified day card)
+  const [isEditingInline, setIsEditingInline] = useState(false);
+
   // NEW: Export modal (for notification-triggered export)
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportModalSessions, setExportModalSessions] = useState<ComputedSession[]>([]);
@@ -893,6 +896,8 @@ export function useHomeScreen() {
     setShowDayModal(false);
     setSelectedDayForModal(null);
     setSelectedSessions(new Set());
+    setIsEditingInline(false);
+    setEditingSessionId(null);
   };
 
   // ============================================
@@ -1085,6 +1090,7 @@ export function useHomeScreen() {
         Alert.alert('✅ Success', `${absenceLabels[manualAbsenceType]} recorded!`);
 
         setShowManualModal(false);
+        setIsEditingInline(false);
         setManualAbsenceType(null);
         setManualEntryMode('hours');
 
@@ -1191,6 +1197,7 @@ export function useHomeScreen() {
                       pauseMinutes: pauseMinutes,
                     });
                     setShowManualModal(false);
+                    setIsEditingInline(false);
                     setManualPause('');
                     if (viewMode === 'week') {
                       await loadWeekSessions();
@@ -1221,6 +1228,7 @@ export function useHomeScreen() {
                       pauseMinutes: pauseMinutes,
                     });
                     setShowManualModal(false);
+                    setIsEditingInline(false);
                     setManualPause('');
                     if (viewMode === 'week') {
                       await loadWeekSessions();
@@ -1246,6 +1254,7 @@ export function useHomeScreen() {
       }
 
       setShowManualModal(false);
+      setIsEditingInline(false);
       setManualPause('');
 
       // Reload sessions to show the new/updated record
@@ -1554,6 +1563,51 @@ const getSuggestedTimes = useCallback((locationId: string) => {
 //     weekSessions,
   
   // ============================================
+  // ABSENCE FOR DATE (inline save)
+  // ============================================
+
+  const saveAbsenceForDate = async (date: Date, absenceType: string) => {
+    const location = locations[0];
+    if (!location) {
+      Alert.alert('Error', 'No location configured');
+      return;
+    }
+
+    const absenceDate = new Date(date);
+    absenceDate.setHours(0, 0, 0, 0);
+    const isoDate = absenceDate.toISOString();
+
+    try {
+      await createManualRecord({
+        locationId: location.id,
+        locationName: location.name,
+        entry: isoDate,
+        exit: isoDate,
+        pauseMinutes: 0,
+        absenceType,
+      });
+
+      const absenceLabels: Record<string, string> = {
+        rain: 'Rain Day',
+        snow: 'Snow Day',
+        sick: 'Sick Day',
+        day_off: 'Day Off',
+        holiday: 'Holiday',
+      };
+      Alert.alert('✅ Success', `${absenceLabels[absenceType]} recorded!`);
+
+      // Reload sessions
+      if (viewMode === 'week') {
+        await loadWeekSessions();
+      } else {
+        await loadMonthSessions();
+      }
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Could not save');
+    }
+  };
+
+  // ============================================
   // RETURN
   // ============================================
 
@@ -1611,6 +1665,13 @@ const getSuggestedTimes = useCallback((locationId: string) => {
     handleDeleteFromAction,
     editingSessionId,
 
+    // NEW: Inline editing (unified day card)
+    isEditingInline,
+    setIsEditingInline,
+    setManualDate,
+    setEditingSessionId,
+    saveAbsenceForDate,
+
     // NEW: Export modal (notification triggered)
     showExportModal,
     exportModalSessions,
@@ -1620,7 +1681,6 @@ const getSuggestedTimes = useCallback((locationId: string) => {
     showManualModal,
     setShowManualModal,
     manualDate,
-    setManualDate,
     manualLocationId,
     setManualLocationId,
     manualEntryH,
