@@ -27,6 +27,7 @@ import { useSyncStore } from '../src/stores/syncStore';
 import { useSettingsStore } from '../src/stores/settingsStore';
 import {
   configureNotificationCategories,
+  requestNotificationPermission,
 } from '../src/lib/notifications';
 import {
   initializeListeners,
@@ -144,7 +145,8 @@ export default function RootLayout() {
         // 2. Settings
         await useSettingsStore.getState().loadSettings();
 
-        // 3. Notification categories
+        // 3. Notifications (permission + channels + categories)
+        await requestNotificationPermission();
         await configureNotificationCategories();
 
         // 4. SINGLETON LISTENERS (AppState, geofence callback, heartbeat)

@@ -88,6 +88,28 @@ let categoriesConfigured = false;
 
 export async function requestNotificationPermission(): Promise<boolean> {
   try {
+    // 1. ALWAYS create Android channels first (required for Android 8+)
+    // Channels must exist regardless of permission status — otherwise
+    // notifications are silently dropped even after user grants permission later.
+    if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync('geofence', {
+        name: 'Location Alerts',
+        importance: Notifications.AndroidImportance.HIGH,
+        vibrationPattern: [0, 250, 250, 250],
+        sound: 'default',
+      });
+
+      await Notifications.setNotificationChannelAsync('report_reminder', {
+        name: 'Report Reminders',
+        importance: Notifications.AndroidImportance.DEFAULT,
+        vibrationPattern: [0, 250],
+        sound: 'default',
+      });
+
+      logger.info('notification', '✅ Android notification channels created');
+    }
+
+    // 2. Request permission
     const { status: existingStatus } = await Notifications.getPermissionsAsync();
     let finalStatus = existingStatus;
 
@@ -97,26 +119,8 @@ export async function requestNotificationPermission(): Promise<boolean> {
     }
 
     if (finalStatus !== 'granted') {
-      logger.warn('notification', 'Notification permission denied');
+      logger.warn('notification', '⚠️ Notification permission denied — notifications will not appear');
       return false;
-    }
-
-    if (Platform.OS === 'android') {
-      // Geofence channel
-      await Notifications.setNotificationChannelAsync('geofence', {
-        name: 'Location Alerts',
-        importance: Notifications.AndroidImportance.HIGH,
-        vibrationPattern: [0, 250, 250, 250],
-        sound: 'default',
-      });
-
-      // Report reminder channel
-      await Notifications.setNotificationChannelAsync('report_reminder', {
-        name: 'Report Reminders',
-        importance: Notifications.AndroidImportance.DEFAULT,
-        vibrationPattern: [0, 250],
-        sound: 'default',
-      });
     }
 
     logger.info('notification', '✅ Notification permission granted');
@@ -170,6 +174,22 @@ export async function configureNotificationCategories(): Promise<void> {
 
 
 /**
+ * Check if notifications are allowed (permission granted)
+ */
+async function canSendNotification(): Promise<boolean> {
+  try {
+    const { status } = await Notifications.getPermissionsAsync();
+    if (status !== 'granted') {
+      logger.warn('notification', '⚠️ Cannot send notification — permission not granted');
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Show simple informative notification (no buttons)
  * Used by the new exitHandler system for informative messages
  */
@@ -178,6 +198,8 @@ export async function showSimpleNotification(
   body: string
 ): Promise<string> {
   try {
+    if (!await canSendNotification()) return '';
+
     const notificationId = await Notifications.scheduleNotificationAsync({
       content: {
         title,
@@ -187,6 +209,7 @@ export async function showSimpleNotification(
         } as GeofenceNotificationData,
         sound: 'default',
         priority: Notifications.AndroidNotificationPriority.DEFAULT,
+        ...(Platform.OS === 'android' && { channelId: 'geofence' }),
       },
       trigger: null,
     });
@@ -205,6 +228,8 @@ export async function showSimpleNotification(
  */
 export async function showArrivalNotification(locationName: string): Promise<string> {
   try {
+    if (!await canSendNotification()) return '';
+
     const notificationId = await Notifications.scheduleNotificationAsync({
       content: {
         title: `📍 ${locationName}`,
@@ -215,6 +240,7 @@ export async function showArrivalNotification(locationName: string): Promise<str
         } as GeofenceNotificationData,
         sound: 'default',
         priority: Notifications.AndroidNotificationPriority.HIGH,
+        ...(Platform.OS === 'android' && { channelId: 'geofence' }),
       },
       trigger: null,
     });
@@ -238,6 +264,8 @@ export async function showEndOfDayNotification(
   locationName: string
 ): Promise<string> {
   try {
+    if (!await canSendNotification()) return '';
+
     const timeStr = totalHours > 0
       ? `${totalHours}h ${totalMinutes}min`
       : `${totalMinutes} minutes`;
@@ -252,6 +280,7 @@ export async function showEndOfDayNotification(
         } as GeofenceNotificationData,
         sound: 'default',
         priority: Notifications.AndroidNotificationPriority.HIGH,
+        ...(Platform.OS === 'android' && { channelId: 'geofence' }),
       },
       trigger: null,
     });
@@ -274,6 +303,8 @@ export async function showPauseExpiredNotification(
   pauseLimitMinutes: number
 ): Promise<string> {
   try {
+    if (!await canSendNotification()) return '';
+
     const notificationId = await Notifications.scheduleNotificationAsync({
       content: {
         title: `⏰ Break Expired!`,
@@ -285,6 +316,7 @@ export async function showPauseExpiredNotification(
         } as GeofenceNotificationData,
         sound: 'default',
         priority: Notifications.AndroidNotificationPriority.MAX,
+        ...(Platform.OS === 'android' && { channelId: 'geofence' }),
       },
       trigger: null,
     });
