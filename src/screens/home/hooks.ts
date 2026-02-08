@@ -709,11 +709,8 @@ export function useHomeScreen() {
               setPauseTimer('00:00:00');
               
               // Reload data to show the finished session
-              // Always reload weekSessions (used by Home screen for auto-fill)
               loadWeekSessions();
-              if (viewMode === 'month') {
-                loadMonthSessions();
-              }
+              loadMonthSessions();
               
               // REMOVED: No longer showing session finished modal
             } catch (error: any) {
@@ -1094,12 +1091,9 @@ export function useHomeScreen() {
         setManualAbsenceType(null);
         setManualEntryMode('hours');
 
-        // Reload week/month sessions to show the new record
-        if (viewMode === 'week') {
-          await loadWeekSessions();
-        } else {
-          await loadMonthSessions();
-        }
+        // Reload sessions to show the new record
+        await loadWeekSessions();
+        await loadMonthSessions();
       } catch (error: any) {
         Alert.alert('Error', error.message || 'Could not save');
       }
@@ -1199,11 +1193,8 @@ export function useHomeScreen() {
                     setShowManualModal(false);
                     setIsEditingInline(false);
                     setManualPause('');
-                    if (viewMode === 'week') {
-                      await loadWeekSessions();
-                    } else {
-                      await loadMonthSessions();
-                    }
+                    await loadWeekSessions();
+                    await loadMonthSessions();
                     resolve();
                   },
                 },
@@ -1230,11 +1221,8 @@ export function useHomeScreen() {
                     setShowManualModal(false);
                     setIsEditingInline(false);
                     setManualPause('');
-                    if (viewMode === 'week') {
-                      await loadWeekSessions();
-                    } else {
-                      await loadMonthSessions();
-                    }
+                    await loadWeekSessions();
+                    await loadMonthSessions();
                     resolve();
                   },
                 },
@@ -1258,11 +1246,8 @@ export function useHomeScreen() {
       setManualPause('');
 
       // Reload sessions to show the new/updated record
-      // Always reload weekSessions (used by Home screen for auto-fill)
       await loadWeekSessions();
-      if (viewMode === 'month') {
-        await loadMonthSessions();
-      }
+      await loadMonthSessions();
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Could not save');
     }
@@ -1310,9 +1295,7 @@ export function useHomeScreen() {
       await reloadData();
       // Always reload weekSessions (used by Home screen for auto-fill)
       loadWeekSessions();
-      if (viewMode === 'month') {
-        loadMonthSessions();
-      }
+      loadMonthSessions();
 
       // Clear states
       setSelectedSessions(new Set());
@@ -1597,11 +1580,8 @@ const getSuggestedTimes = useCallback((locationId: string) => {
       Alert.alert('✅ Success', `${absenceLabels[absenceType]} recorded!`);
 
       // Reload sessions
-      if (viewMode === 'week') {
-        await loadWeekSessions();
-      } else {
-        await loadMonthSessions();
-      }
+      await loadWeekSessions();
+      await loadMonthSessions();
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Could not save');
     }

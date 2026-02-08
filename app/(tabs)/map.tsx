@@ -200,6 +200,7 @@ export default function MapScreen() {
                 <Text style={styles.locationLabelText} numberOfLines={1}>
                   {location.name}
                 </Text>
+                <Ionicons name="settings-outline" size={12} color={colors.textMuted} />
               </View>
             </Marker>
           </React.Fragment>

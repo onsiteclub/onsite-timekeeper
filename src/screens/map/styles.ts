@@ -163,6 +163,7 @@ export const styles = StyleSheet.create({
   locationLabel: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 4,
     backgroundColor: colors.card,
     paddingVertical: 6,
     paddingHorizontal: 10,
@@ -172,7 +173,7 @@ export const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 3,
     elevation: 4,
-    maxWidth: 140,
+    maxWidth: 160,
   },
   locationLabelDot: {
     width: 8,

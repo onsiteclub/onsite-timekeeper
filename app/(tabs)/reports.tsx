@@ -292,6 +292,7 @@ export default function ReportsScreen() {
     formatDuration,
     isToday,
     getSessionsByPeriod,
+    setViewMode,
   } = useHomeScreen();
 
   // ============================================
@@ -301,6 +302,7 @@ export default function ReportsScreen() {
   // FIX: Always navigate to current month so chart shows current week
   useFocusEffect(
     useCallback(() => {
+      setViewMode('month');
       goToCurrentMonth();
       onRefresh();
     }, []) // Empty deps - functions read from store directly
