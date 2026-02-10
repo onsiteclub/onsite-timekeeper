@@ -78,24 +78,44 @@ jobs:
 
       - name: Configure release signing
         run: |
-          cat >> android/app/build.gradle << 'SIGNING'
-
-          android {
-              signingConfigs {
-                  release {
-                      storeFile file("release-keystore.jks")
-                      storePassword System.getenv("KEYSTORE_PASSWORD")
-                      keyAlias System.getenv("KEY_ALIAS")
-                      keyPassword System.getenv("KEY_PASSWORD")
-                  }
-              }
-              buildTypes {
-                  release {
-                      signingConfig signingConfigs.release
-                  }
-              }
-          }
-          SIGNING
+          python3 << 'PYSCRIPT'
+          content = open("android/app/build.gradle").read()
+          old = "\n".join([
+              "    signingConfigs {",
+              "        debug {",
+              "            storeFile file('debug.keystore')",
+              "            storePassword 'android'",
+              "            keyAlias 'androiddebugkey'",
+              "            keyPassword 'android'",
+              "        }",
+              "    }",
+          ])
+          new = "\n".join([
+              "    signingConfigs {",
+              "        debug {",
+              "            storeFile file('debug.keystore')",
+              "            storePassword 'android'",
+              "            keyAlias 'androiddebugkey'",
+              "            keyPassword 'android'",
+              "        }",
+              "        release {",
+              "            storeFile file('release-keystore.jks')",
+              '            storePassword System.getenv("KEYSTORE_PASSWORD")',
+              '            keyAlias System.getenv("KEY_ALIAS")',
+              '            keyPassword System.getenv("KEY_PASSWORD")',
+              "        }",
+              "    }",
+          ])
+          content = content.replace(old, new)
+          old_comment = "\n".join([
+              "            // Caution! In production, you need to generate your own keystore file.",
+              "            // see https://reactnative.dev/docs/signed-apk-android.",
+              "            signingConfig signingConfigs.debug",
+          ])
+          content = content.replace(old_comment, "            signingConfig signingConfigs.release")
+          open("android/app/build.gradle", "w").write(content)
+          print("Release signing configured")
+          PYSCRIPT
 
       - name: Setup Gradle cache
         uses: gradle/gradle-build-action@v2
