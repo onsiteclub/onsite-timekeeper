@@ -79,23 +79,20 @@ jobs:
       - name: Configure release signing
         run: |
           python3 << 'PYSCRIPT'
-          content = open("android/app/build.gradle").read()
-          old = "\n".join([
-              "    signingConfigs {",
-              "        debug {",
-              "            storeFile file('debug.keystore')",
-              "            storePassword 'android'",
-              "            keyAlias 'androiddebugkey'",
-              "            keyPassword 'android'",
-              "        }",
-              "    }",
-          ])
-          new = "\n".join([
-              "    signingConfigs {",
-              "        debug {",
-              "            storeFile file('debug.keystore')",
-              "            storePassword 'android'",
-              "            keyAlias 'androiddebugkey'",
+          import sys
+          path = "android/app/build.gradle"
+          content = open(path).read()
+          original = content
+          # Step 1: Add release signingConfig after debug block
+          marker = "\n".join(["            keyPassword 'android'", "        }", "    }"])
+          if marker not in content:
+              print("ERROR: Cannot find debug signingConfig end marker")
+              print("--- signingConfigs section ---")
+              for i, l in enumerate(content.split("\n")):
+                  if "signing" in l.lower():
+                      print(f"  L{i+1}: {repr(l)}")
+              sys.exit(1)
+          inject = "\n".join([
               "            keyPassword 'android'",
               "        }",
               "        release {",
@@ -106,16 +103,35 @@ jobs:
               "        }",
               "    }",
           ])
-          content = content.replace(old, new)
-          old_comment = "\n".join([
-              "            // Caution! In production, you need to generate your own keystore file.",
-              "            // see https://reactnative.dev/docs/signed-apk-android.",
-              "            signingConfig signingConfigs.debug",
-          ])
-          content = content.replace(old_comment, "            signingConfig signingConfigs.release")
-          open("android/app/build.gradle", "w").write(content)
-          print("Release signing configured")
+          content = content.replace(marker, inject, 1)
+          # Step 2: Switch release buildType from debug to release signing
+          lines = content.split("\n")
+          in_release = False
+          switched = False
+          for i, line in enumerate(lines):
+              s = line.strip()
+              if s == "release {" and not switched:
+                  in_release = True
+              if in_release and "signingConfig signingConfigs.debug" in line:
+                  lines[i] = line.replace("signingConfigs.debug", "signingConfigs.release")
+                  switched = True
+                  in_release = False
+          if not switched:
+              print("ERROR: Could not switch signing in release buildType")
+              for i, l in enumerate(content.split("\n")):
+                  if "signing" in l.lower():
+                      print(f"  L{i+1}: {repr(l)}")
+              sys.exit(1)
+          content = "\n".join(lines)
+          # Verify
+          if "signingConfig signingConfigs.release" not in content:
+              print("ERROR: Verification failed - release signing not found")
+              sys.exit(1)
+          open(path, "w").write(content)
+          print("Release signing configured successfully")
           PYSCRIPT
+          echo "--- Signing config verification ---"
+          grep -n "signingConfig" android/app/build.gradle
 
       - name: Setup Gradle cache
         uses: gradle/gradle-build-action@v2
