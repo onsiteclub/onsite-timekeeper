@@ -58,8 +58,11 @@ workflows:
           NEW_BUILD=$((LATEST_BUILD + 1))
           echo "Latest TestFlight build: $LATEST_BUILD → New build: $NEW_BUILD"
           PBXPROJ="ios/OnSiteTimekeeper.xcodeproj/project.pbxproj"
-          sed -i '' "s/CURRENT_PROJECT_VERSION = [0-9]*;/CURRENT_PROJECT_VERSION = $NEW_BUILD;/g" "$PBXPROJ"
-          echo "Verified: $(grep -c "CURRENT_PROJECT_VERSION = $NEW_BUILD;" "$PBXPROJ") occurrences updated"
+          echo "Before:"
+          grep "CURRENT_PROJECT_VERSION" "$PBXPROJ"
+          sed -i '' "s/CURRENT_PROJECT_VERSION = .*;/CURRENT_PROJECT_VERSION = $NEW_BUILD;/g" "$PBXPROJ"
+          echo "After:"
+          grep "CURRENT_PROJECT_VERSION" "$PBXPROJ"
       - name: Build signed IPA
         script: |
           xcode-project build-ipa \
