@@ -104,25 +104,14 @@ jobs:
               "    }",
           ])
           content = content.replace(marker, inject, 1)
-          # Step 2: Switch release buildType from debug to release signing
-          lines = content.split("\n")
-          in_release = False
-          switched = False
-          for i, line in enumerate(lines):
-              s = line.strip()
-              if s == "release {" and not switched:
-                  in_release = True
-              if in_release and "signingConfig signingConfigs.debug" in line:
-                  lines[i] = line.replace("signingConfigs.debug", "signingConfigs.release")
-                  switched = True
-                  in_release = False
-          if not switched:
-              print("ERROR: Could not switch signing in release buildType")
-              for i, l in enumerate(content.split("\n")):
-                  if "signing" in l.lower():
-                      print(f"  L{i+1}: {repr(l)}")
+          # Step 2: Replace LAST occurrence of signingConfigs.debug
+          # (first is in debug buildType, last is in release buildType)
+          target = "signingConfig signingConfigs.debug"
+          idx = content.rfind(target)
+          if idx == -1:
+              print("ERROR: signingConfig signingConfigs.debug not found")
               sys.exit(1)
-          content = "\n".join(lines)
+          content = content[:idx] + "signingConfig signingConfigs.release" + content[idx + len(target):]
           # Verify
           if "signingConfig signingConfigs.release" not in content:
               print("ERROR: Verification failed - release signing not found")
