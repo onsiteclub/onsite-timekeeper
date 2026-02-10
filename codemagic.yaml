@@ -26,6 +26,8 @@ workflows:
     name: iOS Build → TestFlight
     max_build_duration: 90
     instance_type: mac_mini_m2
+    integrations:
+      app_store_connect: Codemagic
     environment:
       node: 18
       xcode: latest
