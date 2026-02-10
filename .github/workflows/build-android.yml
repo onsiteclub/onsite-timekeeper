@@ -73,6 +73,30 @@ jobs:
       - name: Prebuild native Android project
         run: npx expo prebuild --platform android --clean
 
+      - name: Decode release keystore
+        run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/app/release-keystore.jks
+
+      - name: Configure release signing
+        run: |
+          cat >> android/app/build.gradle << 'SIGNING'
+
+          android {
+              signingConfigs {
+                  release {
+                      storeFile file("release-keystore.jks")
+                      storePassword System.getenv("KEYSTORE_PASSWORD")
+                      keyAlias System.getenv("KEY_ALIAS")
+                      keyPassword System.getenv("KEY_PASSWORD")
+                  }
+              }
+              buildTypes {
+                  release {
+                      signingConfig signingConfigs.release
+                  }
+              }
+          }
+          SIGNING
+
       - name: Setup Gradle cache
         uses: gradle/gradle-build-action@v2
         with:
@@ -83,6 +107,9 @@ jobs:
         working-directory: android
         env:
           SENTRY_DISABLE_AUTO_UPLOAD: 'true'
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: ./gradlew assembleRelease --no-daemon --stacktrace
 
       - name: Build AAB (Play Store)
@@ -90,6 +117,9 @@ jobs:
         working-directory: android
         env:
           SENTRY_DISABLE_AUTO_UPLOAD: 'true'
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: ./gradlew bundleRelease --no-daemon --stacktrace
 
       - name: Upload APK
