@@ -37,6 +37,7 @@ workflows:
       vars:
         EXPO_NO_DOTENV: "1"
         BUNDLE_ID: "com.onsiteclub.timekeeper"
+        SENTRY_DISABLE_AUTO_UPLOAD: "true"
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.onsiteclub.timekeeper
