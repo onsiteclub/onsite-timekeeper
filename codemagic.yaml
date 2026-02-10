@@ -57,7 +57,9 @@ workflows:
           LATEST_BUILD=$(app-store-connect get-latest-testflight-build-number "$BUNDLE_ID" 2>/dev/null || echo "1")
           NEW_BUILD=$((LATEST_BUILD + 1))
           echo "Latest TestFlight build: $LATEST_BUILD → New build: $NEW_BUILD"
-          cd ios && agvtool new-version -all $NEW_BUILD
+          PLIST="ios/OnSiteTimekeeper/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $NEW_BUILD" "$PLIST"
+          echo "Verified: $(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")"
       - name: Build signed IPA
         script: |
           xcode-project build-ipa \
