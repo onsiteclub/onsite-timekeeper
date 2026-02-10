@@ -34,7 +34,6 @@ workflows:
       cocoapods: default
       groups:
         - supa var
-        - ios_credentials
       vars:
         EXPO_NO_DOTENV: "1"
         BUNDLE_ID: "com.onsiteclub.timekeeper"
