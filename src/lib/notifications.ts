@@ -92,18 +92,24 @@ export async function requestNotificationPermission(): Promise<boolean> {
     // Channels must exist regardless of permission status — otherwise
     // notifications are silently dropped even after user grants permission later.
     if (Platform.OS === 'android') {
-      await Notifications.setNotificationChannelAsync('geofence', {
+      // Delete old channels (Android won't update existing channel settings)
+      await Notifications.deleteNotificationChannelAsync('geofence').catch(() => {});
+
+      await Notifications.setNotificationChannelAsync('geofence_v2', {
         name: 'Location Alerts',
         importance: Notifications.AndroidImportance.HIGH,
         vibrationPattern: [0, 250, 250, 250],
-        sound: 'default',
+        enableVibrate: true,
+        // sound omitted = uses system default notification sound
       });
 
-      await Notifications.setNotificationChannelAsync('report_reminder', {
+      await Notifications.deleteNotificationChannelAsync('report_reminder').catch(() => {});
+
+      await Notifications.setNotificationChannelAsync('report_reminder_v2', {
         name: 'Report Reminders',
         importance: Notifications.AndroidImportance.DEFAULT,
         vibrationPattern: [0, 250],
-        sound: 'default',
+        enableVibrate: true,
       });
 
       logger.info('notification', '✅ Android notification channels created');
@@ -209,7 +215,7 @@ export async function showSimpleNotification(
         } as GeofenceNotificationData,
         sound: 'default',
         priority: Notifications.AndroidNotificationPriority.DEFAULT,
-        ...(Platform.OS === 'android' && { channelId: 'geofence' }),
+        ...(Platform.OS === 'android' && { channelId: 'geofence_v2' }),
       },
       trigger: null,
     });
@@ -240,7 +246,7 @@ export async function showArrivalNotification(locationName: string): Promise<str
         } as GeofenceNotificationData,
         sound: 'default',
         priority: Notifications.AndroidNotificationPriority.HIGH,
-        ...(Platform.OS === 'android' && { channelId: 'geofence' }),
+        ...(Platform.OS === 'android' && { channelId: 'geofence_v2' }),
       },
       trigger: null,
     });
@@ -280,7 +286,7 @@ export async function showEndOfDayNotification(
         } as GeofenceNotificationData,
         sound: 'default',
         priority: Notifications.AndroidNotificationPriority.HIGH,
-        ...(Platform.OS === 'android' && { channelId: 'geofence' }),
+        ...(Platform.OS === 'android' && { channelId: 'geofence_v2' }),
       },
       trigger: null,
     });
@@ -316,7 +322,7 @@ export async function showPauseExpiredNotification(
         } as GeofenceNotificationData,
         sound: 'default',
         priority: Notifications.AndroidNotificationPriority.MAX,
-        ...(Platform.OS === 'android' && { channelId: 'geofence' }),
+        ...(Platform.OS === 'android' && { channelId: 'geofence_v2' }),
       },
       trigger: null,
     });
