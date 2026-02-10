@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Build Android
 
 on:
   push:
@@ -8,6 +8,16 @@ on:
       - '.gitignore'
       - 'docs/**'
   workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build type'
+        required: true
+        default: 'apk'
+        type: choice
+        options:
+          - apk
+          - aab
+          - both
 
 jobs:
   checks:
@@ -35,6 +45,9 @@ jobs:
   build:
     needs: checks
     runs-on: ubuntu-latest
+    env:
+      EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -65,14 +78,30 @@ jobs:
         with:
           gradle-home-cache-cleanup: true
 
-      - name: Build APK with Gradle
+      - name: Build APK
+        if: github.event_name == 'push' || inputs.build_type == 'apk' || inputs.build_type == 'both'
         working-directory: android
         env:
           SENTRY_DISABLE_AUTO_UPLOAD: 'true'
         run: ./gradlew assembleRelease --no-daemon --stacktrace
 
+      - name: Build AAB (Play Store)
+        if: inputs.build_type == 'aab' || inputs.build_type == 'both'
+        working-directory: android
+        env:
+          SENTRY_DISABLE_AUTO_UPLOAD: 'true'
+        run: ./gradlew bundleRelease --no-daemon --stacktrace
+
       - name: Upload APK
+        if: github.event_name == 'push' || inputs.build_type == 'apk' || inputs.build_type == 'both'
         uses: actions/upload-artifact@v4
         with:
           name: onsite-timekeeper-apk
           path: android/app/build/outputs/apk/release/*.apk
+
+      - name: Upload AAB
+        if: inputs.build_type == 'aab' || inputs.build_type == 'both'
+        uses: actions/upload-artifact@v4
+        with:
+          name: onsite-timekeeper-aab
+          path: android/app/build/outputs/bundle/release/*.aab
