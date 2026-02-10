@@ -23,7 +23,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { useRouter, useFocusEffect } from 'expo-router';
-import Constants from 'expo-constants';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Card } from '../../src/components/ui/Button';
 import { colors, withOpacity, shadows } from '../../src/constants/colors';
@@ -737,21 +737,8 @@ export default function ReportsScreen() {
   }, [showDayModal, modalScale, modalOpacity]);
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#F3F4F6' }}>
-      {/* Status bar strip - gray background behind system status bar */}
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#F3F4F6' }} edges={['top']}>
       <StatusBar barStyle="dark-content" backgroundColor="#F3F4F6" />
-      <View
-        pointerEvents="none"
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          height: Constants.statusBarHeight || 28,
-          backgroundColor: '#F3F4F6',
-          zIndex: 1,
-        }}
-      />
 
       <View style={reportStyles.container}>
         {/* HEADER */}
@@ -1400,7 +1387,7 @@ export default function ReportsScreen() {
       </Modal>
 
       </View>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -1413,8 +1400,8 @@ const reportStyles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
     paddingHorizontal: 16,
-    // Use same source as status bar strip for consistency
-    paddingTop: (Constants.statusBarHeight || 28) + 12,
+    // paddingTop handled by SafeAreaView wrapper
+    paddingTop: 12,
     paddingBottom: 8,
   },
   header: {

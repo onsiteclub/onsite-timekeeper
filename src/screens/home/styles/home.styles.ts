@@ -8,16 +8,16 @@
  * - Timer Section (25%) - Timer vertical com botões embaixo
  */
 
-import { StyleSheet, Platform, StatusBar } from 'react-native';
+import { StyleSheet, Platform } from 'react-native';
 import { colors, withOpacity, shadows } from '../../../constants/colors';
 
 export const homeStyles = StyleSheet.create({
-  // Container
+  // Container - paddingTop handled by SafeAreaView in the component
   container: {
     flex: 1,
     backgroundColor: colors.background,
     paddingHorizontal: 16,
-    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 24) + 8 : 50,
+    paddingTop: 8,
     paddingBottom: 8,
   },
 

@@ -24,7 +24,7 @@ import {
   StyleSheet,
   StatusBar,
 } from 'react-native';
-import Constants from 'expo-constants';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import DateTimePicker from '@react-native-community/datetimepicker'; // Keep for date picker only
@@ -428,21 +428,8 @@ export default function HomeScreen() {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#F3F4F6' }}>
-      {/* Status bar strip - gray background behind system status bar */}
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#F3F4F6' }} edges={['top']}>
       <StatusBar barStyle="dark-content" backgroundColor="#F3F4F6" />
-      <View
-        pointerEvents="none"
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          height: Constants.statusBarHeight || 28,
-          backgroundColor: '#F3F4F6',
-          zIndex: 1,
-        }}
-      />
 
       <View style={fixedStyles.container}>
         <ScrollView
@@ -988,7 +975,7 @@ export default function HomeScreen() {
         </Animated.View>
       )}
       </View>
-    </View>
+    </SafeAreaView>
   );
 }
 
