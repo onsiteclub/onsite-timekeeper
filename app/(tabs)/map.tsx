@@ -24,7 +24,7 @@ import {
   Easing,
   Alert,
 } from 'react-native';
-import MapView, { Marker, Circle, PROVIDER_DEFAULT } from 'react-native-maps';
+import MapView, { Marker, Circle, PROVIDER_GOOGLE } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 
 import { colors, withOpacity } from '../../src/constants/colors';
@@ -165,7 +165,7 @@ export default function MapScreen() {
       {/* MAP */}
       <MapView
         ref={mapRef}
-        provider={PROVIDER_DEFAULT}
+        provider={PROVIDER_GOOGLE}
         style={styles.map}
         initialRegion={region}
         onMapReady={handleMapReady}
