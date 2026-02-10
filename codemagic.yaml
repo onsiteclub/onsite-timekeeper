@@ -23,8 +23,8 @@ workflows:
       - android/app/build/outputs/**/*.aab
 
   ios-build:
-    name: iOS Build
-    max_build_duration: 60
+    name: iOS Build → TestFlight
+    max_build_duration: 90
     instance_type: mac_mini_m2
     environment:
       node: 18
@@ -32,8 +32,13 @@ workflows:
       cocoapods: default
       groups:
         - supa var
+        - ios_credentials
       vars:
         EXPO_NO_DOTENV: "1"
+        BUNDLE_ID: "com.onsiteclub.timekeeper"
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.onsiteclub.timekeeper
     scripts:
       - name: Install dependencies
         script: npm install
@@ -43,16 +48,24 @@ workflows:
         script: |
           cd ios
           pod install
-      - name: Build iOS (no signing - simulator)
+      - name: Set up code signing
+        script: xcode-project use-profiles
+      - name: Increment build number
         script: |
-          xcodebuild \
-            -workspace ios/OnSiteTimekeeper.xcworkspace \
-            -scheme OnSiteTimekeeper \
-            -configuration Release \
-            -sdk iphonesimulator \
-            -derivedDataPath ios/build \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO
+          LATEST_BUILD=$(app-store-connect get-latest-testflight-build-number "$BUNDLE_ID" || echo 0)
+          agvtool new-version -all $((LATEST_BUILD + 1))
+        working_directory: ios
+      - name: Build signed IPA
+        script: |
+          xcode-project build-ipa \
+            --workspace ios/OnSiteTimekeeper.xcworkspace \
+            --scheme OnSiteTimekeeper \
+            --config Release
     artifacts:
-      - ios/build/Build/Products/**/*.app
+      - build/ios/ipa/*.ipa
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        beta_groups:
+          - "Internal Testing"
