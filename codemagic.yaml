@@ -44,6 +44,13 @@ workflows:
     scripts:
       - name: Install dependencies
         script: npm install
+      - name: Increment build number
+        script: |
+          LATEST_BUILD=$(app-store-connect get-latest-testflight-build-number "$BUNDLE_ID" 2>/dev/null || echo "1")
+          NEW_BUILD=$((LATEST_BUILD + 1))
+          echo "Latest TestFlight build: $LATEST_BUILD → New build: $NEW_BUILD"
+          sed -i '' "s/\"buildNumber\": \"[^\"]*\"/\"buildNumber\": \"$NEW_BUILD\"/" app.json
+          echo "Verified: $(grep buildNumber app.json)"
       - name: Run Expo prebuild (iOS)
         script: npx expo prebuild --platform ios --clean
       - name: Install CocoaPods
@@ -52,17 +59,6 @@ workflows:
           pod install
       - name: Set up code signing
         script: xcode-project use-profiles --project ios/OnSiteTimekeeper.xcodeproj
-      - name: Increment build number
-        script: |
-          LATEST_BUILD=$(app-store-connect get-latest-testflight-build-number "$BUNDLE_ID" 2>/dev/null || echo "1")
-          NEW_BUILD=$((LATEST_BUILD + 1))
-          echo "Latest TestFlight build: $LATEST_BUILD → New build: $NEW_BUILD"
-          PBXPROJ="ios/OnSiteTimekeeper.xcodeproj/project.pbxproj"
-          echo "Before:"
-          grep "CURRENT_PROJECT_VERSION" "$PBXPROJ"
-          sed -i '' "s/CURRENT_PROJECT_VERSION = .*;/CURRENT_PROJECT_VERSION = $NEW_BUILD;/g" "$PBXPROJ"
-          echo "After:"
-          grep "CURRENT_PROJECT_VERSION" "$PBXPROJ"
       - name: Build signed IPA
         script: |
           xcode-project build-ipa \
