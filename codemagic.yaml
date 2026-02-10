@@ -54,9 +54,10 @@ workflows:
         script: xcode-project use-profiles --project ios/OnSiteTimekeeper.xcodeproj
       - name: Increment build number
         script: |
-          LATEST_BUILD=$(app-store-connect get-latest-testflight-build-number "$BUNDLE_ID" || echo 0)
-          agvtool new-version -all $((LATEST_BUILD + 1))
-        working_directory: ios
+          LATEST_BUILD=$(app-store-connect get-latest-testflight-build-number "$BUNDLE_ID" 2>/dev/null || echo "1")
+          NEW_BUILD=$((LATEST_BUILD + 1))
+          echo "Latest TestFlight build: $LATEST_BUILD → New build: $NEW_BUILD"
+          cd ios && agvtool new-version -all $NEW_BUILD
       - name: Build signed IPA
         script: |
           xcode-project build-ipa \
