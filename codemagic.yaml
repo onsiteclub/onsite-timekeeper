@@ -49,8 +49,13 @@ workflows:
           LATEST_BUILD=$(app-store-connect get-latest-testflight-build-number "$BUNDLE_ID" 2>/dev/null || echo "1")
           NEW_BUILD=$((LATEST_BUILD + 1))
           echo "Latest TestFlight build: $LATEST_BUILD → New build: $NEW_BUILD"
-          sed -i '' "s/\"buildNumber\": \"[^\"]*\"/\"buildNumber\": \"$NEW_BUILD\"/" app.json
-          echo "Verified: $(grep buildNumber app.json)"
+          node -e "
+            const fs = require('fs');
+            const app = JSON.parse(fs.readFileSync('app.json', 'utf8'));
+            app.expo.ios.buildNumber = String($NEW_BUILD);
+            fs.writeFileSync('app.json', JSON.stringify(app, null, 2));
+            console.log('Set buildNumber to:', app.expo.ios.buildNumber);
+          "
       - name: Run Expo prebuild (iOS)
         script: npx expo prebuild --platform ios --clean
       - name: Install CocoaPods
