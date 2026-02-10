@@ -1,0 +1,58 @@
+workflows:
+  android-build:
+    name: Android Build
+    max_build_duration: 30
+    instance_type: linux_x2
+    environment:
+      node: 18
+      java: 17
+      groups:
+        - supa var
+      vars:
+        EXPO_NO_DOTENV: "1"
+    scripts:
+      - name: Install dependencies
+        script: npm install
+      - name: Run Expo prebuild (Android)
+        script: npx expo prebuild --platform android --clean
+      - name: Build Android APK
+        script: |
+          cd android
+          ./gradlew assembleRelease
+    artifacts:
+      - android/app/build/outputs/**/*.apk
+
+  ios-build:
+    name: iOS Build
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      node: 18
+      xcode: latest
+      cocoapods: default
+      groups:
+        - supa var
+      vars:
+        EXPO_NO_DOTENV: "1"
+    scripts:
+      - name: Install dependencies
+        script: npm install
+      - name: Run Expo prebuild (iOS)
+        script: npx expo prebuild --platform ios --clean
+      - name: Install CocoaPods
+        script: |
+          cd ios
+          pod install
+      - name: Build iOS (no signing - simulator)
+        script: |
+          xcodebuild \
+            -workspace ios/onsitetimekeeper.xcworkspace \
+            -scheme onsitetimekeeper \
+            -configuration Release \
+            -sdk iphonesimulator \
+            -derivedDataPath ios/build \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+    artifacts:
+      - ios/build/Build/Products/**/*.app
