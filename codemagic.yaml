@@ -50,7 +50,7 @@ workflows:
           cd ios
           pod install
       - name: Set up code signing
-        script: xcode-project use-profiles
+        script: xcode-project use-profiles --project ios/OnSiteTimekeeper.xcodeproj
       - name: Increment build number
         script: |
           LATEST_BUILD=$(app-store-connect get-latest-testflight-build-number "$BUNDLE_ID" || echo 0)
