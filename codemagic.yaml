@@ -57,9 +57,9 @@ workflows:
           LATEST_BUILD=$(app-store-connect get-latest-testflight-build-number "$BUNDLE_ID" 2>/dev/null || echo "1")
           NEW_BUILD=$((LATEST_BUILD + 1))
           echo "Latest TestFlight build: $LATEST_BUILD → New build: $NEW_BUILD"
-          PLIST="ios/OnSiteTimekeeper/Info.plist"
-          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $NEW_BUILD" "$PLIST"
-          echo "Verified: $(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")"
+          PBXPROJ="ios/OnSiteTimekeeper.xcodeproj/project.pbxproj"
+          sed -i '' "s/CURRENT_PROJECT_VERSION = [0-9]*;/CURRENT_PROJECT_VERSION = $NEW_BUILD;/g" "$PBXPROJ"
+          echo "Verified: $(grep -c "CURRENT_PROJECT_VERSION = $NEW_BUILD;" "$PBXPROJ") occurrences updated"
       - name: Build signed IPA
         script: |
           xcode-project build-ipa \
