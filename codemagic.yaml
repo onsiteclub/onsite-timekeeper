@@ -15,12 +15,12 @@ workflows:
         script: npm install
       - name: Run Expo prebuild (Android)
         script: npx expo prebuild --platform android --clean
-      - name: Build Android APK
+      - name: Build Android AAB (Play Store)
         script: |
           cd android
-          ./gradlew assembleRelease
+          ./gradlew bundleRelease
     artifacts:
-      - android/app/build/outputs/**/*.apk
+      - android/app/build/outputs/**/*.aab
 
   ios-build:
     name: iOS Build
@@ -46,8 +46,8 @@ workflows:
       - name: Build iOS (no signing - simulator)
         script: |
           xcodebuild \
-            -workspace ios/onsitetimekeeper.xcworkspace \
-            -scheme onsitetimekeeper \
+            -workspace ios/OnSiteTimekeeper.xcworkspace \
+            -scheme OnSiteTimekeeper \
             -configuration Release \
             -sdk iphonesimulator \
             -derivedDataPath ios/build \

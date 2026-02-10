@@ -26,7 +26,7 @@ export function initSentry(): void {
 
       // Privacy: Strip PII before sending
       beforeSend(event) {
-        return sanitizeEvent(event);
+        return sanitizeEvent(event) as typeof event | null;
       },
 
       // Sample 10% of transactions for performance monitoring
@@ -46,7 +46,7 @@ export function initSentry(): void {
   }
 }
 
-function sanitizeEvent(event: Sentry.ErrorEvent): Sentry.ErrorEvent {
+function sanitizeEvent(event: Sentry.Event): Sentry.Event | null {
   // Mask email in user context
   if (event.user?.email) {
     const parts = event.user.email.split('@');
