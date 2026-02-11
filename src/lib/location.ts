@@ -392,13 +392,16 @@ export async function startBackgroundLocation(): Promise<boolean> {
 
     await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
       accuracy: Location.Accuracy.Balanced,
+      activityType: Location.ActivityType.Other,
       distanceInterval: 50, // Update every 50m of movement
       timeInterval: 60000, // Or every 1 minute
       deferredUpdatesInterval: 300000, // Batch every 5 min
       showsBackgroundLocationIndicator: true,
+      pausesLocationUpdatesAutomatically: false,
       foregroundService: {
         notificationTitle: 'OnSite Timekeeper',
         notificationBody: 'Tracking work hours',
+        killServiceOnDestroy: false,
       },
     });
 
