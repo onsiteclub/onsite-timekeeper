@@ -397,7 +397,7 @@ export async function startBackgroundLocation(): Promise<boolean> {
       timeInterval: 60000, // Or every 1 minute
       deferredUpdatesInterval: 300000, // Batch every 5 min
       showsBackgroundLocationIndicator: true,
-      pausesLocationUpdatesAutomatically: false,
+      pausesUpdatesAutomatically: false,
       foregroundService: {
         notificationTitle: 'OnSite Timekeeper',
         notificationBody: 'Tracking work hours',
