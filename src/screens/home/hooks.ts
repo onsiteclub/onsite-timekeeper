@@ -1153,92 +1153,17 @@ export function useHomeScreen() {
         });
         setEditingSessionId(null);
       } else {
-        // CREATE MODE: New session
+        // CREATE MODE: V3 uses 1 record per day, upsert handles update/insert
         const location = locations.find(l => l.id === manualLocationId);
         const locationName = location?.name || 'Location';
 
-        // Check for existing sessions on the same day for the same location
-        const sameDaySessions = sessions.filter(s => {
-          const sessionDate = new Date(s.entry_at);
-          return (
-            s.location_id === manualLocationId &&
-            isSameDay(sessionDate, entryDate) &&
-            s.exit_at // Only completed sessions
-          );
+        await createManualRecord({
+          locationId: manualLocationId,
+          locationName,
+          entry: entryDate.toISOString(),
+          exit: exitDate.toISOString(),
+          pauseMinutes: pauseMinutes,
         });
-
-        if (sameDaySessions.length > 0) {
-          // Show confirmation dialog to replace existing sessions
-          return new Promise<void>((resolve) => {
-            Alert.alert(
-              'Existing Sessions',
-              `There are ${sameDaySessions.length} existing record(s) for "${locationName}" on this day. Would you like to replace them?`,
-              [
-                {
-                  text: 'Cancel',
-                  style: 'cancel',
-                  onPress: () => resolve(),
-                },
-                {
-                  text: 'Add',
-                  onPress: async () => {
-                    // Add alongside existing
-                    await createManualRecord({
-                      locationId: manualLocationId,
-                      locationName,
-                      entry: entryDate.toISOString(),
-                      exit: exitDate.toISOString(),
-                      pauseMinutes: pauseMinutes,
-                    });
-                    setShowManualModal(false);
-                    setIsEditingInline(false);
-                    setManualPause('');
-                    await loadWeekSessions();
-                    await loadMonthSessions();
-                    resolve();
-                  },
-                },
-                {
-                  text: 'Replace',
-                  style: 'destructive',
-                  onPress: async () => {
-                    // Delete existing sessions first
-                    for (const s of sameDaySessions) {
-                      try {
-                        await deleteRecord(s.id);
-                      } catch (e) {
-                        // Ignore errors
-                      }
-                    }
-                    // Create new manual entry
-                    await createManualRecord({
-                      locationId: manualLocationId,
-                      locationName,
-                      entry: entryDate.toISOString(),
-                      exit: exitDate.toISOString(),
-                      pauseMinutes: pauseMinutes,
-                    });
-                    setShowManualModal(false);
-                    setIsEditingInline(false);
-                    setManualPause('');
-                    await loadWeekSessions();
-                    await loadMonthSessions();
-                    resolve();
-                  },
-                },
-              ]
-            );
-          });
-        } else {
-          // No existing sessions - just create new
-          await createManualRecord({
-            locationId: manualLocationId,
-            locationName,
-            entry: entryDate.toISOString(),
-            exit: exitDate.toISOString(),
-            pauseMinutes: pauseMinutes,
-          });
-        }
       }
 
       setShowManualModal(false);
