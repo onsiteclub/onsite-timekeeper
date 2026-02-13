@@ -257,14 +257,17 @@ export function upsertDailyHours(params: UpsertDailyHoursParams): DailyHoursEntr
     // Update cache
     cache.set(cacheKey(userId, date), entry);
 
-    // Write to Supabase (fire-and-forget)
+    // Write to Supabase (background — logs errors to console)
     const payload = toSupabasePayload(entry);
     supabase
       .from('daily_hours')
       .upsert(payload, { onConflict: 'user_id,work_date' })
       .then(({ error }) => {
         if (error) {
+          console.error('[OnSite Web] Save failed:', error.message, payload);
           logger.error('database', '[daily_hours:web] Supabase upsert failed', { error: error.message });
+        } else {
+          console.log('[OnSite Web] Saved to Supabase:', date, totalMinutes, 'min');
         }
       });
 
@@ -314,6 +317,7 @@ export function updateDailyHours(
       .upsert(payload, { onConflict: 'user_id,work_date' })
       .then(({ error }) => {
         if (error) {
+          console.error('[OnSite Web] Update failed:', error.message);
           logger.error('database', '[daily_hours:web] Supabase update failed', { error: error.message });
         }
       });

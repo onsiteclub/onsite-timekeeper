@@ -14,6 +14,8 @@ import { colors } from '../../src/constants/colors';
 import { FloatingMicButton } from '../../src/components/FloatingMicButton';
 import { VoiceCommandSheet } from '../../src/components/VoiceCommandSheet';
 
+const isWeb = Platform.OS === 'web';
+
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
   const bottomPadding = Platform.OS === 'android' ? Math.max(insets.bottom, 8) : 8;
@@ -22,7 +24,15 @@ export default function TabsLayout() {
   const [showVoiceSheet, setShowVoiceSheet] = useState(false);
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
+    <GestureHandlerRootView style={[
+      { flex: 1 },
+      isWeb && {
+        maxWidth: 800,
+        width: '100%' as unknown as number,
+        marginHorizontal: 'auto' as unknown as number,
+        paddingHorizontal: 16,
+      },
+    ]}>
       <Tabs
         screenOptions={{
           headerShown: false,
