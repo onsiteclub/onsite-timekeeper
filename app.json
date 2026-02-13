@@ -12,7 +12,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.onsiteclub.timekeeper",
-      "buildNumber": "4",
+      "buildNumber": "5",
       "config": {
         "googleMapsApiKey": "AIzaSyBdITLu3Kr5OYPr8ZnhxIGVNFHIGEgvfKY"
       },
@@ -20,6 +20,8 @@
         "NSLocationWhenInUseUsageDescription": "OnSite Timekeeper needs your location to show where you are on the map.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "OnSite Timekeeper needs background location access to automatically detect when you arrive at or leave work.",
         "NSLocationAlwaysUsageDescription": "OnSite Timekeeper needs background location access to automatically track your work hours.",
+        "NSPhotoLibraryUsageDescription": "OnSite Timekeeper may need access to your photo library to attach images.",
+        "NSMicrophoneUsageDescription": "OnSite Timekeeper needs the microphone for voice commands.",
         "UIBackgroundModes": [
           "location",
           "fetch",
