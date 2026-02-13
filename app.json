@@ -34,7 +34,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0B0D10"
       },
-      "versionCode": 2,
+      "versionCode": 3,
       "package": "com.onsiteclub.timekeeper",
       "allowBackup": false,
       "config": {
