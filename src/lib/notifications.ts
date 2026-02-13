@@ -59,10 +59,12 @@ export type NotificationAction =
   | 'snooze'
   | 'send_now'
   | 'remind_later'
-  | 'timeout';
+  | 'timeout'
+  | 'still_here'
+  | 'stop_timer';
 
 export interface GeofenceNotificationData {
-  type: 'geofence_enter' | 'geofence_exit' | 'geofence_return' | 'pause_expired' | 'auto_action' | 'reminder' | 'report_reminder';
+  type: 'geofence_enter' | 'geofence_exit' | 'geofence_return' | 'auto_action' | 'reminder' | 'report_reminder' | 'session_guard';
   locationId?: string;
   locationName?: string;
   action?: NotificationAction;
@@ -167,8 +169,22 @@ export async function configureNotificationCategories(): Promise<void> {
       },
     ]);
 
+    // Category for SESSION GUARD (long-running timer safety net)
+    await Notifications.setNotificationCategoryAsync('session_guard', [
+      {
+        identifier: 'still_here',
+        buttonTitle: 'Yes, still here',
+        options: { opensAppToForeground: false },
+      },
+      {
+        identifier: 'stop_timer',
+        buttonTitle: 'Stop timer',
+        options: { opensAppToForeground: false },
+      },
+    ]);
+
     categoriesConfigured = true;
-    logger.info('notification', '✅ Notification categories configured (simplified)');
+    logger.info('notification', '✅ Notification categories configured');
   } catch (error) {
     logger.error('notification', 'Error configuring categories', { error: String(error) });
   }
@@ -300,41 +316,41 @@ export async function showEndOfDayNotification(
 }
 
 /**
- * Show pause expired notification (alarm)
- * Called when pause limit is reached
+ * Show session guard notification (timer running too long)
+ * Has action buttons: "Yes, still here" / "Stop timer"
  */
-export async function showPauseExpiredNotification(
-  locationId: string,
+export async function showSessionGuardNotification(
   locationName: string,
-  pauseLimitMinutes: number
+  locationId: string,
+  hoursRunning: number,
 ): Promise<string> {
   try {
     if (!await canSendNotification()) return '';
 
     const notificationId = await Notifications.scheduleNotificationAsync({
       content: {
-        title: `⏰ Break Expired!`,
-        body: `Your break time (${pauseLimitMinutes} min) at ${locationName} is over.`,
+        title: `⏰ Timer running ${hoursRunning}h`,
+        body: `Your timer at ${locationName} has been running for ${hoursRunning} hours. Still working?`,
+        categoryIdentifier: 'session_guard',
         data: {
-          type: 'pause_expired',
+          type: 'session_guard',
           locationId,
           locationName,
         } as GeofenceNotificationData,
         sound: 'default',
-        priority: Notifications.AndroidNotificationPriority.MAX,
+        priority: Notifications.AndroidNotificationPriority.HIGH,
         ...(Platform.OS === 'android' && { channelId: 'geofence_v2' }),
       },
       trigger: null,
     });
 
-    logger.info('notification', `📬 Pause expired notification: ${locationName}`, { notificationId });
+    logger.info('notification', `📬 Session guard notification: ${locationName} (${hoursRunning}h)`, { notificationId });
     return notificationId;
   } catch (error) {
-    logger.error('notification', '❌ Error showing pause expired notification', { error: String(error), locationName });
+    logger.error('notification', '❌ Error showing session guard notification', { error: String(error), locationName });
     return '';
   }
 }
-
 
 // ============================================
 // MANAGEMENT
@@ -400,3 +416,11 @@ export function addReceivedListener(
 export async function getLastNotificationResponse(): Promise<Notifications.NotificationResponse | null> {
   return await Notifications.getLastNotificationResponseAsync();
 }
+
+// ============================================
+// RE-EXPORTS for _layout.tsx (web shim compatibility)
+// ============================================
+
+export type NotificationSubscription = Notifications.Subscription;
+export type NotificationResponse = Notifications.NotificationResponse;
+export const DEFAULT_NOTIFICATION_ACTION = Notifications.DEFAULT_ACTION_IDENTIFIER;

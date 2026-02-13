@@ -235,7 +235,107 @@ async function processQueuedEvent(event: InternalGeofenceEvent): Promise<void> {
 }
 
 // ============================================
-// GEOFENCE EVENT PROCESSING (SIMPLIFIED)
+// EXIT RETRY (up to 3 attempts, 15s apart)
+// ============================================
+
+const EXIT_RETRY_INTERVAL_MS = 15_000; // 15 seconds
+const EXIT_RETRY_MAX_ATTEMPTS = 3;
+const EXIT_RETRY_ACCURACY_THRESHOLD = 150; // meters
+
+let activeExitRetry: { regionId: string; timer: ReturnType<typeof setTimeout> } | null = null;
+
+function scheduleExitRetry(
+  event: InternalGeofenceEvent,
+  fenceName: string,
+  attempt: number,
+): void {
+  const regionId = event.region.identifier ?? 'unknown';
+
+  // Cancel any existing retry for a different region
+  if (activeExitRetry && activeExitRetry.regionId !== regionId) {
+    clearTimeout(activeExitRetry.timer);
+    activeExitRetry = null;
+  }
+
+  if (attempt > EXIT_RETRY_MAX_ATTEMPTS) {
+    logger.warn('geofence', `🚫 EXIT retry exhausted (${EXIT_RETRY_MAX_ATTEMPTS} attempts): ${fenceName}`);
+    activeExitRetry = null;
+    return;
+  }
+
+  logger.info('geofence', `🔄 EXIT retry ${attempt}/${EXIT_RETRY_MAX_ATTEMPTS} scheduled in 15s: ${fenceName}`);
+
+  const timer = setTimeout(async () => {
+    activeExitRetry = null;
+
+    try {
+      // Get fresh high-accuracy GPS
+      const freshLocation = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+
+      const accuracy = freshLocation.coords.accuracy ?? 999;
+      logger.info('geofence', `🔄 EXIT retry ${attempt} GPS: accuracy ${accuracy.toFixed(0)}m`);
+
+      // If still poor accuracy, retry again
+      if (accuracy > EXIT_RETRY_ACCURACY_THRESHOLD) {
+        logger.warn('geofence', `⏳ EXIT retry ${attempt} still poor accuracy (${accuracy.toFixed(0)}m)`);
+        scheduleExitRetry(event, fenceName, attempt + 1);
+        return;
+      }
+
+      // Check if actually outside the fence
+      const fence = fenceCache.get(regionId);
+      if (!fence) {
+        logger.warn('geofence', `🔄 EXIT retry: fence ${regionId} not in cache, discarding`);
+        return;
+      }
+
+      const distance = localCalculateDistance(
+        freshLocation.coords.latitude,
+        freshLocation.coords.longitude,
+        fence.lat,
+        fence.lng,
+      );
+
+      if (distance > fence.radius) {
+        // Confirmed outside — process the exit
+        logger.info('geofence', `✅ EXIT retry ${attempt} CONFIRMED outside ${fenceName} (${distance.toFixed(0)}m > ${fence.radius}m radius)`);
+
+        const geofenceCallback = getGeofenceCallback();
+        if (geofenceCallback) {
+          geofenceCallback({
+            type: 'exit',
+            regionIdentifier: regionId,
+            timestamp: Date.now(),
+          });
+        }
+      } else {
+        // Still inside — discard the exit
+        logger.info('geofence', `🚫 EXIT retry ${attempt}: still inside ${fenceName} (${distance.toFixed(0)}m <= ${fence.radius}m) — discarding exit`);
+      }
+    } catch (error) {
+      logger.error('geofence', `EXIT retry ${attempt} error`, { error: String(error) });
+      scheduleExitRetry(event, fenceName, attempt + 1);
+    }
+  }, EXIT_RETRY_INTERVAL_MS);
+
+  activeExitRetry = { regionId, timer };
+}
+
+/**
+ * Cancel any active exit retry (exported for cleanup)
+ */
+export function cancelExitRetry(): void {
+  if (activeExitRetry) {
+    clearTimeout(activeExitRetry.timer);
+    activeExitRetry = null;
+    logger.debug('geofence', 'Exit retry cancelled');
+  }
+}
+
+// ============================================
+// GEOFENCE EVENT PROCESSING
 // ============================================
 
 /**
@@ -262,7 +362,7 @@ export async function processGeofenceEvent(event: InternalGeofenceEvent): Promis
   const fence = fenceCache.get(regionId);
   const fenceName = fence?.name || 'Unknown';
 
-  // GPS accuracy gate - skip events with poor accuracy
+  // GPS accuracy gate
   try {
     const currentLocation = await Location.getLastKnownPositionAsync({
       maxAge: 10000,
@@ -270,8 +370,14 @@ export async function processGeofenceEvent(event: InternalGeofenceEvent): Promis
     });
     if (currentLocation?.coords.accuracy) {
       const accuracy = currentLocation.coords.accuracy;
-      const threshold = eventType === 'exit' ? 80 : 100;
+      const threshold = eventType === 'exit' ? 150 : 100;
       if (accuracy > threshold) {
+        if (eventType === 'exit') {
+          // Don't discard — schedule retry with fresh high-accuracy GPS
+          logger.warn('geofence', `⏳ EXIT deferred (accuracy ${accuracy.toFixed(0)}m > ${threshold}m): ${fenceName}`);
+          scheduleExitRetry(event, fenceName, 1);
+          return;
+        }
         logger.warn('geofence', `🚫 SKIPPED ${eventType} (accuracy ${accuracy.toFixed(0)}m > ${threshold}m): ${fenceName}`);
         return;
       }

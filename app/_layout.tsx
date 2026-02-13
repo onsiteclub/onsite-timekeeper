@@ -9,8 +9,6 @@ import React, { useEffect, useState, useRef } from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import * as Notifications from 'expo-notifications';
-
 // IMPORTANT: Import background tasks BEFORE anything else
 import '../src/lib/backgroundTasks';
 
@@ -28,6 +26,12 @@ import { useSettingsStore } from '../src/stores/settingsStore';
 import {
   configureNotificationCategories,
   requestNotificationPermission,
+  addResponseListener,
+  getLastNotificationResponse,
+  DEFAULT_NOTIFICATION_ACTION,
+  type NotificationSubscription,
+  type GeofenceNotificationData,
+  type NotificationResponse,
 } from '../src/lib/notifications';
 import {
   initializeListeners,
@@ -35,7 +39,6 @@ import {
   onUserLogin,
   onUserLogout,
 } from '../src/lib/bootstrap';
-import type { GeofenceNotificationData } from '../src/lib/notifications';
 
 
 export default function RootLayout() {
@@ -52,7 +55,7 @@ export default function RootLayout() {
   // Refs for singleton control
   const initRef = useRef(false);
   const userSessionRef = useRef<string | null>(null);
-  const notificationListenerRef = useRef<Notifications.Subscription | null>(null);
+  const notificationListenerRef = useRef<NotificationSubscription | null>(null);
   
   // FIX: Lock to prevent initialization loop
   const storesInitInProgress = useRef(false);
@@ -98,7 +101,7 @@ export default function RootLayout() {
   // NOTIFICATION RESPONSE HANDLER
   // ============================================
 
-  const handleNotificationResponse = async (response: Notifications.NotificationResponse) => {
+  const handleNotificationResponse = async (response: NotificationResponse) => {
     const data = response.notification.request.content.data as GeofenceNotificationData | undefined;
     const actionIdentifier = response.actionIdentifier;
 
@@ -109,7 +112,7 @@ export default function RootLayout() {
 
     // Handle report reminder notifications
     if (data?.type === 'report_reminder') {
-      if (actionIdentifier === 'send_now' || actionIdentifier === Notifications.DEFAULT_ACTION_IDENTIFIER) {
+      if (actionIdentifier === 'send_now' || actionIdentifier === DEFAULT_NOTIFICATION_ACTION) {
         logger.info('notification', '📤 Report reminder: Send Now');
 
         if (data?.periodStart && data?.periodEnd) {
@@ -120,6 +123,19 @@ export default function RootLayout() {
         }
         router.push('/');
       }
+    }
+
+    // Handle session guard notifications (10h/16h safety net)
+    if (data?.type === 'session_guard') {
+      if (actionIdentifier === 'stop_timer' && data.locationId) {
+        logger.info('notification', '🛡️ Session guard: Stop timer');
+        try {
+          await useLocationStore.getState().handleManualExit(data.locationId);
+        } catch (e) {
+          logger.error('notification', 'Session guard stop failed', { error: String(e) });
+        }
+      }
+      // 'still_here' and default tap → no-op (next check already auto-scheduled)
     }
   };
 
@@ -189,11 +205,11 @@ export default function RootLayout() {
   // ============================================
 
   useEffect(() => {
-    notificationListenerRef.current = Notifications.addNotificationResponseReceivedListener(
+    notificationListenerRef.current = addResponseListener(
       handleNotificationResponse
     );
 
-    Notifications.getLastNotificationResponseAsync().then(response => {
+    getLastNotificationResponse().then(response => {
       if (response) {
         handleNotificationResponse(response);
       }

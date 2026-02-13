@@ -184,6 +184,7 @@ export interface ActiveTrackingDB {
   location_id: string;
   location_name: string;
   enter_at: string;
+  pause_seconds: number;
   created_at: string;
 }
 
@@ -389,6 +390,94 @@ export async function initDatabase(): Promise<void> {
         enter_at TEXT NOT NULL,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
       )
+    `);
+
+    // Migration: Add pause_seconds column to active_tracking
+    try {
+      db.execSync(`ALTER TABLE active_tracking ADD COLUMN pause_seconds INTEGER DEFAULT 0`);
+      logger.debug('database', 'Added pause_seconds column to active_tracking');
+    } catch {
+      // Column already exists, ignore
+    }
+
+    // ============================================
+    // GEOFENCE EVENTS TABLE (Fase 1: AI Guardião — exit frequency tracking)
+    // ============================================
+
+    db.execSync(`
+      CREATE TABLE IF NOT EXISTS geofence_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        location_id TEXT NOT NULL,
+        event_type TEXT NOT NULL CHECK(event_type IN ('entry', 'exit')),
+        timestamp TEXT NOT NULL,
+        accuracy REAL,
+        latitude REAL,
+        longitude REAL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    db.execSync(`
+      CREATE INDEX IF NOT EXISTS idx_geofence_events_lookup
+        ON geofence_events(user_id, location_id, event_type, timestamp)
+    `);
+
+    // ============================================
+    // AI EVENT LOG TABLE (Fase 1: training data for future ML)
+    // ============================================
+
+    db.execSync(`
+      CREATE TABLE IF NOT EXISTS ai_event_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT NOT NULL,
+        event_type TEXT,
+        accuracy REAL,
+        distance REAL,
+        fence_id TEXT,
+        session_duration_min INTEGER,
+        exits_today INTEGER,
+        battery_level REAL,
+        verdict_action TEXT,
+        verdict_confidence REAL,
+        verdict_reason TEXT,
+        worker_avg_shift REAL,
+        worker_data_points INTEGER,
+        os TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // ============================================
+    // FASE 2: AI Secretário — correction columns on daily_hours
+    // ============================================
+
+    // Migration: AI correction tracking columns
+    try { db.execSync(`ALTER TABLE daily_hours ADD COLUMN ai_corrected INTEGER DEFAULT 0`); } catch { /* exists */ }
+    try { db.execSync(`ALTER TABLE daily_hours ADD COLUMN ai_correction_reason TEXT`); } catch { /* exists */ }
+    try { db.execSync(`ALTER TABLE daily_hours ADD COLUMN original_first_entry TEXT`); } catch { /* exists */ }
+    try { db.execSync(`ALTER TABLE daily_hours ADD COLUMN original_last_exit TEXT`); } catch { /* exists */ }
+    try { db.execSync(`ALTER TABLE daily_hours ADD COLUMN original_total_minutes INTEGER`); } catch { /* exists */ }
+    try { db.execSync(`ALTER TABLE daily_hours ADD COLUMN is_manual_edit INTEGER DEFAULT 0`); } catch { /* exists */ }
+
+    // Fase 3: Voice edit tracking
+    try { db.execSync(`ALTER TABLE daily_hours ADD COLUMN is_voice_edit INTEGER DEFAULT 0`); } catch { /* exists */ }
+
+    // AI corrections log (transparency / undo support)
+    db.execSync(`
+      CREATE TABLE IF NOT EXISTS ai_corrections (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        date TEXT NOT NULL,
+        field TEXT NOT NULL,
+        original_value TEXT,
+        corrected_value TEXT,
+        reason TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    db.execSync(`
+      CREATE INDEX IF NOT EXISTS idx_ai_corrections_user_date
+        ON ai_corrections(user_id, date)
     `);
 
     // ============================================

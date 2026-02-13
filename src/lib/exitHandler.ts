@@ -11,7 +11,8 @@ import { logger } from './logger';
 import { db, getToday } from './database/core';
 import { useSyncStore } from '../stores/syncStore';
 import { useDailyLogStore } from '../stores/dailyLogStore';
-import { showArrivalNotification, showEndOfDayNotification } from './notifications';
+import { showArrivalNotification, showEndOfDayNotification, showSessionGuardNotification, showSimpleNotification } from './notifications';
+import { useAuthStore } from '../stores/authStore';
 import { upsertDailyHours, getDailyHours, formatTimeHHMM } from './database/daily';
 
 // ============================================
@@ -19,6 +20,9 @@ import { upsertDailyHours, getDailyHours, formatTimeHHMM } from './database/dail
 // ============================================
 
 const EXIT_COOLDOWN_MS = 60 * 1000; // 60 seconds
+const SESSION_GUARD_FIRST_MS  = 10 * 60 * 60 * 1000; // 10 hours
+const SESSION_GUARD_REPEAT_MS =  2 * 60 * 60 * 1000; // 2 hours
+const SESSION_GUARD_MAX_MS    = 16 * 60 * 60 * 1000; // 16 hours
 
 // ============================================
 // STATE
@@ -41,13 +45,15 @@ export interface ActiveTracking {
   location_id: string;
   location_name: string;
   enter_at: string;
+  pause_seconds: number;
 }
 
 function getActiveTracking(): ActiveTracking | null {
   try {
-    return db.getFirstSync<ActiveTracking>(
-      `SELECT location_id, location_name, enter_at FROM active_tracking WHERE id = 'current'`
+    const row = db.getFirstSync<ActiveTracking>(
+      `SELECT location_id, location_name, enter_at, COALESCE(pause_seconds, 0) as pause_seconds FROM active_tracking WHERE id = 'current'`
     );
+    return row;
   } catch {
     return null;
   }
@@ -64,6 +70,126 @@ function setActiveTracking(locationId: string, locationName: string): void {
 
 function clearActiveTracking(): void {
   db.runSync(`DELETE FROM active_tracking WHERE id = 'current'`);
+}
+
+/**
+ * Update pause_seconds in active_tracking (called by hooks.ts on resume)
+ */
+export function updatePauseSeconds(seconds: number): void {
+  db.runSync(
+    `UPDATE active_tracking SET pause_seconds = ? WHERE id = 'current'`,
+    [seconds]
+  );
+}
+
+/**
+ * Get current pause_seconds from active_tracking (0 if no active session)
+ */
+export function getPauseSeconds(): number {
+  try {
+    const row = db.getFirstSync<{ pause_seconds: number }>(
+      `SELECT COALESCE(pause_seconds, 0) as pause_seconds FROM active_tracking WHERE id = 'current'`
+    );
+    return row?.pause_seconds ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+// ============================================
+// SESSION GUARD (10h/16h safety net)
+// ============================================
+
+let sessionGuardTimer: NodeJS.Timeout | null = null;
+
+function startSessionGuard(locationId: string, locationName: string, enterAt: string): void {
+  cancelSessionGuard();
+
+  const elapsed = Date.now() - new Date(enterAt).getTime();
+
+  if (elapsed >= SESSION_GUARD_MAX_MS) {
+    logger.info('session', `🛡️ Session guard: already past 16h, auto-ending: ${locationName}`);
+    autoEndSession(locationId, locationName);
+    return;
+  }
+
+  if (elapsed >= SESSION_GUARD_FIRST_MS) {
+    logger.info('session', `🛡️ Session guard: past 10h, firing check immediately: ${locationName}`);
+    fireSessionGuardCheck(locationId, locationName, enterAt);
+    return;
+  }
+
+  const delayMs = SESSION_GUARD_FIRST_MS - elapsed;
+  logger.info('session', `🛡️ Session guard: scheduled in ${Math.round(delayMs / 60000)}min: ${locationName}`);
+  sessionGuardTimer = setTimeout(() => {
+    fireSessionGuardCheck(locationId, locationName, enterAt);
+  }, delayMs);
+}
+
+function fireSessionGuardCheck(locationId: string, locationName: string, enterAt: string): void {
+  sessionGuardTimer = null;
+
+  // Check if session still active
+  const tracking = getActiveTracking();
+  if (!tracking) {
+    logger.debug('session', '🛡️ Session guard: no active tracking, cancelling');
+    return;
+  }
+
+  const elapsed = Date.now() - new Date(enterAt).getTime();
+
+  // 16h limit → auto-end
+  if (elapsed >= SESSION_GUARD_MAX_MS) {
+    logger.info('session', `🛡️ Session guard: 16h limit reached, auto-ending: ${locationName}`);
+    autoEndSession(locationId, locationName);
+    return;
+  }
+
+  // Send notification
+  const hoursRunning = Math.floor(elapsed / 3600000);
+  showSessionGuardNotification(locationName, locationId, hoursRunning);
+
+  // Schedule next check in 2h
+  sessionGuardTimer = setTimeout(() => {
+    fireSessionGuardCheck(locationId, locationName, enterAt);
+  }, SESSION_GUARD_REPEAT_MS);
+
+  logger.info('session', `🛡️ Session guard: notification sent (${hoursRunning}h), next check in 2h`);
+}
+
+async function autoEndSession(locationId: string, locationName: string): Promise<void> {
+  const userId = useAuthStore.getState().getUserId();
+  if (!userId) {
+    logger.error('session', '🛡️ Session guard: cannot auto-end, no userId');
+    return;
+  }
+
+  try {
+    await onManualExit(userId, locationId, locationName);
+    await showSimpleNotification(
+      '🏁 Session Auto-Ended',
+      `Your timer at ${locationName} was automatically stopped after 16 hours.`
+    );
+    logger.info('session', `🛡️ Session guard: auto-ended after 16h: ${locationName}`);
+  } catch (error) {
+    logger.error('session', '🛡️ Session guard: auto-end failed', { error: String(error) });
+  }
+}
+
+export function cancelSessionGuard(): void {
+  if (sessionGuardTimer) {
+    clearTimeout(sessionGuardTimer);
+    sessionGuardTimer = null;
+    logger.debug('session', '🛡️ Session guard cancelled');
+  }
+}
+
+export function recoverSessionGuard(): void {
+  const tracking = getActiveTracking();
+  if (!tracking) return;
+
+  logger.info('session', `🛡️ Session guard: recovering from restart for ${tracking.location_name}`);
+  startSessionGuard(tracking.location_id, tracking.location_name, tracking.enter_at);
 }
 
 // ============================================
@@ -111,6 +237,9 @@ export async function onGeofenceEnter(
   // 4. Save new tracking entry
   setActiveTracking(locationId, locationName);
   logger.info('session', `✅ Tracking started: ${locationName}`);
+
+  // 4b. Start session guard (safety net for runaway timers)
+  startSessionGuard(locationId, locationName, new Date().toISOString());
 
   // 5. Check if this is first entry of the day
   const today = getToday();
@@ -197,6 +326,9 @@ async function confirmExit(
 ): Promise<void> {
   logger.info('session', `✅ Exit confirmed: ${locationName}`);
 
+  // Cancel session guard timer
+  cancelSessionGuard();
+
   // 0. Guard: if a different location is now being tracked, this is a stale exit
   //    (the exit was already handled by onGeofenceEnter's location switch)
   const currentTracking = getActiveTracking();
@@ -205,26 +337,32 @@ async function confirmExit(
     return;
   }
 
-  // 1. Calculate duration
+  // 1. Read pause_seconds BEFORE clearing active tracking
+  const pauseSeconds = getPauseSeconds();
+  const breakMinutes = Math.ceil(pauseSeconds / 60);
+
+  // 2. Calculate duration (deduct pause)
   const entryTime = new Date(enterAt);
   const durationMs = exitTime.getTime() - entryTime.getTime();
-  const durationMinutes = Math.max(0, Math.round(durationMs / 60000));
+  const durationMinutes = Math.max(0, Math.round((durationMs - pauseSeconds * 1000) / 60000));
 
-  logger.info('session', `⏱️ Duration: ${durationMinutes} minutes`);
+  logger.info('session', `⏱️ Duration: ${durationMinutes} minutes (break: ${breakMinutes} min)`);
 
-  // 2. Clear active tracking
+  // 3. Clear active tracking
   clearActiveTracking();
 
-  // 3. Update daily_hours
+  // 4. Update daily_hours
   const today = getToday();
   const existingDaily = getDailyHours(userId, today);
   const totalMinutes = (existingDaily?.total_minutes || 0) + durationMinutes;
+  const existingBreak = existingDaily?.break_minutes || 0;
   const exitTimeStr = formatTimeHHMM(exitTime);
 
   upsertDailyHours({
     userId,
     date: today,
     totalMinutes,
+    breakMinutes: existingBreak + breakMinutes,
     locationName,
     locationId,
     verified: true,
@@ -233,21 +371,30 @@ async function confirmExit(
     lastExit: exitTimeStr,
   });
 
-  logger.info('session', `📅 daily_hours updated: total=${totalMinutes}min, last_exit=${exitTimeStr}`);
+  logger.info('session', `📅 daily_hours updated: total=${totalMinutes}min, break=${existingBreak + breakMinutes}min, last_exit=${exitTimeStr}`);
 
-  // 4. Notification with total hours
+  // 5. Notification with total hours
   const hours = Math.floor(totalMinutes / 60);
   const mins = totalMinutes % 60;
   await showEndOfDayNotification(hours, mins, locationName);
 
-  // 5. Refresh UI
+  // 6. Refresh UI
   useDailyLogStore.getState().reloadToday();
   useDailyLogStore.getState().resetTracking();
 
-  // 6. Sync (non-blocking)
+  // 7. Sync (non-blocking)
   useSyncStore.getState().syncNow().catch(e =>
     logger.warn('sync', 'Exit sync failed (will retry)', { error: String(e) })
   );
+
+  // 8. AI Secretário: cleanup today's record (async, non-blocking)
+  import('./ai/secretary').then(({ cleanupDay }) => {
+    cleanupDay(userId, today).catch(err => {
+      logger.warn('secretary', 'Cleanup failed, original data preserved', { error: String(err) });
+    });
+  }).catch(() => {
+    // Module not available, skip
+  });
 }
 
 // ============================================
@@ -315,5 +462,6 @@ export function clearAllPendingExits(): void {
     clearTimeout(pending.timeoutId);
   }
   pendingExits.clear();
+  cancelSessionGuard();
   logger.info('session', '🧹 All pending exits cleared');
 }

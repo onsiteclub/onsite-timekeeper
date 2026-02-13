@@ -1,0 +1,2 @@
+# Supabase Edge Functions use Deno runtime (jsr: imports don't resolve locally)
+supabase/functions/

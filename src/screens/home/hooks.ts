@@ -31,7 +31,7 @@ import { useSyncStore } from '../../stores/syncStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { formatDuration, getDailyHoursByPeriod, upsertDailyHours, updateDailyHours, deleteDailyHours, deleteDailyHoursById, getToday } from '../../lib/database';
 import type { DailyHoursEntry } from '../../lib/database/daily';
-import { getActiveTrackingState, type ActiveTracking } from '../../lib/exitHandler';
+import { getActiveTrackingState, getPauseSeconds, updatePauseSeconds, type ActiveTracking } from '../../lib/exitHandler';
 import { generateCompleteReport } from '../../lib/reports';
 
 import {
@@ -256,8 +256,7 @@ export function useHomeScreen() {
   const [timer, setTimer] = useState('00:00:00');
   const [isPaused, setIsPaused] = useState(false);
 
-  // Pause timer
-  const [accumulatedPauseSeconds, setAccumulatedPauseSeconds] = useState(0);
+  // Pause timer (pause_seconds persisted in SQLite via active_tracking)
   const [pauseTimer, setPauseTimer] = useState('00:00:00');
   const [pauseStartTimestamp, setPauseStartTimestamp] = useState<number | null>(null);
   const [frozenTime, setFrozenTime] = useState<string | null>(null);
@@ -546,7 +545,6 @@ export function useHomeScreen() {
     if (!currentSession || currentSession.status !== 'active') {
       setTimer('00:00:00');
       setIsPaused(false);
-      setAccumulatedPauseSeconds(0);
       setPauseTimer('00:00:00');
       setPauseStartTimestamp(null);
       setFrozenTime(null);
@@ -564,14 +562,15 @@ export function useHomeScreen() {
     const updateTimer = () => {
       const start = new Date(currentSession.entry_at).getTime();
       const now = Date.now();
-      // Subtract total pause time from calculation
-      const diffMs = now - start - (accumulatedPauseSeconds * 1000);
+      // Subtract persisted pause time from calculation
+      const pauseSec = getPauseSeconds();
+      const diffMs = now - start - (pauseSec * 1000);
       const diffSec = Math.max(0, Math.floor(diffMs / 1000));
-      
+
       const hours = Math.floor(diffSec / 3600);
       const mins = Math.floor((diffSec % 3600) / 60);
       const secs = diffSec % 60;
-      
+
       const newTime = `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
       setTimer(newTime);
     };
@@ -579,23 +578,23 @@ export function useHomeScreen() {
     updateTimer();
     const interval = setInterval(updateTimer, 1000);
     return () => clearInterval(interval);
-  }, [currentSession, isPaused, frozenTime, accumulatedPauseSeconds]);
+  }, [currentSession, isPaused, frozenTime]);
 
   // Pause timer effect
   useEffect(() => {
     if (!currentSession || currentSession.status !== 'active') return;
 
     const updatePauseTimer = () => {
-      let totalPauseSeconds = accumulatedPauseSeconds;
-      
+      let totalPauseSeconds = getPauseSeconds();
+
       if (isPaused && pauseStartTimestamp) {
         totalPauseSeconds += Math.floor((Date.now() - pauseStartTimestamp) / 1000);
       }
-      
+
       const hours = Math.floor(totalPauseSeconds / 3600);
       const mins = Math.floor((totalPauseSeconds % 3600) / 60);
       const secs = totalPauseSeconds % 60;
-      
+
       setPauseTimer(
         `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
       );
@@ -604,7 +603,7 @@ export function useHomeScreen() {
     updatePauseTimer();
     const interval = setInterval(updatePauseTimer, 1000);
     return () => clearInterval(interval);
-  }, [isPaused, pauseStartTimestamp, accumulatedPauseSeconds, currentSession]);
+  }, [isPaused, pauseStartTimestamp, currentSession]);
 
   // REMOVED: Session finished modal effect - was causing confusion
 
@@ -667,7 +666,7 @@ export function useHomeScreen() {
   const handleResume = () => {
     if (pauseStartTimestamp) {
       const pauseDuration = Math.floor((Date.now() - pauseStartTimestamp) / 1000);
-      setAccumulatedPauseSeconds(prev => prev + pauseDuration);
+      updatePauseSeconds(getPauseSeconds() + pauseDuration);
     }
     setPauseStartTimestamp(null);
     setFrozenTime(null); // Release to resume counting
@@ -676,10 +675,15 @@ export function useHomeScreen() {
 
   const handleStop = () => {
     if (!currentSession) return;
-    
-    let totalPauseSeconds = accumulatedPauseSeconds;
+
+    // Read persisted pause + any live delta
+    let totalPauseSeconds = getPauseSeconds();
     if (isPaused && pauseStartTimestamp) {
       totalPauseSeconds += Math.floor((Date.now() - pauseStartTimestamp) / 1000);
+    }
+    // Flush final pause to SQLite so confirmExit() picks it up
+    if (isPaused && pauseStartTimestamp) {
+      updatePauseSeconds(totalPauseSeconds);
     }
     const totalPauseMinutes = Math.floor(totalPauseSeconds / 60);
 
@@ -693,26 +697,16 @@ export function useHomeScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
+              // confirmExit() reads pause_seconds from SQLite and deducts automatically
               await registerExit(currentSession.location_id);
-              
-              if (totalPauseMinutes > 0) {
-                await editRecord(currentSession.id, {
-                  pause_minutes: totalPauseMinutes,
-                  manually_edited: 1,
-                  edit_reason: 'Break recorded automatically',
-                });
-              }
-              
+
               setIsPaused(false);
-              setAccumulatedPauseSeconds(0);
               setPauseStartTimestamp(null);
               setPauseTimer('00:00:00');
-              
+
               // Reload data to show the finished session
               loadWeekSessions();
               loadMonthSessions();
-              
-              // REMOVED: No longer showing session finished modal
             } catch (error: any) {
               Alert.alert('Error', error.message || 'Could not stop session');
             }

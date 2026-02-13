@@ -51,7 +51,8 @@
         "POST_NOTIFICATIONS",
         "RECEIVE_BOOT_COMPLETED",
         "VIBRATE",
-        "WAKE_LOCK"
+        "WAKE_LOCK",
+        "RECORD_AUDIO"
       ]
     },
     "web": {
@@ -94,6 +95,13 @@
         {
           "organization": "onsite-club",
           "project": "react-native"
+        }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "OnSite Timekeeper needs the microphone for voice commands.",
+          "speechRecognitionPermission": "OnSite Timekeeper uses speech recognition for voice commands."
         }
       ]
     ],

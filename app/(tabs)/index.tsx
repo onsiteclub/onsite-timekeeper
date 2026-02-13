@@ -403,10 +403,9 @@ export default function HomeScreen() {
   ) => {
     let m = parseInt(current, 10) || 0;
     if (direction === 'up') {
-      m = m >= 59 ? 0 : m + 5;
-      if (m > 59) m = 0;
+      m = m >= 59 ? 0 : m + 1;
     } else {
-      m = m <= 0 ? 55 : m - 5;
+      m = m <= 0 ? 59 : m - 1;
     }
     setMinute(String(m).padStart(2, '0'));
   };
@@ -616,8 +615,8 @@ export default function HomeScreen() {
         ].filter(Boolean) as ViewStyle[]}>
           <AnimatedRing
             state={currentSession ? (isPaused ? 'paused' : 'active') : 'idle'}
-            size={240}
-            strokeWidth={12}
+            size={180}
+            strokeWidth={10}
           >
             {currentSession ? (
               <View style={timerRingStyles.content}>
@@ -704,39 +703,76 @@ export default function HomeScreen() {
       {/* ============================================ */}
       {/* LOG HOURS FORM - Read-only viewer (Edit to modify) */}
       {/* ============================================ */}
-      <Card style={[fixedStyles.formSection, locations.length === 0 && onboardingStyles.formDisabled].filter(Boolean) as ViewStyle[]}>
-        {/* Header with Edit button */}
-        <View style={viewerStyles.header}>
-          <View style={viewerStyles.headerLeft}>
+      <Card style={[isEditing ? fixedStyles.formSectionEditing : fixedStyles.formSection, locations.length === 0 && onboardingStyles.formDisabled].filter(Boolean) as ViewStyle[]}>
+        {/* Header - full-width buttons */}
+        <View style={viewerStyles.headerButtons}>
+          <TouchableOpacity
+            style={viewerStyles.viewHoursBtn}
+            onPress={() => router.push('/(tabs)/reports')}
+          >
+            <Ionicons name="calendar-outline" size={16} color={colors.textSecondary} />
+            <Text style={viewerStyles.viewHoursBtnText}>View Hours</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[viewerStyles.editBtn, isEditing && viewerStyles.editBtnActive]}
+            onPress={() => setIsEditing(!isEditing)}
+          >
+            <Ionicons name={isEditing ? "close" : "pencil"} size={16} color={isEditing ? colors.white : colors.primary} />
+            <Text style={[viewerStyles.editBtnText, isEditing && viewerStyles.editBtnTextActive]}>
+              {isEditing ? 'Cancel' : 'Edit'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Date selector dropdown */}
+        <TouchableOpacity
+          style={viewerStyles.dateRow}
+          onPress={() => isEditing && setShowDateDropdown(!showDateDropdown)}
+          activeOpacity={isEditing ? 0.7 : 1}
+        >
+          <View style={viewerStyles.dateRowLeft}>
             {hasGeofenceData && (
               <View style={geofenceIndicatorStyles.badge}>
                 <Ionicons name="locate" size={10} color={colors.success} />
                 <Text style={geofenceIndicatorStyles.text}>Auto</Text>
               </View>
             )}
+            <Ionicons name="calendar-outline" size={16} color={colors.textSecondary} />
             <Text style={viewerStyles.dateText}>{formatDateWithDay(manualDate)}</Text>
           </View>
-          <View style={viewerStyles.headerButtons}>
+          {isEditing && (
+            <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
+          )}
+        </TouchableOpacity>
+
+        {/* Date Dropdown (when editing) */}
+        {isEditing && showDateDropdown && (
+          <View style={fixedStyles.dateDropdown}>
             <TouchableOpacity
-              style={viewerStyles.viewHoursBtn}
-              onPress={() => router.push('/(tabs)/reports')}
+              style={fixedStyles.dateOption}
+              onPress={() => handleDateSelect('today')}
             >
-              <Ionicons name="calendar-outline" size={14} color={colors.textSecondary} />
-              <Text style={viewerStyles.viewHoursBtnText}>View Hours</Text>
+              <Ionicons name="today-outline" size={16} color={colors.text} />
+              <Text style={fixedStyles.dateOptionText}>Today</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[viewerStyles.editBtn, isEditing && viewerStyles.editBtnActive]}
-              onPress={() => setIsEditing(!isEditing)}
+              style={fixedStyles.dateOption}
+              onPress={() => handleDateSelect('yesterday')}
             >
-              <Ionicons name={isEditing ? "close" : "pencil"} size={14} color={isEditing ? colors.white : colors.primary} />
-              <Text style={[viewerStyles.editBtnText, isEditing && viewerStyles.editBtnTextActive]}>
-                {isEditing ? 'Cancel' : 'Edit'}
-              </Text>
+              <Ionicons name="arrow-back-outline" size={16} color={colors.text} />
+              <Text style={fixedStyles.dateOptionText}>Yesterday</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={fixedStyles.dateOption}
+              onPress={() => handleDateSelect('custom')}
+            >
+              <Ionicons name="calendar" size={16} color={colors.text} />
+              <Text style={fixedStyles.dateOptionText}>Choose date...</Text>
             </TouchableOpacity>
           </View>
-        </View>
+        )}
 
-        {/* READ-ONLY VIEW (default) - same grid layout as edit mode */}
+        {/* READ-ONLY VIEW (default) - compact summary */}
         {!isEditing ? (
           <View style={viewerStyles.readOnlyView}>
             <View style={ucStyles.timesGrid}>
@@ -764,45 +800,6 @@ export default function HomeScreen() {
           </View>
         ) : (
           <>
-            {/* Date Selector - only visible when editing */}
-            <TouchableOpacity
-              style={fixedStyles.dateSelector}
-              onPress={() => setShowDateDropdown(!showDateDropdown)}
-            >
-              <View style={fixedStyles.dateSelectorContent}>
-                <Ionicons name="calendar-outline" size={16} color={colors.textSecondary} />
-                <Text style={fixedStyles.dateSelectorText}>{formatDateWithDay(manualDate)}</Text>
-              </View>
-              <Ionicons name="chevron-down" size={16} color={colors.textSecondary} />
-            </TouchableOpacity>
-
-            {/* Date Dropdown */}
-            {showDateDropdown && (
-              <View style={fixedStyles.dateDropdown}>
-                <TouchableOpacity
-                  style={fixedStyles.dateOption}
-                  onPress={() => handleDateSelect('today')}
-                >
-                  <Ionicons name="today-outline" size={16} color={colors.text} />
-                  <Text style={fixedStyles.dateOptionText}>Today</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={fixedStyles.dateOption}
-                  onPress={() => handleDateSelect('yesterday')}
-                >
-                  <Ionicons name="arrow-back-outline" size={16} color={colors.text} />
-                  <Text style={fixedStyles.dateOptionText}>Yesterday</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={fixedStyles.dateOption}
-                  onPress={() => handleDateSelect('custom')}
-                >
-                  <Ionicons name="calendar" size={16} color={colors.text} />
-                  <Text style={fixedStyles.dateOptionText}>Choose date...</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-
             {/* Time Inputs - 3 column grid (same as Reports uc card) */}
             <View style={ucStyles.timesGrid}>
               {/* Entry */}
@@ -811,7 +808,7 @@ export default function HomeScreen() {
                 <View style={ucStyles.timeInputRow}>
                   <View style={ucStyles.timeInputWithArrows}>
                     <TouchableOpacity style={ucStyles.arrowBtn} onPress={() => adjustHour(manualEntryH, 'up', setManualEntryH, entryPeriod, setEntryPeriod)}>
-                      <Ionicons name="chevron-up" size={16} color={colors.textSecondary} />
+                      <Ionicons name="chevron-up" size={20} color={colors.textSecondary} />
                     </TouchableOpacity>
                     <TextInput
                       style={ucStyles.timeInput}
@@ -825,13 +822,13 @@ export default function HomeScreen() {
                       {...(Platform.OS === 'ios' ? { inputAccessoryViewID: 'timeInputDone' } : {})}
                     />
                     <TouchableOpacity style={ucStyles.arrowBtn} onPress={() => adjustHour(manualEntryH, 'down', setManualEntryH, entryPeriod, setEntryPeriod)}>
-                      <Ionicons name="chevron-down" size={16} color={colors.textSecondary} />
+                      <Ionicons name="chevron-down" size={20} color={colors.textSecondary} />
                     </TouchableOpacity>
                   </View>
                   <Text style={ucStyles.timeSep}>:</Text>
                   <View style={ucStyles.timeInputWithArrows}>
                     <TouchableOpacity style={ucStyles.arrowBtn} onPress={() => adjustMinute(manualEntryM, 'up', setManualEntryM)}>
-                      <Ionicons name="chevron-up" size={16} color={colors.textSecondary} />
+                      <Ionicons name="chevron-up" size={20} color={colors.textSecondary} />
                     </TouchableOpacity>
                     <TextInput
                       style={ucStyles.timeInput}
@@ -845,7 +842,7 @@ export default function HomeScreen() {
                       {...(Platform.OS === 'ios' ? { inputAccessoryViewID: 'timeInputDone' } : {})}
                     />
                     <TouchableOpacity style={ucStyles.arrowBtn} onPress={() => adjustMinute(manualEntryM, 'down', setManualEntryM)}>
-                      <Ionicons name="chevron-down" size={16} color={colors.textSecondary} />
+                      <Ionicons name="chevron-down" size={20} color={colors.textSecondary} />
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -871,7 +868,7 @@ export default function HomeScreen() {
                 <View style={ucStyles.timeInputRow}>
                   <View style={ucStyles.timeInputWithArrows}>
                     <TouchableOpacity style={ucStyles.arrowBtn} onPress={() => adjustHour(manualExitH, 'up', setManualExitH, exitPeriod, setExitPeriod)}>
-                      <Ionicons name="chevron-up" size={16} color={colors.textSecondary} />
+                      <Ionicons name="chevron-up" size={20} color={colors.textSecondary} />
                     </TouchableOpacity>
                     <TextInput
                       style={ucStyles.timeInput}
@@ -885,13 +882,13 @@ export default function HomeScreen() {
                       {...(Platform.OS === 'ios' ? { inputAccessoryViewID: 'timeInputDone' } : {})}
                     />
                     <TouchableOpacity style={ucStyles.arrowBtn} onPress={() => adjustHour(manualExitH, 'down', setManualExitH, exitPeriod, setExitPeriod)}>
-                      <Ionicons name="chevron-down" size={16} color={colors.textSecondary} />
+                      <Ionicons name="chevron-down" size={20} color={colors.textSecondary} />
                     </TouchableOpacity>
                   </View>
                   <Text style={ucStyles.timeSep}>:</Text>
                   <View style={ucStyles.timeInputWithArrows}>
                     <TouchableOpacity style={ucStyles.arrowBtn} onPress={() => adjustMinute(manualExitM, 'up', setManualExitM)}>
-                      <Ionicons name="chevron-up" size={16} color={colors.textSecondary} />
+                      <Ionicons name="chevron-up" size={20} color={colors.textSecondary} />
                     </TouchableOpacity>
                     <TextInput
                       style={ucStyles.timeInput}
@@ -905,7 +902,7 @@ export default function HomeScreen() {
                       {...(Platform.OS === 'ios' ? { inputAccessoryViewID: 'timeInputDone' } : {})}
                     />
                     <TouchableOpacity style={ucStyles.arrowBtn} onPress={() => adjustMinute(manualExitM, 'down', setManualExitM)}>
-                      <Ionicons name="chevron-down" size={16} color={colors.textSecondary} />
+                      <Ionicons name="chevron-down" size={20} color={colors.textSecondary} />
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -1135,19 +1132,19 @@ const iosKeyboardStyles = StyleSheet.create({
 const ucStyles = StyleSheet.create({
   timesGrid: {
     flexDirection: 'row',
-    gap: 12,
+    gap: 16,
   },
   timeCol: {
     flex: 1,
     alignItems: 'center',
   },
   timeLabel: {
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: '600',
     color: colors.textSecondary,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
-    marginBottom: 6,
+    marginBottom: 8,
   },
   timeInputRow: {
     flexDirection: 'row',
@@ -1157,44 +1154,46 @@ const ucStyles = StyleSheet.create({
     alignItems: 'center',
   },
   arrowBtn: {
-    padding: 2,
+    padding: 8,
+    backgroundColor: `${colors.primary}12`,
+    borderRadius: 8,
   },
   timeInput: {
-    width: 38,
-    paddingVertical: 8,
-    fontSize: 18,
-    fontWeight: '600',
+    width: 44,
+    paddingVertical: 10,
+    fontSize: 22,
+    fontWeight: '700',
     textAlign: 'center',
     backgroundColor: colors.card,
-    borderRadius: 8,
-    borderWidth: 1,
+    borderRadius: 10,
+    borderWidth: 1.5,
     borderColor: colors.border,
     color: colors.text,
   },
   timeSep: {
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: 'bold',
     color: colors.text,
-    marginHorizontal: 2,
+    marginHorizontal: 3,
   },
   amPmRow: {
     flexDirection: 'row',
-    marginTop: 6,
-    borderRadius: 6,
+    marginTop: 8,
+    borderRadius: 8,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: colors.border,
   },
   amPmBtn: {
-    paddingVertical: 4,
-    paddingHorizontal: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
     backgroundColor: colors.card,
   },
   amPmBtnActive: {
     backgroundColor: colors.primary,
   },
   amPmText: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '600',
     color: colors.textSecondary,
   },
@@ -1202,55 +1201,55 @@ const ucStyles = StyleSheet.create({
     color: colors.buttonPrimaryText,
   },
   breakInput: {
-    width: 52,
-    paddingVertical: 8,
-    fontSize: 18,
-    fontWeight: '600',
+    width: 56,
+    paddingVertical: 10,
+    fontSize: 22,
+    fontWeight: '700',
     textAlign: 'center',
     backgroundColor: colors.card,
-    borderRadius: 8,
-    borderWidth: 1,
+    borderRadius: 10,
+    borderWidth: 1.5,
     borderColor: colors.border,
     color: colors.text,
   },
   breakUnit: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '500',
     color: colors.textSecondary,
-    marginTop: 4,
+    marginTop: 6,
   },
   breakDropdownBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
     backgroundColor: colors.card,
-    borderRadius: 8,
-    borderWidth: 1,
+    borderRadius: 10,
+    borderWidth: 1.5,
     borderColor: colors.border,
   },
   breakDropdownText: {
-    fontSize: 18,
-    fontWeight: '600',
+    fontSize: 22,
+    fontWeight: '700',
     color: colors.text,
   },
   totalRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 14,
-    paddingTop: 12,
+    marginTop: 16,
+    paddingTop: 14,
     borderTopWidth: 1,
     borderTopColor: colors.border,
   },
   totalLabel: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '600',
     color: colors.textSecondary,
   },
   totalValue: {
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: '700',
     color: colors.primary,
   },
@@ -1258,15 +1257,15 @@ const ucStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 13,
+    gap: 8,
+    paddingVertical: 14,
     borderRadius: 12,
     backgroundColor: colors.primary,
-    marginTop: 12,
+    marginTop: 14,
   },
   saveBtnText: {
-    fontSize: 15,
-    fontWeight: '600',
+    fontSize: 16,
+    fontWeight: '700',
     color: colors.buttonPrimaryText,
   },
 });
@@ -1291,49 +1290,36 @@ const geofenceIndicatorStyles = StyleSheet.create({
 
 // Viewer styles - read-only form display
 const viewerStyles = StyleSheet.create({
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 14,  // +40%
-  },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  dateText: {
-    fontSize: 15,  // Larger
-    fontWeight: '600',
-    color: colors.text,
-  },
   headerButtons: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
+    marginBottom: 10,
   },
   viewHoursBtn: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    paddingVertical: 8,
-    paddingHorizontal: 14,
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
     backgroundColor: `${colors.textSecondary}15`,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: `${colors.textSecondary}30`,
   },
   viewHoursBtnText: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '600',
     color: colors.textSecondary,
   },
   editBtn: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    paddingVertical: 8,
-    paddingHorizontal: 14,
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
     backgroundColor: `${colors.primary}15`,
     borderRadius: 10,
     borderWidth: 1,
@@ -1344,16 +1330,38 @@ const viewerStyles = StyleSheet.create({
     borderColor: colors.textSecondary,
   },
   editBtnText: {
-    fontSize: 13,  // Larger
+    fontSize: 14,
     fontWeight: '600',
     color: colors.primary,
   },
   editBtnTextActive: {
     color: colors.white,
   },
+  dateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginBottom: 12,
+  },
+  dateRowLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  dateText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text,
+  },
   readOnlyView: {
     alignItems: 'center',
-    paddingVertical: 4,  // Add vertical padding
+    paddingVertical: 6,
   },
   timeDisplayRow: {
     flexDirection: 'row',
@@ -1375,7 +1383,7 @@ const viewerStyles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   timeBlockValue: {
-    fontSize: 18,  // Larger
+    fontSize: 22,
     fontWeight: '700',
     color: colors.text,
     fontVariant: ['tabular-nums'],
@@ -1390,7 +1398,7 @@ const viewerStyles = StyleSheet.create({
     borderRadius: 24,
   },
   totalText: {
-    fontSize: 16,  // Larger
+    fontSize: 18,
     fontWeight: '700',
     color: colors.primary,
   },
@@ -1428,10 +1436,10 @@ const timerRingStyles = StyleSheet.create({
 
   // Status badge - soft tint background + state color text
   statusBadge: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
     borderRadius: 20,
-    marginBottom: 8,
+    marginBottom: 4,
   },
   statusBadgeActive: {
     backgroundColor: colors.greenSoft, // Soft green tint (#D1FAE5)
@@ -1440,7 +1448,7 @@ const timerRingStyles = StyleSheet.create({
     backgroundColor: colors.amberSoft, // Soft amber tint (#FFF3D6)
   },
   statusBadgeText: {
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: '600',
     textAlign: 'center',
   },
@@ -1451,14 +1459,14 @@ const timerRingStyles = StyleSheet.create({
     color: colors.amber, // Amber text (#C58B1B)
   },
   statusBadgeIdle: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
     borderRadius: 20,
     backgroundColor: colors.surface2,  // Neutral surface (#F2F4F7)
-    marginBottom: 8,
+    marginBottom: 4,
   },
   statusBadgeTextIdle: {
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: '600',
     color: colors.iconMuted,  // Neutral gray (#98A2B3)
     textAlign: 'center',
@@ -1466,7 +1474,7 @@ const timerRingStyles = StyleSheet.create({
 
   // Timer display
   timer: {
-    fontSize: 44,
+    fontSize: 28,
     fontWeight: '700',
     color: colors.text,  // Dark text (#101828)
     fontVariant: ['tabular-nums'],
@@ -1483,7 +1491,7 @@ const timerRingStyles = StyleSheet.create({
     letterSpacing: 2,
   },
   timerIdle: {
-    fontSize: 40,
+    fontSize: 26,
     fontWeight: '600',
     color: colors.text,  // Dark text (#101828)
     fontVariant: ['tabular-nums'],
@@ -1499,18 +1507,18 @@ const timerRingStyles = StyleSheet.create({
 
   // Break time - simple text
   breakText: {
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: '500',
     color: colors.textSecondary,  // Muted (#667085)
-    marginTop: 8,
+    marginTop: 4,
   },
 
   // Idle hint
   idleHint: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '500',
     color: colors.textSecondary,  // Muted (#667085)
-    marginTop: 12,
+    marginTop: 6,
   },
 
   // Action buttons - enterprise style

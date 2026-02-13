@@ -44,8 +44,7 @@ export const homeStyles = StyleSheet.create({
   // LOG HOURS FORM - Enhanced prominence with darker gray background
   // ============================================
   formSection: {
-    // No flex - uses natural height
-    minHeight: 168,
+    flex: 1,  // Takes remaining space (now the dominant container)
     padding: 16,
     backgroundColor: colors.card,
     borderRadius: 18,
@@ -54,7 +53,20 @@ export const homeStyles = StyleSheet.create({
     borderLeftWidth: 3,
     borderLeftColor: colors.primary,
     marginBottom: 12,
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
+    ...shadows.md,
+  },
+  formSectionEditing: {
+    flex: 1,  // Takes remaining space when editing too
+    padding: 18,
+    backgroundColor: colors.card,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.primary,
+    marginBottom: 12,
+    justifyContent: 'flex-start',
     ...shadows.md,
   },
   formHeader: {
@@ -537,10 +549,8 @@ export const homeStyles = StyleSheet.create({
   // TIMER - Larger to accommodate animated ring
   // ============================================
   timerSection: {
-    flex: 2,  // Takes 2 parts of available space
-    minHeight: 280,
-    maxHeight: 380,
-    padding: 16,
+    // Natural height only (ring + buttons) — form is now the dominant container
+    padding: 12,
     backgroundColor: colors.card,
     borderRadius: 18,
     borderWidth: 1,

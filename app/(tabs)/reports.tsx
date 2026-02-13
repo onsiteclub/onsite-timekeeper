@@ -25,7 +25,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Card } from '../../src/components/ui/Button';
@@ -239,6 +239,7 @@ function WeeklyBarChart({
 
 export default function ReportsScreen() {
   const router = useRouter();
+  const { viewDate } = useLocalSearchParams<{ viewDate?: string }>();
 
   const {
     userName,
@@ -267,6 +268,7 @@ export default function ReportsScreen() {
     goToCurrentMonth,
 
     handleDayPress,
+    openDayModal,
     getSessionsForDay,
     getTotalMinutesForDay,
 
@@ -310,6 +312,21 @@ export default function ReportsScreen() {
       onRefresh();
     }, []) // Empty deps - functions read from store directly
   );
+
+  // Open day modal when navigated with viewDate param (e.g. from voice command)
+  useEffect(() => {
+    if (!viewDate) return;
+    const [year, month, day] = viewDate.split('-').map(Number);
+    if (!year || !month || !day) return;
+
+    // Small delay to let data load after focus
+    const timer = setTimeout(() => {
+      openDayModal(new Date(year, month - 1, day));
+      // Clear the param so it doesn't re-trigger
+      router.setParams({ viewDate: undefined as unknown as string });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [viewDate]);
 
   // Sessions for chart - always use month sessions
   const allSessions = monthSessions || [];
@@ -377,9 +394,9 @@ export default function ReportsScreen() {
 
   const adjustMinute = (current: string, dir: 'up' | 'down', setM: (m: string) => void) => {
     let m = parseInt(current, 10) || 0;
-    m = dir === 'up' ? m + 5 : m - 5;
+    m = dir === 'up' ? m + 1 : m - 1;
     if (m >= 60) m = 0;
-    if (m < 0) m = 55;
+    if (m < 0) m = 59;
     setM(String(m).padStart(2, '0'));
   };
 
@@ -1012,6 +1029,56 @@ export default function ReportsScreen() {
               </TouchableOpacity>
             </View>
 
+            {/* Action Buttons (below header) */}
+            <View style={reportStyles.ucActionBar}>
+              {isEditingInline ? (
+                <>
+                  <TouchableOpacity style={reportStyles.ucFooterBtnSecondary} onPress={cancelInlineEdit}>
+                    <Text style={reportStyles.ucFooterBtnSecondaryText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={reportStyles.ucFooterBtnPrimary} onPress={handleSaveManualWithAmPm}>
+                    <Text style={reportStyles.ucFooterBtnPrimaryText}>Save</Text>
+                  </TouchableOpacity>
+                </>
+              ) : aggregatedLocations.length > 0 ? (
+                <>
+                  <TouchableOpacity
+                    style={reportStyles.ucFooterBtnSecondary}
+                    onPress={() => {
+                      const session = aggregatedLocations[0]?.sessions[0];
+                      if (session) startInlineEdit(session);
+                    }}
+                  >
+                    <Ionicons name="pencil-outline" size={18} color={colors.text} />
+                    <Text style={reportStyles.ucFooterBtnSecondaryText}>Edit</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={reportStyles.ucFooterBtnDanger}
+                    onPress={handleDeleteFromModal}
+                  >
+                    <Ionicons name="trash-outline" size={18} color={colors.error || '#EF4444'} />
+                    <Text style={reportStyles.ucFooterBtnDangerText}>Delete</Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <>
+                  <TouchableOpacity style={reportStyles.ucFooterBtnPrimary} onPress={startInlineAdd}>
+                    <Ionicons name="add-circle-outline" size={18} color={colors.buttonPrimaryText} />
+                    <Text style={reportStyles.ucFooterBtnPrimaryText}>Add Hours</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[reportStyles.ucFooterBtnSecondary, showAbsenceOptions && { borderColor: colors.primary }]}
+                    onPress={() => setShowAbsenceOptions(!showAbsenceOptions)}
+                  >
+                    <Ionicons name="calendar-outline" size={18} color={showAbsenceOptions ? colors.primary : colors.text} />
+                    <Text style={[reportStyles.ucFooterBtnSecondaryText, showAbsenceOptions && { color: colors.primary }]}>
+                      Log Absence
+                    </Text>
+                  </TouchableOpacity>
+                </>
+              )}
+            </View>
+
             {/* No break warning (view mode only) */}
             {!isEditingInline && aggregatedLocations.length >= 1 &&
               aggregatedLocations.every(agg => agg.totalBreakMinutes === 0) && (
@@ -1067,7 +1134,7 @@ export default function ReportsScreen() {
                       <View style={reportStyles.ucTimeInputRow}>
                         <View style={reportStyles.ucTimeInputWithArrows}>
                           <TouchableOpacity style={reportStyles.ucArrowBtn} onPress={() => adjustHour(manualEntryH, 'up', setManualEntryH, entryPeriod, setEntryPeriod)}>
-                            <Ionicons name="chevron-up" size={16} color={colors.textSecondary} />
+                            <Ionicons name="chevron-up" size={20} color={colors.textSecondary} />
                           </TouchableOpacity>
                           <TextInput
                             style={reportStyles.ucTimeInput}
@@ -1081,13 +1148,13 @@ export default function ReportsScreen() {
                             {...(Platform.OS === 'ios' ? { inputAccessoryViewID: 'reportTimeInputDone' } : {})}
                           />
                           <TouchableOpacity style={reportStyles.ucArrowBtn} onPress={() => adjustHour(manualEntryH, 'down', setManualEntryH, entryPeriod, setEntryPeriod)}>
-                            <Ionicons name="chevron-down" size={16} color={colors.textSecondary} />
+                            <Ionicons name="chevron-down" size={20} color={colors.textSecondary} />
                           </TouchableOpacity>
                         </View>
                         <Text style={reportStyles.ucTimeSep}>:</Text>
                         <View style={reportStyles.ucTimeInputWithArrows}>
                           <TouchableOpacity style={reportStyles.ucArrowBtn} onPress={() => adjustMinute(manualEntryM, 'up', setManualEntryM)}>
-                            <Ionicons name="chevron-up" size={16} color={colors.textSecondary} />
+                            <Ionicons name="chevron-up" size={20} color={colors.textSecondary} />
                           </TouchableOpacity>
                           <TextInput
                             style={reportStyles.ucTimeInput}
@@ -1101,7 +1168,7 @@ export default function ReportsScreen() {
                             {...(Platform.OS === 'ios' ? { inputAccessoryViewID: 'reportTimeInputDone' } : {})}
                           />
                           <TouchableOpacity style={reportStyles.ucArrowBtn} onPress={() => adjustMinute(manualEntryM, 'down', setManualEntryM)}>
-                            <Ionicons name="chevron-down" size={16} color={colors.textSecondary} />
+                            <Ionicons name="chevron-down" size={20} color={colors.textSecondary} />
                           </TouchableOpacity>
                         </View>
                       </View>
@@ -1127,7 +1194,7 @@ export default function ReportsScreen() {
                       <View style={reportStyles.ucTimeInputRow}>
                         <View style={reportStyles.ucTimeInputWithArrows}>
                           <TouchableOpacity style={reportStyles.ucArrowBtn} onPress={() => adjustHour(manualExitH, 'up', setManualExitH, exitPeriod, setExitPeriod)}>
-                            <Ionicons name="chevron-up" size={16} color={colors.textSecondary} />
+                            <Ionicons name="chevron-up" size={20} color={colors.textSecondary} />
                           </TouchableOpacity>
                           <TextInput
                             style={reportStyles.ucTimeInput}
@@ -1141,13 +1208,13 @@ export default function ReportsScreen() {
                             {...(Platform.OS === 'ios' ? { inputAccessoryViewID: 'reportTimeInputDone' } : {})}
                           />
                           <TouchableOpacity style={reportStyles.ucArrowBtn} onPress={() => adjustHour(manualExitH, 'down', setManualExitH, exitPeriod, setExitPeriod)}>
-                            <Ionicons name="chevron-down" size={16} color={colors.textSecondary} />
+                            <Ionicons name="chevron-down" size={20} color={colors.textSecondary} />
                           </TouchableOpacity>
                         </View>
                         <Text style={reportStyles.ucTimeSep}>:</Text>
                         <View style={reportStyles.ucTimeInputWithArrows}>
                           <TouchableOpacity style={reportStyles.ucArrowBtn} onPress={() => adjustMinute(manualExitM, 'up', setManualExitM)}>
-                            <Ionicons name="chevron-up" size={16} color={colors.textSecondary} />
+                            <Ionicons name="chevron-up" size={20} color={colors.textSecondary} />
                           </TouchableOpacity>
                           <TextInput
                             style={reportStyles.ucTimeInput}
@@ -1161,7 +1228,7 @@ export default function ReportsScreen() {
                             {...(Platform.OS === 'ios' ? { inputAccessoryViewID: 'reportTimeInputDone' } : {})}
                           />
                           <TouchableOpacity style={reportStyles.ucArrowBtn} onPress={() => adjustMinute(manualExitM, 'down', setManualExitM)}>
-                            <Ionicons name="chevron-down" size={16} color={colors.textSecondary} />
+                            <Ionicons name="chevron-down" size={20} color={colors.textSecondary} />
                           </TouchableOpacity>
                         </View>
                       </View>
@@ -1312,56 +1379,6 @@ export default function ReportsScreen() {
                 </View>
               )}
             </ScrollView>
-
-            {/* Footer Buttons */}
-            <View style={reportStyles.ucFooter}>
-              {isEditingInline ? (
-                <>
-                  <TouchableOpacity style={reportStyles.ucFooterBtnSecondary} onPress={cancelInlineEdit}>
-                    <Text style={reportStyles.ucFooterBtnSecondaryText}>Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={reportStyles.ucFooterBtnPrimary} onPress={handleSaveManualWithAmPm}>
-                    <Text style={reportStyles.ucFooterBtnPrimaryText}>Save</Text>
-                  </TouchableOpacity>
-                </>
-              ) : aggregatedLocations.length > 0 ? (
-                <>
-                  <TouchableOpacity
-                    style={reportStyles.ucFooterBtnSecondary}
-                    onPress={() => {
-                      const session = aggregatedLocations[0]?.sessions[0];
-                      if (session) startInlineEdit(session);
-                    }}
-                  >
-                    <Ionicons name="pencil-outline" size={18} color={colors.text} />
-                    <Text style={reportStyles.ucFooterBtnSecondaryText}>Edit</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={reportStyles.ucFooterBtnDanger}
-                    onPress={handleDeleteFromModal}
-                  >
-                    <Ionicons name="trash-outline" size={18} color={colors.error || '#EF4444'} />
-                    <Text style={reportStyles.ucFooterBtnDangerText}>Delete</Text>
-                  </TouchableOpacity>
-                </>
-              ) : (
-                <>
-                  <TouchableOpacity style={reportStyles.ucFooterBtnPrimary} onPress={startInlineAdd}>
-                    <Ionicons name="add-circle-outline" size={18} color={colors.buttonPrimaryText} />
-                    <Text style={reportStyles.ucFooterBtnPrimaryText}>Add Hours</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[reportStyles.ucFooterBtnSecondary, showAbsenceOptions && { borderColor: colors.primary }]}
-                    onPress={() => setShowAbsenceOptions(!showAbsenceOptions)}
-                  >
-                    <Ionicons name="calendar-outline" size={18} color={showAbsenceOptions ? colors.primary : colors.text} />
-                    <Text style={[reportStyles.ucFooterBtnSecondaryText, showAbsenceOptions && { color: colors.primary }]}>
-                      Log Absence
-                    </Text>
-                  </TouchableOpacity>
-                </>
-              )}
-            </View>
 
           </Animated.View>
         </Animated.View>
@@ -1843,6 +1860,7 @@ const reportStyles = StyleSheet.create({
   },
   picker: {
     color: colors.text,
+    height: 44,
   },
   absenceContainer: {
     gap: 10,
@@ -2398,7 +2416,7 @@ const reportStyles = StyleSheet.create({
     marginBottom: 14,
   },
   ucPickerWrap: {
-    flex: 1,
+    flexShrink: 1,
     backgroundColor: colors.card,
     borderRadius: 10,
     borderWidth: 1,
@@ -2429,7 +2447,9 @@ const reportStyles = StyleSheet.create({
     alignItems: 'center',
   },
   ucArrowBtn: {
-    padding: 2,
+    padding: 6,
+    backgroundColor: `${colors.primary}12`,
+    borderRadius: 6,
   },
   ucTimeInput: {
     width: 38,
@@ -2587,6 +2607,14 @@ const reportStyles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     marginBottom: 4,
+  },
+  ucActionBar: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
   ucFooter: {
     flexDirection: 'row',
