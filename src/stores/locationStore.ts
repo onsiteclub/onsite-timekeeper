@@ -41,6 +41,8 @@ import {
   recordEntryAudit,
   recordExitAudit,
   captureGeofenceError,
+  // Web init
+  initLocationsWebData,
   // Types
   type LocationDB,
 } from '../lib/database';
@@ -366,6 +368,12 @@ export const useLocationStore = create<LocationState>((set, get) => ({
       }
 
       set({ permissionStatus: permissions.background ? 'granted' : 'restricted' });
+
+      // On web, populate in-memory cache from Supabase before first read
+      const userId = useAuthStore.getState().getUserId();
+      if (userId) {
+        await initLocationsWebData(userId);
+      }
 
       // Load locations
       await get().reloadLocations();

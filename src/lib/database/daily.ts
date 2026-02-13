@@ -599,3 +599,12 @@ export function upsertDailyHoursFromSync(record: DailyHoursDB): void {
   }
 }
 
+/**
+ * Web data initialization (no-op on native — SQLite is source of truth)
+ * On web, daily.web.ts overrides this to load from Supabase into memory cache.
+ */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export async function initWebData(_userId: string): Promise<void> {
+  // No-op on native
+}
+

@@ -20,6 +20,7 @@ import {
   deleteDailyHours,
   getToday,
   formatDuration,
+  initDailyWebData,
   type DailyHoursDB,
 } from '../lib/database';
 import {
@@ -158,6 +159,12 @@ export const useDailyLogStore = create<DailyLogState>((set, get) => ({
 
     try {
       logger.info('boot', '📖 Initializing daily log store...');
+
+      // On web, populate in-memory cache from Supabase before first read
+      const userId = useAuthStore.getState().getUserId();
+      if (userId) {
+        await initDailyWebData(userId);
+      }
 
       await get().reloadToday();
       await get().reloadWeek();

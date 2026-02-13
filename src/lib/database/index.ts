@@ -45,6 +45,7 @@ export {
   getLocationsForSync,
   markLocationSynced,
   upsertLocationFromSync,
+  initWebData as initLocationsWebData,
   type CreateLocationParams,
 } from './locations';
 
@@ -145,6 +146,8 @@ export {
   getUnsyncedDailyHours,
   markDailyHoursSynced,
   upsertDailyHoursFromSync,
+  // Web init
+  initWebData as initDailyWebData,
   // Types
   type UpsertDailyHoursParams,
   type UpdateDailyHoursParams,

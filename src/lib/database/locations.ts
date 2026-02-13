@@ -256,3 +256,12 @@ export async function upsertLocationFromSync(location: LocationDB): Promise<void
     logger.error('database', 'Error in location upsert', { error: String(error) });
   }
 }
+
+/**
+ * Web data initialization (no-op on native — SQLite is source of truth)
+ * On web, locations.web.ts overrides this to load from Supabase into memory cache.
+ */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export async function initWebData(_userId: string): Promise<void> {
+  // No-op on native
+}
