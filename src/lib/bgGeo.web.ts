@@ -9,7 +9,8 @@ import { logger } from './logger';
 export interface GeofenceEvent {
   type: 'enter' | 'exit';
   regionIdentifier: string;
-  timestamp: number;
+  /** ISO string — from SDK's event.timestamp (OS time when geofence fired) */
+  timestamp: string;
 }
 
 export function setGeofenceHandler(_handler: unknown): void {}

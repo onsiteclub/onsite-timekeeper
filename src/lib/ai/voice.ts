@@ -14,8 +14,8 @@
 
 import { supabase } from '../supabase';
 import { logger } from '../logger';
-import { db, toLocalDateString } from '../database/core';
-import { getDailyHours, upsertDailyHours } from '../database/daily';
+import { toLocalDateString } from '../database/core';
+import { getDailyHours, getDailyHoursByPeriod, upsertDailyHours, updateDailyHours, deleteDailyHours } from '../database/daily';
 import { buildWorkerProfile } from './interpreter';
 import { useLocationStore } from '../../stores/locationStore';
 import { buscarEnderecoAutocomplete } from '../geocoding';
@@ -90,15 +90,17 @@ export async function processVoiceCommand(
 
     // Get last 7 days
     const sevenDaysAgo = toLocalDateString(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
-    const recentDays = db.getAllSync(
-      `SELECT date, location_name, first_entry, last_exit, total_minutes, break_minutes,
-              COALESCE(is_manual_edit, 0) as is_manual_edit,
-              COALESCE(ai_corrected, 0) as ai_corrected
-       FROM daily_hours
-       WHERE user_id = ? AND date >= ? AND deleted_at IS NULL
-       ORDER BY date DESC`,
-      [userId, sevenDaysAgo]
-    );
+    const recentEntries = getDailyHoursByPeriod(userId, sevenDaysAgo, toLocalDateString(new Date()));
+    const recentDays = recentEntries.map(e => ({
+      date: e.date,
+      location_name: e.location_name,
+      first_entry: e.first_entry,
+      last_exit: e.last_exit,
+      total_minutes: e.total_minutes,
+      break_minutes: e.break_minutes,
+      is_manual_edit: e.source === 'manual' || e.source === 'edited' ? 1 : 0,
+      ai_corrected: 0,
+    }));
 
     // Call Edge Function
     const { data, error } = await supabase.functions.invoke('ai-voice', {
@@ -207,13 +209,9 @@ async function executeVoiceAction(
         break;
       }
 
-      // Mark as voice edit (highest priority)
+      // Mark as voice edit (highest priority) — upsert above already sets source:'manual'
       try {
-        db.runSync(
-          `UPDATE daily_hours SET is_manual_edit = 1, is_voice_edit = 1, synced_at = NULL
-           WHERE user_id = ? AND date = ?`,
-          [userId, action.date]
-        );
+        updateDailyHours(userId, action.date, { source: 'manual' });
       } catch (e) {
         console.log(`[VOICE] update_record: marking voice edit failed:`, String(e));
         logger.error('voice', `update_record: marking voice edit failed`, { error: String(e) });
@@ -238,11 +236,8 @@ async function executeVoiceAction(
         break;
       }
       console.log(`[VOICE] delete_record: found record for ${action.date}, deleting...`);
-      db.runSync(
-        `UPDATE daily_hours SET deleted_at = datetime('now'), updated_at = datetime('now'), synced_at = NULL WHERE user_id = ? AND date = ? AND deleted_at IS NULL`,
-        [userId, action.date]
-      );
-      console.log(`[VOICE] delete_record: SUCCESS soft-deleted ${action.date}`);
+      deleteDailyHours(userId, action.date);
+      console.log(`[VOICE] delete_record: SUCCESS deleted ${action.date}`);
       logger.info('voice', `delete_record: SUCCESS soft-deleted ${action.date}`);
       break;
     }

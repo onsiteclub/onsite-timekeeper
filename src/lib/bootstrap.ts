@@ -43,8 +43,8 @@ function handleAppStateChange(nextState: AppStateStatus): void {
 // GEOFENCE CALLBACK
 // ============================================
 
-function handleGeofenceEvent(event: { type: 'enter' | 'exit'; regionIdentifier: string; timestamp: number }): void {
-  logger.info('geofence', `🎯 Geofence event: ${event.type} @ ${event.regionIdentifier}`);
+function handleGeofenceEvent(event: { type: 'enter' | 'exit'; regionIdentifier: string; timestamp: string }): void {
+  logger.info('geofence', `[2/6] bootstrap→locationStore: ${event.type.toUpperCase()} "${event.regionIdentifier}" | ts=${event.timestamp}`);
 
   const locationStore = useLocationStore.getState();
   locationStore.handleGeofenceEvent(event);

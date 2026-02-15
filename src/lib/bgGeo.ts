@@ -23,7 +23,8 @@ import { getBackgroundUserId, calculateDistance } from './backgroundHelpers';
 export interface GeofenceEvent {
   type: 'enter' | 'exit';
   regionIdentifier: string;
-  timestamp: number;
+  /** ISO string — from SDK's event.timestamp (OS time when geofence fired) */
+  timestamp: string;
 }
 
 type GeofenceHandler = (event: GeofenceEvent) => void;
@@ -62,7 +63,9 @@ export async function configure(): Promise<void> {
 
   try {
     const config = {
-      locationAuthorizationRequest: 'Any',
+      // DEBUG: emits sounds on SDK events (movement, GPS, geofence) — hear if SDK is alive with screen off
+      debug: true,
+      locationAuthorizationRequest: 'Always',
       desiredAccuracy: BackgroundGeolocation.DesiredAccuracy.High,
       distanceFilter: 50,
       geofenceProximityRadius: 1000,
@@ -73,6 +76,7 @@ export async function configure(): Promise<void> {
       enableHeadless: true,
       preventSuspend: true,
       heartbeatInterval: 60,
+      foregroundService: true,
       notification: {
         title: 'OnSite Timekeeper',
         text: 'Tracking work hours',
@@ -80,14 +84,21 @@ export async function configure(): Promise<void> {
       },
       autoSync: false,
       autoSyncThreshold: 0,
-      logLevel: BackgroundGeolocation.LogLevel.Info,
+      logLevel: (BackgroundGeolocation as any).LOG_LEVEL_VERBOSE,
       logMaxDays: 3,
     };
 
     // ready() only applies config on FIRST launch — subsequent launches use cached state.
     // So we call ready() first, then setConfig() to ensure our values override on EVERY launch.
-    await BackgroundGeolocation.ready(config as any);
+    const readyState = await BackgroundGeolocation.ready(config as any);
+    logger.info('boot', `📋 ready() result: enabled=${readyState.enabled}, trackingMode=${readyState.trackingMode}`, {
+      enabled: readyState.enabled,
+      trackingMode: readyState.trackingMode,
+      didLaunchInBackground: (readyState as any).didLaunchInBackground,
+    });
+
     await BackgroundGeolocation.setConfig(config as any);
+    logger.info('boot', '📋 setConfig() applied');
 
     // Register geofence event listener
     BackgroundGeolocation.onGeofence((event) => {
@@ -104,23 +115,28 @@ export async function configure(): Promise<void> {
         return;
       }
 
-      logger.info('geofence', `🔔 Geofence ${type}: ${identifier}`);
+      // Use SDK's event.timestamp (OS time when geofence was received)
+      const sdkTimestamp = event.timestamp;
+      const delayMs = Date.now() - new Date(sdkTimestamp).getTime();
+
+      logger.info('geofence', `[1/6] SDK→JS onGeofence: ${type.toUpperCase()} "${identifier}" | sdkTs=${sdkTimestamp} | delay=${delayMs}ms`);
 
       if (geofenceHandler) {
         geofenceHandler({
           type,
           regionIdentifier: identifier,
-          timestamp: Date.now(),
+          timestamp: sdkTimestamp,
         });
       } else {
         // Handler not registered — try lazy init (headless mode)
-        logger.warn('geofence', `⚠️ No handler for ${type} @ ${identifier} — attempting lazy init`);
-        lazyInitAndDeliver(type, identifier);
+        logger.warn('geofence', `[1/6] ⚠️ No JS handler for ${type} @ ${identifier} — lazy init`);
+        lazyInitAndDeliver(type, identifier, sdkTimestamp);
       }
     });
 
     // Exit watchdog via heartbeat
     BackgroundGeolocation.onHeartbeat(async () => {
+      logger.info('geofence', '💓 Heartbeat fired');
       try {
         const { getActiveTrackingState } = await import('./exitHandler');
         const tracking = getActiveTrackingState();
@@ -159,7 +175,7 @@ export async function configure(): Promise<void> {
             geofenceHandler({
               type: 'exit',
               regionIdentifier: tracking.location_id,
-              timestamp: Date.now(),
+              timestamp: new Date().toISOString(), // Synthetic event — no SDK timestamp
             });
           }
         } else {
@@ -191,6 +207,19 @@ export async function configure(): Promise<void> {
     } catch (stateError) {
       logger.warn('boot', '⚠️ Could not read SDK state', { error: String(stateError) });
     }
+
+    // Log Android permission status from SDK's perspective
+    try {
+      const providerState = await BackgroundGeolocation.getProviderState();
+      logger.info('boot', `📋 Provider: enabled=${providerState.enabled}, status=${providerState.status}, gps=${providerState.gps}, network=${providerState.network}`, {
+        enabled: providerState.enabled,
+        status: providerState.status,
+        gps: providerState.gps,
+        network: providerState.network,
+      });
+    } catch (providerError) {
+      logger.warn('boot', '⚠️ Could not read provider state', { error: String(providerError) });
+    }
   } catch (error) {
     logger.error('boot', '❌ BackgroundGeolocation.ready() failed', { error: String(error) });
   }
@@ -200,7 +229,7 @@ export async function configure(): Promise<void> {
  * Headless fallback: when handler is null (app was killed),
  * try to import bootstrap and reinitialize.
  */
-async function lazyInitAndDeliver(type: 'enter' | 'exit', identifier: string): Promise<void> {
+async function lazyInitAndDeliver(type: 'enter' | 'exit', identifier: string, sdkTimestamp?: string): Promise<void> {
   try {
     const { initializeListeners } = await import('./bootstrap');
     await initializeListeners();
@@ -210,7 +239,7 @@ async function lazyInitAndDeliver(type: 'enter' | 'exit', identifier: string): P
       geofenceHandler({
         type,
         regionIdentifier: identifier,
-        timestamp: Date.now(),
+        timestamp: sdkTimestamp || new Date().toISOString(),
       });
     } else {
       logger.error('geofence', `❌ Lazy init failed — ${type} @ ${identifier} LOST`);
@@ -272,13 +301,72 @@ export async function removeAllGeofences(): Promise<void> {
 // ============================================
 
 /**
- * Start geofence-only monitoring.
- * Lower power than full tracking — only fires on geofence transitions.
+ * Start geofence monitoring using start() with high distanceFilter.
+ *
+ * WHY NOT startGeofences()?
+ * startGeofences() uses trackingMode=0 which relies on Android's native
+ * GeofencingClient. This is unreliable in Doze mode — ENTER events don't
+ * fire with screen off. Using start() with distanceFilter=200 keeps
+ * trackingMode=1 (active location tracking) which detects geofence
+ * crossings reliably even with screen off, with minimal battery impact.
  */
 export async function startGeofences(): Promise<void> {
-  if (!isConfigured) await configure();
-  await BackgroundGeolocation.startGeofences();
-  logger.info('geofence', '✅ Geofence monitoring started (transistorsoft)');
+  if (!isConfigured) {
+    logger.info('geofence', '⚠️ startGeofences: SDK not configured yet, calling configure()...');
+    await configure();
+  }
+
+  logger.info('geofence', `🔄 startGeofences: isConfigured=${isConfigured}, calling SDK start() with high distanceFilter...`);
+
+  try {
+    // Use start() instead of startGeofences() for reliable background ENTER detection
+    await BackgroundGeolocation.setConfig({
+      distanceFilter: 200,
+      stationaryRadius: 150,
+      stopTimeout: 15,
+    } as any);
+    await BackgroundGeolocation.start();
+    const stateAfter = await BackgroundGeolocation.getState() as any;
+    logger.info('geofence', `✅ startGeofences OK: enabled=${stateAfter.enabled}, trackingMode=${stateAfter.trackingMode}`);
+  } catch (error) {
+    const errorStr = String(error);
+    logger.error('geofence', `❌ startGeofences FAILED: ${errorStr}`, {
+      isConfigured,
+      error: errorStr,
+    });
+
+    // Log SDK + provider state for diagnostics
+    try {
+      const state = await BackgroundGeolocation.getState() as any;
+      const provider = await BackgroundGeolocation.getProviderState();
+      logger.error('geofence', `📋 SDK state at failure`, {
+        enabled: state.enabled,
+        trackingMode: state.trackingMode,
+        didLaunchInBackground: state.didLaunchInBackground,
+        providerStatus: provider.status,
+        providerEnabled: provider.enabled,
+        gps: provider.gps,
+        network: provider.network,
+      });
+    } catch {
+      logger.error('geofence', '📋 Could not read SDK/provider state after failure');
+    }
+
+    // Fallback: try start() instead of startGeofences()
+    // startGeofences() requires background permission, start() may work with foreground-only
+    if (errorStr.includes('Permission')) {
+      logger.info('geofence', '🔄 Fallback: trying start() instead of startGeofences()...');
+      try {
+        await BackgroundGeolocation.start();
+        logger.info('geofence', '✅ Fallback start() succeeded (full tracking mode)');
+        return; // Success via fallback
+      } catch (fallbackError) {
+        logger.error('geofence', `❌ Fallback start() also failed: ${String(fallbackError)}`);
+      }
+    }
+
+    throw error;
+  }
 }
 
 /**
@@ -307,23 +395,55 @@ export async function isEnabled(): Promise<boolean> {
  * Called by exitHandler on ENTER (session starts).
  */
 export async function switchToActiveMode(): Promise<void> {
-  await BackgroundGeolocation.setConfig({
-    distanceFilter: 10,
-    stationaryRadius: 25,
-    stopTimeout: 5,
-  } as any);
-  await BackgroundGeolocation.start();
-  logger.info('geofence', '⚡ Switched to ACTIVE mode (start + distanceFilter=10)');
+  try {
+    await BackgroundGeolocation.setConfig({
+      distanceFilter: 10,
+      stationaryRadius: 25,
+      stopTimeout: 5,
+    } as any);
+    logger.info('geofence', '⚡ ACTIVE setConfig applied (distanceFilter=10)');
+
+    const startState = await BackgroundGeolocation.start();
+    logger.info('geofence', `⚡ start() result: enabled=${startState.enabled}, trackingMode=${startState.trackingMode}`, {
+      enabled: startState.enabled,
+      trackingMode: startState.trackingMode,
+    });
+
+    // Verify foreground service is running
+    const provider = await BackgroundGeolocation.getProviderState();
+    logger.info('geofence', `⚡ ACTIVE provider: status=${provider.status}, enabled=${provider.enabled}, gps=${provider.gps}`, {
+      status: provider.status,
+      enabled: provider.enabled,
+      gps: provider.gps,
+      network: provider.network,
+    });
+  } catch (error) {
+    logger.error('geofence', `❌ switchToActiveMode FAILED: ${String(error)}`);
+    throw error;
+  }
 }
 
 /**
- * IDLE mode: switch from full tracking back to geofence-only.
- * Battery efficient — just waiting for next ENTER.
+ * IDLE mode: switch from active tracking back to low-power monitoring.
+ * Uses start() with high distanceFilter (not startGeofences) so ENTER
+ * events still fire reliably with screen off.
  * Called by exitHandler on EXIT (session ends).
  */
 export async function switchToIdleMode(): Promise<void> {
-  await BackgroundGeolocation.startGeofences();
-  logger.info('geofence', '💤 Switched to IDLE mode (startGeofences)');
+  try {
+    await BackgroundGeolocation.setConfig({
+      distanceFilter: 200,
+      stationaryRadius: 150,
+      stopTimeout: 15,
+    } as any);
+    // Keep start() running (trackingMode=1) — don't switch to startGeofences()
+    // because startGeofences() (trackingMode=0) doesn't detect ENTER in Doze mode
+    const state = await BackgroundGeolocation.getState() as any;
+    logger.info('geofence', `💤 IDLE mode: enabled=${state.enabled}, trackingMode=${state.trackingMode}`);
+  } catch (error) {
+    logger.error('geofence', `❌ switchToIdleMode FAILED: ${String(error)}`);
+    throw error;
+  }
 }
 
 // ============================================
@@ -340,6 +460,60 @@ export async function isIgnoringBatteryOptimizations(): Promise<boolean> {
     return await (BackgroundGeolocation.deviceSettings as any).isIgnoringBatteryOptimizations();
   } catch {
     return true; // Assume OK if check fails
+  }
+}
+
+// ============================================
+// SDK LOG RETRIEVAL (survives background)
+// ============================================
+
+/**
+ * Get the SDK's native log. This log persists in the SDK's own SQLite DB
+ * and survives background/headless execution — unlike Metro console logs.
+ * Use this to see what happened while the screen was off.
+ */
+export async function getSDKLog(): Promise<string> {
+  try {
+    const log = await (BackgroundGeolocation as any).getLog();
+    return log || '(empty log)';
+  } catch (error) {
+    return `Error reading SDK log: ${String(error)}`;
+  }
+}
+
+/**
+ * Email the SDK's native log (useful for remote debugging).
+ */
+export async function emailSDKLog(email: string): Promise<void> {
+  await (BackgroundGeolocation as any).emailLog(email);
+}
+
+/**
+ * Get a compact SDK status summary for display.
+ */
+export async function getSDKStatus(): Promise<{
+  enabled: boolean;
+  trackingMode: number;
+  authorization: number;
+  gps: boolean;
+  network: boolean;
+  geofences: number;
+}> {
+  try {
+    const state = await BackgroundGeolocation.getState() as any;
+    const provider = await BackgroundGeolocation.getProviderState();
+    const geofences = await BackgroundGeolocation.getGeofences();
+    return {
+      enabled: state.enabled,
+      trackingMode: state.trackingMode, // 0=geofences-only, 1=location+geofences
+      authorization: provider.status,    // 0=notDetermined, 2=denied, 3=always, 4=whenInUse
+      gps: provider.gps,
+      network: provider.network,
+      geofences: geofences.length,
+    };
+  } catch (error) {
+    logger.error('geofence', `getSDKStatus failed: ${String(error)}`);
+    return { enabled: false, trackingMode: -1, authorization: -1, gps: false, network: false, geofences: 0 };
   }
 }
 
@@ -366,7 +540,7 @@ BackgroundGeolocation.registerHeadlessTask(async (event) => {
   const name = event.name;
 
   if (name === 'geofence') {
-    const { action, identifier } = event.params;
+    const { action, identifier, timestamp } = event.params;
     const type: 'enter' | 'exit' | null =
       action === 'ENTER' ? 'enter' :
       action === 'EXIT' ? 'exit' :
@@ -374,10 +548,10 @@ BackgroundGeolocation.registerHeadlessTask(async (event) => {
 
     if (!type) return;
 
-    logger.info('geofence', `🔔 [Headless] Geofence ${type}: ${identifier}`);
+    logger.info('geofence', `[1/6] [HEADLESS] SDK→JS: ${type.toUpperCase()} "${identifier}" | sdkTs=${timestamp}`);
 
-    // Lazy init bootstrap → handler
-    await lazyInitAndDeliver(type, identifier);
+    // Lazy init bootstrap → handler (propagate SDK timestamp)
+    await lazyInitAndDeliver(type, identifier, timestamp);
   }
 });
 

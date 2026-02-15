@@ -6,7 +6,8 @@
  */
 
 import { logger } from '../logger';
-import { db, toLocalDateString } from '../database/core';
+import { toLocalDateString } from '../database/core';
+import { getDailyHoursByPeriod } from '../database/daily';
 
 // ============================================================
 // TYPES
@@ -32,24 +33,14 @@ export function buildWorkerProfile(userId: string): WorkerProfile {
   const thirtyDaysAgo = toLocalDateString(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
 
   try {
-    const rows = db.getAllSync<{
-      date: string;
-      first_entry: string | null;
-      last_exit: string | null;
-      total_minutes: number;
-      day_of_week: number;
-    }>(
-      `SELECT
-        date,
-        first_entry,
-        last_exit,
-        total_minutes,
-        CAST(strftime('%w', date) AS INTEGER) as day_of_week
-       FROM daily_hours
-       WHERE user_id = ? AND date >= ? AND deleted_at IS NULL
-       ORDER BY date DESC`,
-      [userId, thirtyDaysAgo]
-    );
+    const entries = getDailyHoursByPeriod(userId, thirtyDaysAgo, toLocalDateString(new Date()));
+    const rows = entries.map(e => ({
+      date: e.date,
+      first_entry: e.first_entry,
+      last_exit: e.last_exit,
+      total_minutes: e.total_minutes,
+      day_of_week: new Date(e.date + 'T12:00:00').getDay(),
+    }));
 
     if (rows.length === 0) {
       return defaultProfile();

@@ -7,7 +7,7 @@
 
 import React, { useEffect, useState, useRef } from 'react';
 import { View, ActivityIndicator, Platform, StyleSheet } from 'react-native';
-import { Stack, useRouter, useSegments } from 'expo-router';
+import { Stack, useRouter, useSegments, useRootNavigationState } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { colors } from '../src/constants/colors';
 import { logger } from '../src/lib/logger';
@@ -44,6 +44,7 @@ export default function RootLayout() {
   const [storesInitialized, setStoresInitialized] = useState(false);
   const router = useRouter();
   const segments = useSegments();
+  const navigationState = useRootNavigationState();
 
   const isAuthenticated = useAuthStore(s => s.isAuthenticated());
   const authLoading = useAuthStore(s => s.isLoading);
@@ -283,17 +284,24 @@ export default function RootLayout() {
   };
 
   // Navigation guard
+  // FIX: Defer router.replace() to next tick so <Stack> finishes mounting.
+  // navigationState?.key can be truthy before the Stack registers — setTimeout(0)
+  // ensures we run after React commits the layout (Stack mount).
   useEffect(() => {
-    if (!isReady || authLoading) return;
+    if (!isReady || authLoading || !navigationState?.key) return;
 
     const inAuthGroup = segments[0] === '(auth)';
 
-    if (!isAuthenticated && !inAuthGroup) {
-      router.replace('/(auth)/login');
-    } else if (isAuthenticated && inAuthGroup) {
-      router.replace('/(tabs)');
-    }
-  }, [isReady, authLoading, isAuthenticated, segments]);
+    const timer = setTimeout(() => {
+      if (!isAuthenticated && !inAuthGroup) {
+        router.replace('/(auth)/login');
+      } else if (isAuthenticated && inAuthGroup) {
+        router.replace('/(tabs)');
+      }
+    }, 0);
+
+    return () => clearTimeout(timer);
+  }, [isReady, authLoading, isAuthenticated, segments, navigationState?.key]);
 
   // ============================================
   // RENDER

@@ -607,8 +607,10 @@ export const useLocationStore = create<LocationState>((set, get) => ({
   startMonitoring: async () => {
     const { locations, permissionStatus } = get();
 
+    logger.info('geofence', `🚀 startMonitoring called: permissionStatus=${permissionStatus}, locations=${locations.length}`);
+
     if (permissionStatus !== 'granted') {
-      logger.warn('geofence', 'Cannot start monitoring: permission not granted');
+      logger.warn('geofence', `Cannot start monitoring: permissionStatus="${permissionStatus}" (need "granted")`);
       return false;
     }
 
@@ -627,6 +629,7 @@ export const useLocationStore = create<LocationState>((set, get) => ({
         name: l.name,
       })));
 
+      logger.info('geofence', `📍 Geofences registered, now calling startGeofences...`);
       await bgGeoStart();
 
       // Save state for next app launch
@@ -656,7 +659,7 @@ export const useLocationStore = create<LocationState>((set, get) => ({
             get().handleGeofenceEvent({
               type: 'enter',
               regionIdentifier: insideFence.id,
-              timestamp: Date.now(),
+              timestamp: new Date().toISOString(), // Synthetic — no SDK timestamp
             });
           }
         }
@@ -763,7 +766,7 @@ export const useLocationStore = create<LocationState>((set, get) => ({
             get().handleGeofenceEvent({
               type: 'enter',
               regionIdentifier: insideFence.id,
-              timestamp: Date.now(),
+              timestamp: new Date().toISOString(), // Synthetic — no SDK timestamp
             });
           } else if (!insideFence && isTracking) {
             // Outside all fences but tracking active → EXIT was dropped
@@ -773,7 +776,7 @@ export const useLocationStore = create<LocationState>((set, get) => ({
               get().handleGeofenceEvent({
                 type: 'exit',
                 regionIdentifier: tracking.location_id,
-                timestamp: Date.now(),
+                timestamp: new Date().toISOString(), // Synthetic — no SDK timestamp
               });
             }
           } else {
@@ -818,7 +821,7 @@ export const useLocationStore = create<LocationState>((set, get) => ({
       return;
     }
 
-    logger.info('geofence', `📍 Geofence ${event.type}: ${location.name}`);
+    logger.info('geofence', `[3/6] locationStore→exitHandler: ${event.type.toUpperCase()} "${location.name}" | ts=${event.timestamp}`);
 
     // Get current GPS for audit
     let coords: LocationResult | null = null;
@@ -840,11 +843,11 @@ export const useLocationStore = create<LocationState>((set, get) => ({
       const eventType: 'entry' | 'exit' = event.type === 'enter' ? 'entry' : 'exit';
       logGeofenceEvent(userId, location.id, eventType, gpsAccuracy, gpsLat, gpsLng);
 
-      // Act directly via exitHandler
+      // Act directly via exitHandler (propagate SDK timestamp)
       if (event.type === 'enter') {
-        await onGeofenceEnter(userId, location.id, location.name);
+        await onGeofenceEnter(userId, location.id, location.name, event.timestamp);
       } else {
-        await onGeofenceExit(userId, location.id, location.name);
+        await onGeofenceExit(userId, location.id, location.name, event.timestamp);
       }
 
       // Update active session state

@@ -60,12 +60,12 @@ function getActiveTracking(): ActiveTracking | null {
   }
 }
 
-function setActiveTracking(locationId: string, locationName: string): void {
-  const now = new Date().toISOString();
+function setActiveTracking(locationId: string, locationName: string, enterAt?: string): void {
+  const ts = enterAt || new Date().toISOString();
   db.runSync(
     `INSERT OR REPLACE INTO active_tracking (id, location_id, location_name, enter_at, created_at)
      VALUES ('current', ?, ?, ?, ?)`,
-    [locationId, locationName, now, now]
+    [locationId, locationName, ts, ts]
   );
 }
 
@@ -200,48 +200,53 @@ export function recoverSessionGuard(): void {
 export async function onGeofenceEnter(
   userId: string,
   locationId: string,
-  locationName: string
+  locationName: string,
+  eventTimestamp?: string
 ): Promise<void> {
-  logger.info('session', `🚶 ENTER: ${locationName}`);
+  const nowMs = Date.now();
+  const sdkMs = eventTimestamp ? new Date(eventTimestamp).getTime() : nowMs;
+  const delayMs = nowMs - sdkMs;
+
+  logger.info('session', `[4/6] exitHandler ENTER: "${locationName}" | sdkTs=${eventTimestamp || 'none'} | jsNow=${new Date().toISOString()} | delay=${delayMs}ms`);
 
   // 1. Cancel any pending exit for this location (re-entry during cooldown)
   const pending = pendingExits.get(locationId);
   if (pending) {
     clearTimeout(pending.timeoutId);
     pendingExits.delete(locationId);
-    logger.info('session', `↩️ Re-entry during cooldown, continuing tracking: ${locationName}`);
+    logger.info('session', `[4/6] ↩️ Re-entry during cooldown, continuing tracking: ${locationName}`);
     return; // Continue existing tracking, don't create new
   }
 
   // 2. Check if already tracking (shouldn't happen, but handle gracefully)
   const existing = getActiveTracking();
   if (existing && existing.location_id === locationId) {
-    logger.info('session', `⚠️ Already tracking this location: ${locationName}`);
+    logger.info('session', `[4/6] ⚠️ Already tracking this location: ${locationName}`);
     return;
   }
 
   // 3. If tracking a different location, close that one first
   if (existing && existing.location_id !== locationId) {
-    logger.info('session', `⚠️ Switching locations: ${existing.location_name} → ${locationName}`);
+    logger.info('session', `[4/6] ⚠️ Switching locations: ${existing.location_name} → ${locationName}`);
 
     // Cancel pending exit for the OLD location (prevents timeout from clearing new tracking)
     const oldPending = pendingExits.get(existing.location_id);
     if (oldPending) {
       clearTimeout(oldPending.timeoutId);
       pendingExits.delete(existing.location_id);
-      logger.info('session', `🧹 Cancelled pending exit for old location: ${existing.location_name}`);
     }
 
     await confirmExit(userId, existing.location_id, existing.location_name, existing.enter_at, new Date());
   }
 
-  // 4. Save new tracking entry
-  setActiveTracking(locationId, locationName);
+  // 4. Save new tracking entry (use SDK timestamp as enter_at)
+  setActiveTracking(locationId, locationName, eventTimestamp);
   switchToActiveMode().catch(() => {}); // Best-effort, non-blocking
-  logger.info('session', `✅ Tracking started: ${locationName}`);
+
+  logger.info('session', `[5/6] SQLite active_tracking: enter_at=${eventTimestamp || new Date().toISOString()} | location="${locationName}"`);
 
   // 4b. Start session guard (safety net for runaway timers)
-  startSessionGuard(locationId, locationName, new Date().toISOString());
+  startSessionGuard(locationId, locationName, eventTimestamp || new Date().toISOString());
 
   // 5. Check if this is first entry of the day
   const today = getToday();
@@ -250,7 +255,7 @@ export async function onGeofenceEnter(
 
   // 6. Update daily_hours with first_entry if needed
   if (isFirstEntry) {
-    const entryTime = formatTimeHHMM(new Date());
+    const entryTime = formatTimeHHMM(eventTimestamp ? new Date(eventTimestamp) : new Date());
     upsertDailyHours({
       userId,
       date: today,
@@ -261,7 +266,7 @@ export async function onGeofenceEnter(
       source: 'gps',
       firstEntry: entryTime,
     });
-    logger.info('session', `📅 First entry of day: ${entryTime}`);
+    logger.info('session', `[5/6] daily_hours first_entry=${entryTime} | date=${today}`);
   }
 
   // 7. Notification only on first entry of the day
@@ -269,9 +274,10 @@ export async function onGeofenceEnter(
     await showArrivalNotification(locationName);
   }
 
-  // 8. Refresh UI
+  // 8. Refresh UI (pass SDK timestamp so timer starts from real enter time)
   useDailyLogStore.getState().reloadToday();
-  useDailyLogStore.getState().startTracking(locationId, locationName);
+  useDailyLogStore.getState().startTracking(locationId, locationName, eventTimestamp);
+  logger.info('session', `[6/6] UI updated: timer started for "${locationName}" | startTime=${eventTimestamp || 'now'}`);
 }
 
 // ============================================
@@ -281,14 +287,19 @@ export async function onGeofenceEnter(
 export async function onGeofenceExit(
   userId: string,
   locationId: string,
-  locationName: string
+  locationName: string,
+  eventTimestamp?: string
 ): Promise<void> {
-  logger.info('session', `🚶 EXIT: ${locationName}`);
+  const nowMs = Date.now();
+  const sdkMs = eventTimestamp ? new Date(eventTimestamp).getTime() : nowMs;
+  const delayMs = nowMs - sdkMs;
+
+  logger.info('session', `[4/6] exitHandler EXIT: "${locationName}" | sdkTs=${eventTimestamp || 'none'} | jsNow=${new Date().toISOString()} | delay=${delayMs}ms`);
 
   // 1. Check if we're tracking this location
   const tracking = getActiveTracking();
   if (!tracking || tracking.location_id !== locationId) {
-    logger.warn('session', `⚠️ Exit without active tracking: ${locationName}`);
+    logger.warn('session', `[4/6] ⚠️ Exit without active tracking: ${locationName}`);
     return;
   }
 
@@ -298,8 +309,9 @@ export async function onGeofenceExit(
     clearTimeout(existingPending.timeoutId);
   }
 
-  // 3. Schedule exit with 60s cooldown
-  const exitTime = new Date();
+  // 3. Schedule exit with cooldown (use SDK timestamp as exitTime)
+  const exitTime = eventTimestamp ? new Date(eventTimestamp) : new Date();
+  logger.info('session', `[4/6] ⏳ Exit cooldown ${EXIT_COOLDOWN_MS / 1000}s | exitTime=${exitTime.toISOString()} | enter_at=${tracking.enter_at}`);
   const timeoutId = setTimeout(async () => {
     await confirmExit(userId, locationId, locationName, tracking.enter_at, exitTime);
     pendingExits.delete(locationId);
@@ -326,16 +338,15 @@ async function confirmExit(
   enterAt: string,
   exitTime: Date
 ): Promise<void> {
-  logger.info('session', `✅ Exit confirmed: ${locationName}`);
+  logger.info('session', `[5/6] confirmExit: "${locationName}" | enter_at=${enterAt} | exitTime=${exitTime.toISOString()}`);
 
   // Cancel session guard timer
   cancelSessionGuard();
 
   // 0. Guard: if a different location is now being tracked, this is a stale exit
-  //    (the exit was already handled by onGeofenceEnter's location switch)
   const currentTracking = getActiveTracking();
   if (currentTracking && currentTracking.location_id !== locationId) {
-    logger.warn('session', `⚠️ Stale exit for ${locationName}, now tracking ${currentTracking.location_name} — skipping`);
+    logger.warn('session', `[5/6] ⚠️ Stale exit for ${locationName}, now tracking ${currentTracking.location_name} — skipping`);
     return;
   }
 
@@ -348,7 +359,7 @@ async function confirmExit(
   const durationMs = exitTime.getTime() - entryTime.getTime();
   const durationMinutes = Math.max(0, Math.round((durationMs - pauseSeconds * 1000) / 60000));
 
-  logger.info('session', `⏱️ Duration: ${durationMinutes} minutes (break: ${breakMinutes} min)`);
+  logger.info('session', `[5/6] Duration calc: ${durationMinutes}min | enter=${enterAt} | exit=${exitTime.toISOString()} | pause=${pauseSeconds}s`);
 
   // 3. Clear active tracking
   clearActiveTracking();
@@ -374,7 +385,7 @@ async function confirmExit(
     lastExit: exitTimeStr,
   });
 
-  logger.info('session', `📅 daily_hours updated: total=${totalMinutes}min, break=${existingBreak + breakMinutes}min, last_exit=${exitTimeStr}`);
+  logger.info('session', `[5/6] daily_hours updated: total=${totalMinutes}min, break=${existingBreak + breakMinutes}min, last_exit=${exitTimeStr}`);
 
   // 5. Notification with total hours
   const hours = Math.floor(totalMinutes / 60);
@@ -384,6 +395,7 @@ async function confirmExit(
   // 6. Refresh UI
   useDailyLogStore.getState().reloadToday();
   useDailyLogStore.getState().resetTracking();
+  logger.info('session', `[6/6] UI updated: timer reset, daily reloaded | total=${totalMinutes}min`);
 
   // 7. Sync (non-blocking)
   useSyncStore.getState().syncNow().catch(e =>

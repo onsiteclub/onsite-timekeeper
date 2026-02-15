@@ -78,7 +78,7 @@ interface DailyLogState {
   reloadWeek: () => Promise<void>;
 
   // Timer actions
-  startTracking: (locationId: string, locationName: string) => void;
+  startTracking: (locationId: string, locationName: string, eventTimestamp?: string) => void;
   stopTracking: () => void;
   getElapsedMinutes: () => number;
 
@@ -236,7 +236,7 @@ export const useDailyLogStore = create<DailyLogState>((set, get) => ({
   // ============================================
   // TRACKING (for timer UI)
   // ============================================
-  startTracking: (locationId, locationName) => {
+  startTracking: (locationId, locationName, eventTimestamp?) => {
     const { tracking } = get();
 
     if (tracking.isTracking) {
@@ -244,16 +244,19 @@ export const useDailyLogStore = create<DailyLogState>((set, get) => ({
       return;
     }
 
+    // Use SDK timestamp if available, otherwise current time
+    const startTime = eventTimestamp ? new Date(eventTimestamp) : new Date();
+
     set({
       tracking: {
         isTracking: true,
         locationId,
         locationName,
-        startTime: new Date(),
+        startTime,
       },
     });
 
-    logger.info('dailyLog', `⏱️ Tracking started: ${locationName}`);
+    logger.info('dailyLog', `⏱️ Tracking started: ${locationName} (at ${startTime.toISOString()})`);
   },
 
   stopTracking: () => {
