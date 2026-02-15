@@ -14,7 +14,7 @@
 
 import BackgroundGeolocation from 'react-native-background-geolocation';
 import { logger } from './logger';
-import { getBackgroundUserId } from './backgroundHelpers';
+import { getBackgroundUserId, calculateDistance } from './backgroundHelpers';
 
 // ============================================
 // TYPES
@@ -34,6 +34,7 @@ type GeofenceHandler = (event: GeofenceEvent) => void;
 
 let isConfigured = false;
 let geofenceHandler: GeofenceHandler | null = null;
+let heartbeatOutsideCount = 0;
 
 // ============================================
 // HANDLER REGISTRATION
@@ -111,6 +112,60 @@ export async function configure(): Promise<void> {
         // Handler not registered — try lazy init (headless mode)
         logger.warn('geofence', `⚠️ No handler for ${type} @ ${identifier} — attempting lazy init`);
         lazyInitAndDeliver(type, identifier);
+      }
+    });
+
+    // Exit watchdog via heartbeat
+    BackgroundGeolocation.onHeartbeat(async () => {
+      try {
+        const { getActiveTrackingState } = await import('./exitHandler');
+        const tracking = getActiveTrackingState();
+
+        if (!tracking) {
+          heartbeatOutsideCount = 0;
+          return;
+        }
+
+        const { getLocationById } = await import('./database');
+        const location = await getLocationById(tracking.location_id);
+        if (!location) {
+          heartbeatOutsideCount = 0;
+          return;
+        }
+
+        const position = await BackgroundGeolocation.getCurrentPosition({
+          samples: 1,
+          persist: false,
+        } as any);
+
+        const distance = calculateDistance(
+          position.coords.latitude,
+          position.coords.longitude,
+          location.latitude,
+          location.longitude,
+        );
+
+        if (distance > location.radius) {
+          heartbeatOutsideCount++;
+          logger.info('geofence', `💓 Heartbeat: outside "${location.name}" (${Math.round(distance)}m, count=${heartbeatOutsideCount})`);
+
+          if (heartbeatOutsideCount >= 2 && geofenceHandler) {
+            logger.info('geofence', `🚨 Watchdog: 2x outside → injecting EXIT for "${location.name}"`);
+            heartbeatOutsideCount = 0;
+            geofenceHandler({
+              type: 'exit',
+              regionIdentifier: tracking.location_id,
+              timestamp: Date.now(),
+            });
+          }
+        } else {
+          if (heartbeatOutsideCount > 0) {
+            logger.info('geofence', `💓 Heartbeat: back inside "${location.name}" (${Math.round(distance)}m), reset`);
+          }
+          heartbeatOutsideCount = 0;
+        }
+      } catch (error) {
+        logger.warn('geofence', '💓 Heartbeat check failed', { error: String(error) });
       }
     });
 
@@ -220,6 +275,27 @@ export async function stopMonitoring(): Promise<void> {
 export async function isEnabled(): Promise<boolean> {
   const state = await BackgroundGeolocation.getState();
   return state.enabled;
+}
+
+// ============================================
+// MODE SWITCHING (active tracking vs idle)
+// ============================================
+
+export async function switchToActiveMode(): Promise<void> {
+  await BackgroundGeolocation.setConfig({
+    distanceFilter: 10,
+    stationaryRadius: 25,
+    stopTimeout: 5,
+  } as any);
+  logger.info('geofence', '⚡ Switched to ACTIVE mode (distanceFilter=10, stationaryRadius=25)');
+}
+
+export async function switchToIdleMode(): Promise<void> {
+  await BackgroundGeolocation.setConfig({
+    distanceFilter: 50,
+    stationaryRadius: 200,
+  } as any);
+  logger.info('geofence', '💤 Switched to IDLE mode (distanceFilter=50, stationaryRadius=200)');
 }
 
 // ============================================

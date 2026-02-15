@@ -14,6 +14,7 @@ import { useDailyLogStore } from '../stores/dailyLogStore';
 import { showArrivalNotification, showEndOfDayNotification, showSessionGuardNotification, showSimpleNotification } from './notifications';
 import { useAuthStore } from '../stores/authStore';
 import { upsertDailyHours, getDailyHours, formatTimeHHMM } from './database/daily';
+import { switchToActiveMode, switchToIdleMode } from './bgGeo';
 
 // ============================================
 // CONSTANTS
@@ -236,6 +237,7 @@ export async function onGeofenceEnter(
 
   // 4. Save new tracking entry
   setActiveTracking(locationId, locationName);
+  switchToActiveMode().catch(() => {}); // Best-effort, non-blocking
   logger.info('session', `✅ Tracking started: ${locationName}`);
 
   // 4b. Start session guard (safety net for runaway timers)
@@ -350,6 +352,7 @@ async function confirmExit(
 
   // 3. Clear active tracking
   clearActiveTracking();
+  switchToIdleMode().catch(() => {}); // Best-effort, non-blocking
 
   // 4. Update daily_hours
   const today = getToday();

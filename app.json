@@ -22,6 +22,7 @@
         "NSLocationAlwaysUsageDescription": "OnSite Timekeeper needs background location access to automatically track your work hours.",
         "NSPhotoLibraryUsageDescription": "OnSite Timekeeper may need access to your photo library to attach images.",
         "NSMicrophoneUsageDescription": "OnSite Timekeeper needs the microphone for voice commands.",
+        "NSMotionUsageDescription": "OnSite Timekeeper uses motion data to improve location accuracy for automatic work hour tracking.",
         "UIBackgroundModes": [
           "location",
           "fetch",
