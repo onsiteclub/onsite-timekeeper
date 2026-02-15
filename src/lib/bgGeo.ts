@@ -64,6 +64,7 @@ export async function configure(): Promise<void> {
     // v5 types expect nested config but runtime uses flat — cast to any
     await BackgroundGeolocation.ready({
       reset: true,
+      locationAuthorizationRequest: 'Always',
       desiredAccuracy: BackgroundGeolocation.DesiredAccuracy.High,
       distanceFilter: 50,
       geofenceProximityRadius: 1000,
@@ -281,21 +282,29 @@ export async function isEnabled(): Promise<boolean> {
 // MODE SWITCHING (active tracking vs idle)
 // ============================================
 
+/**
+ * ACTIVE mode: switch from geofence-only to full tracking.
+ * GPS + motion detection + accelerometer → reliable EXIT detection.
+ * Called by exitHandler on ENTER (session starts).
+ */
 export async function switchToActiveMode(): Promise<void> {
   await BackgroundGeolocation.setConfig({
     distanceFilter: 10,
     stationaryRadius: 25,
     stopTimeout: 5,
   } as any);
-  logger.info('geofence', '⚡ Switched to ACTIVE mode (distanceFilter=10, stationaryRadius=25)');
+  await BackgroundGeolocation.start();
+  logger.info('geofence', '⚡ Switched to ACTIVE mode (start + distanceFilter=10)');
 }
 
+/**
+ * IDLE mode: switch from full tracking back to geofence-only.
+ * Battery efficient — just waiting for next ENTER.
+ * Called by exitHandler on EXIT (session ends).
+ */
 export async function switchToIdleMode(): Promise<void> {
-  await BackgroundGeolocation.setConfig({
-    distanceFilter: 50,
-    stationaryRadius: 200,
-  } as any);
-  logger.info('geofence', '💤 Switched to IDLE mode (distanceFilter=50, stationaryRadius=200)');
+  await BackgroundGeolocation.startGeofences();
+  logger.info('geofence', '💤 Switched to IDLE mode (startGeofences)');
 }
 
 // ============================================
