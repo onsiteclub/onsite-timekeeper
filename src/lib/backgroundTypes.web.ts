@@ -26,11 +26,6 @@ export interface InternalGeofenceEvent {
   state: number;
 }
 
-export interface QueuedEvent {
-  event: InternalGeofenceEvent;
-  queuedAt: number;
-}
-
 // ============================================
 // CALLBACK TYPES
 // ============================================
@@ -44,7 +39,4 @@ export type ReconcileCallback = () => Promise<void>;
 // ============================================
 
 export const BACKGROUND_USER_KEY = '@onsite/background_user_id';
-export const RECONFIGURE_DEBOUNCE_MS = 5000;
 export const EVENT_DEDUP_WINDOW_MS = 10000;
-export const MAX_QUEUE_SIZE = 20;
-export const MAX_QUEUE_AGE_MS = 30000;

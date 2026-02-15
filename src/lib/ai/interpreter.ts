@@ -1,13 +1,17 @@
 /**
- * AI Interpreter - OnSite Timekeeper (Fase 1: IA Guardião)
+ * AI Interpreter - OnSite Timekeeper v4 (Redesign: Bolinha Azul)
  *
- * GPS event filter: local scoring (free, instant) + AI fallback (ambiguous cases).
+ * ROLE CHANGE: Guardian is now a CONSULTANT, not a GATEKEEPER.
+ * It classifies events for analytics/logging but NEVER blocks real exits.
+ *
+ * The blue dot position is validated upstream (geofenceLogic.ts).
+ * By the time an event reaches here, it's already confirmed by the blue dot.
  *
  * Flow:
  * 1. Build context (profile, session, device)
- * 2. Run local scoring — resolves ~80% of cases without API cost
- * 3. If definitive → return immediately
- * 4. If ambiguous → call Supabase Edge Function → return AI verdict
+ * 2. Run local classification (free, instant) — for analytics only
+ * 3. If entry at odd hours → send to AI for flag_review
+ * 4. Return verdict — exits ALWAYS confirm, entries may be flagged
  */
 
 import { logger } from '../logger';
@@ -104,7 +108,6 @@ export function buildWorkerProfile(userId: string): WorkerProfile {
       return defaultProfile();
     }
 
-    // Calculate averages from rows that have entry/exit times
     const withEntry = rows.filter(r => r.first_entry);
     const withExit = rows.filter(r => r.last_exit);
 
@@ -125,7 +128,6 @@ export function buildWorkerProfile(userId: string): WorkerProfile {
       : 16 * 60;
     const avgShift = rows.reduce((a, r) => a + r.total_minutes, 0) / rows.length / 60;
 
-    // Find typical work days (worked at least 30% of the time)
     const dayCounts: Record<number, number> = {};
     rows.forEach(r => { dayCounts[r.day_of_week] = (dayCounts[r.day_of_week] || 0) + 1; });
     const dayNames = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
@@ -165,7 +167,8 @@ function defaultProfile(): WorkerProfile {
 }
 
 /**
- * Get today's exit count for a specific fence from geofence_events table
+ * Get today's exit count for a specific fence from geofence_events table.
+ * Only counts confirmed events (logged AFTER AI verdict).
  */
 export function getTodayExitCount(userId: string, fenceId: string): { count: number; lastExitTime: string | null } {
   const today = getToday();
@@ -179,7 +182,6 @@ export function getTodayExitCount(userId: string, fenceId: string): { count: num
     );
     return { count: result?.count || 0, lastExitTime: result?.last_exit || null };
   } catch {
-    // Table might not exist yet (pre-migration)
     return { count: 0, lastExitTime: null };
   }
 }
@@ -209,17 +211,23 @@ export async function buildDeviceContextAsync(): Promise<DeviceContext> {
 }
 
 // ============================================================
-// LOCAL SCORING (runs first, no API cost)
+// LOCAL CLASSIFICATION (v4: consultant, never blocks)
 // ============================================================
 
 interface LocalScore {
-  score: number;         // 0-1 (0 = definitely noise, 1 = definitely real)
+  score: number;         // 0-1 (0 = suspicious, 1 = clean)
   reason: string;
-  skipAI: boolean;       // if true, local score is definitive
+  skipAI: boolean;       // if true, local classification is sufficient (no API call needed)
 }
 
 /**
- * Fast local scoring — resolves ~80% of cases without API call.
+ * Local classification — classifies events for analytics.
+ *
+ * v4 CHANGES:
+ * - EXIT events are NEVER blocked (skipAI: true + high score = confirm)
+ * - GPS bounce detection is removed (blue dot already validated upstream)
+ * - Only entries at truly odd hours go to AI for flag_review
+ * - "No active session" exits still return score 0 (phantom, safe to ignore)
  */
 export function localScore(
   event: TimekeeperEvent,
@@ -227,37 +235,31 @@ export function localScore(
   profile: WorkerProfile,
 ): LocalScore {
   const hour = new Date(event.timestamp).getHours();
-  const minute = new Date(event.timestamp).getMinutes();
-  const currentTimeMin = hour * 60 + minute;
   const dayOfWeek = new Date(event.timestamp).getDay();
   const dayNames = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
   const isWorkDay = profile.typical_work_days.includes(dayNames[dayOfWeek]);
 
   // ─── ENTRY SCORING ───
   if (isEntryEvent(event.type)) {
-    // Good accuracy + work hours + work day = definitely real
-    if (event.accuracy < 50 && hour >= 5 && hour <= 9 && isWorkDay) {
-      return { score: 0.95, reason: 'Clean entry during normal work hours', skipAI: true };
-    }
-    // Entry at night = suspicious
+    // Entry at night = suspicious, send to AI
     if (hour >= 22 || hour <= 3) {
       return { score: 0.1, reason: 'Entry at unusual hour (night)', skipAI: false };
     }
-    // Decent accuracy, reasonable hours
-    if (event.accuracy < 100 && hour >= 5 && hour <= 12) {
-      return { score: 0.85, reason: 'Good entry during work hours', skipAI: true };
+    // Work hours + work day = definitely real
+    if (hour >= 5 && hour <= 12 && isWorkDay) {
+      return { score: 0.95, reason: 'Clean entry during work hours', skipAI: true };
     }
-    // Poor accuracy
-    if (event.accuracy > 150) {
-      return { score: 0.4, reason: 'Entry with poor GPS accuracy', skipAI: false };
+    // Reasonable hours
+    if (hour >= 5 && hour <= 20) {
+      return { score: 0.85, reason: 'Entry during reasonable hours', skipAI: true };
     }
     // Default entry
     return { score: 0.7, reason: 'Entry with moderate confidence', skipAI: false };
   }
 
-  // ─── EXIT SCORING ───
+  // ─── EXIT SCORING (v4: NEVER blocks, only classifies) ───
   if (isExitEvent(event.type)) {
-    // No active session = nothing to exit from
+    // No active session = nothing to exit from (safe to ignore — no data loss)
     if (!session.active_tracking_exists) {
       return { score: 0.0, reason: 'No active session — phantom exit', skipAI: true };
     }
@@ -266,59 +268,32 @@ export function localScore(
       ? (Date.now() - new Date(session.enter_time).getTime()) / (1000 * 60 * 60)
       : 0;
 
-    // GPS bounce pattern: multiple exits in short time
-    if (session.exits_today >= 3 && session.time_since_last_exit_seconds !== null && session.time_since_last_exit_seconds < 1800) {
-      return { score: 0.05, reason: `GPS bounce: ${session.exits_today} exits today, last ${Math.round(session.time_since_last_exit_seconds / 60)}min ago`, skipAI: true };
-    }
-
-    // Very short session (< 30 min) = suspicious
+    // Short session flag (classify only, still confirm)
     if (sessionDurationHours < 0.5) {
-      return { score: 0.2, reason: 'Exit after very short session (<30min)', skipAI: false };
+      return { score: 0.7, reason: `Short session exit (${Math.round(sessionDurationHours * 60)}min) — confirming (blue dot verified)`, skipAI: true };
     }
 
-    // Clean exit: good accuracy + reasonable duration + afternoon
-    if (event.accuracy < 50 && sessionDurationHours >= 6 && hour >= 14 && hour <= 19) {
-      return { score: 0.95, reason: 'Clean exit: good GPS, full shift, normal end time', skipAI: true };
+    // Normal exit
+    if (sessionDurationHours >= 4) {
+      return { score: 0.95, reason: `Clean exit after ${sessionDurationHours.toFixed(1)}h session`, skipAI: true };
     }
 
-    // Good exit: decent accuracy + reasonable hours + decent duration
-    if (event.accuracy < 80 && sessionDurationHours >= 4 && hour >= 12 && hour <= 20) {
-      return { score: 0.85, reason: 'Good exit with reasonable parameters', skipAI: true };
-    }
-
-    // Poor accuracy but long session and late enough
-    if (event.accuracy > 100 && sessionDurationHours >= 7 && hour >= 15) {
-      return { score: 0.6, reason: 'Poor GPS but session duration and time suggest real exit', skipAI: false };
-    }
-
-    // Exit in the middle of expected shift
-    const [avgExitH, avgExitM] = profile.avg_exit_time.split(':').map(Number);
-    const avgExitMin = avgExitH * 60 + avgExitM;
-    const hoursBeforeNormalExit = (avgExitMin - currentTimeMin) / 60;
-    if (hoursBeforeNormalExit > 3) {
-      return { score: 0.3, reason: `Exit ${Math.round(hoursBeforeNormalExit)}h before normal end time`, skipAI: false };
-    }
-
-    // Poor accuracy overall
-    if (event.accuracy > 150) {
-      return { score: 0.3, reason: 'Exit with very poor GPS accuracy', skipAI: false };
-    }
-
-    // Default exit
-    return { score: 0.6, reason: 'Exit with moderate confidence', skipAI: false };
+    // Default exit — always confirm (blue dot already validated upstream)
+    return { score: 0.85, reason: `Exit after ${sessionDurationHours.toFixed(1)}h — confirmed (blue dot verified)`, skipAI: true };
   }
 
   // ─── RECONCILE CHECK ───
-  return { score: 0.5, reason: 'Reconcile check — needs AI evaluation', skipAI: false };
+  // Reconcile events are safety nets — always confirm
+  return { score: 0.85, reason: 'Reconcile event — confirming', skipAI: true };
 }
 
 // ============================================================
-// AI API CALL (only for ambiguous cases)
+// AI API CALL (only for suspicious entries)
 // ============================================================
 
 /**
  * Call AI interpreter via Supabase Edge Function.
- * Only called when localScore returns skipAI: false and score is in the gray zone.
+ * v4: Only called for entries at odd hours. Exits never reach here.
  */
 async function callAIInterpreter(
   event: TimekeeperEvent,
@@ -345,14 +320,17 @@ async function callAIInterpreter(
     });
 
     if (error) {
+      console.log(`[AI-GUARDIAN] ❌ Edge Function error: ${error.message}`);
       logger.error('ai', `Edge Function error: ${error.message}`);
       return fallbackVerdict(event);
     }
 
     const verdict: AIVerdict = data;
+    console.log(`[AI-GUARDIAN] 🤖 AI verdict: ${verdict.action} (confidence=${verdict.confidence}) | ${verdict.reason}`);
     logger.info('ai', `AI verdict: ${verdict.action} (${verdict.confidence})`, { reason: verdict.reason });
     return verdict;
   } catch (error) {
+    console.log(`[AI-GUARDIAN] ❌ AI interpreter failed: ${String(error)}`);
     logger.error('ai', 'AI interpreter failed, using fallback', { error: String(error) });
     return fallbackVerdict(event);
   }
@@ -373,15 +351,15 @@ export function isExitEvent(type: TimekeeperEvent['type']): boolean {
 }
 
 /**
- * Fallback when AI is unreachable — conservative decisions
+ * Fallback when AI is unreachable.
+ * v4: ALWAYS confirm. The blue dot was already validated upstream.
  */
 function fallbackVerdict(event: TimekeeperEvent): AIVerdict {
   if (isExitEvent(event.type)) {
     return {
-      action: 'wait_more_data',
-      confidence: 0.3,
-      reason: 'AI unreachable — waiting for more data before confirming exit',
-      cooldown_minutes: 5,
+      action: 'confirm_exit',
+      confidence: 0.8,
+      reason: 'AI unreachable — confirming exit (blue dot verified upstream)',
     };
   }
   if (isEntryEvent(event.type)) {
@@ -392,36 +370,35 @@ function fallbackVerdict(event: TimekeeperEvent): AIVerdict {
     };
   }
   return {
-    action: 'wait_more_data',
-    confidence: 0.3,
-    reason: 'AI unreachable — holding event',
+    action: 'confirm_entry',
+    confidence: 0.5,
+    reason: 'AI unreachable — confirming event',
   };
 }
 
 // ============================================================
-// MAIN INTERPRETER (combines local + AI)
+// MAIN INTERPRETER (v4: consultant, never blocks)
 // ============================================================
 
 /**
- * Main entry point. Call this from locationStore.handleGeofenceEvent
- * before processing any event.
+ * Main entry point. Called by locationStore.processEventWithAI.
  *
- * Flow:
- * 1. Build context (profile, session, device)
- * 2. Run local scoring (free, instant)
- * 3. If local is definitive → return immediately
- * 4. If ambiguous → call AI API → return verdict
+ * v4 CHANGES:
+ * - Exits ALWAYS return confirm_exit (blue dot already validated)
+ * - Only suspicious entries (night hours) go to AI
+ * - No more ignore_exit or wait_more_data for exits
  */
 export async function interpretEvent(
   event: TimekeeperEvent,
   userId: string
 ): Promise<AIVerdict> {
-  // 1. Build all context
+  console.log(`[AI-GUARDIAN] 🛡️ interpretEvent called: type=${event.type}, fence=${event.fence_name}, accuracy=${event.accuracy?.toFixed(0)}m, dist=${event.distance_from_center?.toFixed(0)}m`);
+
+  // 1. Build context
   const profile = buildWorkerProfile(userId);
   const exitInfo = getTodayExitCount(userId, event.fence_id);
   const device = await buildDeviceContextAsync();
 
-  // Build session context from active_tracking (singleton, no user_id column)
   let session: SessionContext;
   try {
     const active = db.getFirstSync<{
@@ -450,17 +427,19 @@ export async function interpretEvent(
     };
   }
 
-  // 2. Local scoring
+  // 2. Local classification
   const local = localScore(event, session, profile);
 
-  logger.info('ai', `Local score: ${local.score.toFixed(2)} (${local.reason})`, { skipAI: local.skipAI });
+  console.log(`[AI-GUARDIAN] 🧮 Local: score=${local.score.toFixed(2)} | skipAI=${local.skipAI} | ${local.reason}`);
+  logger.info('ai', `Local: ${local.score.toFixed(2)} (${local.reason})`, { skipAI: local.skipAI });
 
-  // 3. If local is definitive, convert to verdict
+  // 3. If local is sufficient, return verdict
   if (local.skipAI) {
     const action = isEntryEvent(event.type)
       ? (local.score > 0.5 ? 'confirm_entry' : 'ignore_entry')
       : (local.score > 0.5 ? 'confirm_exit' : 'ignore_exit');
 
+    console.log(`[AI-GUARDIAN] ✅ LOCAL verdict: ${action} (confidence=${local.score.toFixed(2)})`);
     return {
       action: action as AIVerdict['action'],
       confidence: local.score,
@@ -468,19 +447,14 @@ export async function interpretEvent(
     };
   }
 
-  // 4. Gray zone — call AI via Supabase Edge Function (only if online)
+  // 4. Gray zone — call AI (only for suspicious entries, never for exits)
   if (device.network === 'offline') {
-    logger.warn('ai', 'Offline — using local score as fallback');
-    const action = isEntryEvent(event.type)
-      ? (local.score > 0.5 ? 'confirm_entry' : 'wait_more_data')
-      : (local.score > 0.5 ? 'confirm_exit' : 'wait_more_data');
-    return {
-      action: action as AIVerdict['action'],
-      confidence: local.score,
-      reason: `[LOCAL-OFFLINE] ${local.reason}`,
-    };
+    console.log(`[AI-GUARDIAN] 📴 OFFLINE — using fallback`);
+    logger.warn('ai', 'Offline — using fallback');
+    return fallbackVerdict(event);
   }
 
+  console.log(`[AI-GUARDIAN] 🌐 Gray zone (score=${local.score.toFixed(2)}) — calling AI...`);
   return callAIInterpreter(event, session, profile, device);
 }
 
@@ -489,8 +463,8 @@ export async function interpretEvent(
 // ============================================================
 
 /**
- * Log a raw geofence event to geofence_events table (for exit frequency tracking).
- * Called BEFORE interpretEvent so we have accurate exit counts.
+ * Log a confirmed geofence event to geofence_events table.
+ * v4: Called AFTER AI verdict (only confirmed events are logged).
  */
 export function logGeofenceEvent(
   userId: string,
@@ -549,6 +523,5 @@ export function logEventForTraining(
     );
   } catch (error) {
     logger.warn('ai', 'Failed to log event for training', { error: String(error) });
-    // Non-critical
   }
 }

@@ -1,8 +1,19 @@
 /**
- * Geofence Logic - OnSite Timekeeper v3
+ * Geofence Logic - OnSite Timekeeper v4
  *
- * Event processing, fence cache, deduplication, reconfigure queue.
- * SIMPLIFIED: No hysteresis, no ping-pong tracking.
+ * REDESIGNED: "Segue a Bolinha Azul"
+ *
+ * The blue dot (Fused Location) IS the truth.
+ * Instead of accuracy gates and retry loops, we check one thing:
+ * does the blue dot agree with the OS event?
+ *
+ * - ENTRY + blue dot inside fence → real → process
+ * - ENTRY + blue dot outside fence → phantom → ignore
+ * - EXIT + blue dot outside fence → real → process
+ * - EXIT + blue dot inside fence → GPS bounce → ignore
+ *
+ * Removed: exit retry, reconfigure queue, accuracy gates.
+ * Kept: dedup (10s), reconfigure window (5s), fence cache, distance calc.
  */
 
 import * as Location from 'expo-location';
@@ -11,10 +22,7 @@ import { updateActiveFences as _updateActiveFences } from './backgroundHelpers';
 import { getGeofenceCallback } from './taskCallbacks';
 import {
   type InternalGeofenceEvent,
-  type QueuedEvent,
   EVENT_DEDUP_WINDOW_MS,
-  MAX_QUEUE_SIZE,
-  MAX_QUEUE_AGE_MS,
 } from './backgroundTypes';
 
 // ============================================
@@ -85,7 +93,6 @@ export function localCheckInsideFence(
 ): { isInside: boolean; fenceId?: string; fenceName?: string; distance?: number } {
   for (const [id, fence] of fenceCache.entries()) {
     const distance = localCalculateDistance(lat, lng, fence.lat, fence.lng);
-    // Use real radius (no hysteresis)
     if (distance <= fence.radius) {
       return { isInside: true, fenceId: id, fenceName: fence.name, distance };
     }
@@ -124,276 +131,96 @@ function isDuplicateEvent(regionId: string, eventType: string): boolean {
 }
 
 // ============================================
-// RECONFIGURE STATE
+// RECONFIGURE STATE (simplified — just drop events during window)
 // ============================================
 
 let isReconfiguring = false;
-let drainScheduled = false;
-const reconfigureQueue: QueuedEvent[] = [];
 
 /**
- * Set reconfiguring state (used by locationStore, syncStore)
+ * Set reconfiguring state (used by locationStore, syncStore).
+ * During reconfiguration, ALL events are dropped (no queue).
+ * The reconcileState() safety net will catch any real state mismatch after the window closes.
  */
 export function setReconfiguring(value: boolean): void {
-  const wasReconfiguring = isReconfiguring;
   isReconfiguring = value;
   logger.debug('geofence', `Reconfiguring: ${value}`);
-
-  // Drain queue when reconfiguring ends (with debounce)
-  if (wasReconfiguring && !value && !drainScheduled) {
-    drainScheduled = true;
-    setTimeout(async () => {
-      drainScheduled = false;
-      await drainReconfigureQueue();
-    }, 500);
-  }
-}
-
-/**
- * Queue event during reconfigure
- */
-function queueEventDuringReconfigure(event: InternalGeofenceEvent): void {
-  const regionId = event.region.identifier ?? 'unknown';
-  const eventType = event.state === Location.GeofencingRegionState.Inside ? 'ENTER' : 'EXIT';
-
-  // Check queue size limit
-  if (reconfigureQueue.length >= MAX_QUEUE_SIZE) {
-    logger.warn('geofence', `⚠️ Event queue full, dropping oldest: ${eventType} - ${regionId}`);
-    reconfigureQueue.shift();
-  }
-
-  reconfigureQueue.push({ event, queuedAt: Date.now() });
-  logger.info('geofence', `⏸️ Event QUEUED (reconfiguring): ${eventType} - ${regionId}`, {
-    queueSize: reconfigureQueue.length,
-  });
-}
-
-async function drainReconfigureQueue(): Promise<void> {
-  if (reconfigureQueue.length === 0) {
-    logger.debug('geofence', '📭 Reconfigure queue empty, nothing to drain');
-    return;
-  }
-
-  const now = Date.now();
-  const queueSize = reconfigureQueue.length;
-
-  logger.info('geofence', `▶️ Draining ${queueSize} queued events`);
-
-  let processed = 0;
-  let dropped = 0;
-
-  while (reconfigureQueue.length > 0) {
-    const item = reconfigureQueue.shift()!;
-    const age = now - item.queuedAt;
-
-    // Drop events that are too old
-    if (age > MAX_QUEUE_AGE_MS) {
-      const regionId = item.event.region.identifier ?? 'unknown';
-      logger.warn('geofence', `🗑️ Event dropped (too old: ${(age / 1000).toFixed(1)}s): ${regionId}`);
-      dropped++;
-      continue;
-    }
-
-    // Process the event
-    try {
-      await processQueuedEvent(item.event);
-      processed++;
-    } catch (error) {
-      logger.error('geofence', 'Error processing queued event', { error: String(error) });
-    }
-  }
-
-  logger.info('geofence', `✅ Queue drained: ${processed} processed, ${dropped} dropped`);
-}
-
-async function processQueuedEvent(event: InternalGeofenceEvent): Promise<void> {
-  const { region, state } = event;
-  const regionId = region.identifier ?? 'unknown';
-  const eventType = state === Location.GeofencingRegionState.Inside ? 'enter' : 'exit';
-
-  // Check duplicate (even for queued events)
-  if (isDuplicateEvent(regionId, eventType)) {
-    logger.warn('geofence', `🚫 DUPLICATE queued event ignored: ${eventType.toUpperCase()} - ${regionId}`);
-    return;
-  }
-
-  // Get fence info
-  const fence = fenceCache.get(regionId);
-  const fenceName = fence?.name || 'Unknown';
-
-  logger.info('geofence', `📍 Geofence ${eventType} (from queue): ${fenceName}`);
-
-  // Call callback
-  const geofenceCallback = getGeofenceCallback();
-  if (geofenceCallback) {
-    geofenceCallback({
-      type: eventType,
-      regionIdentifier: regionId,
-      timestamp: Date.now(),
-    });
-  }
 }
 
 // ============================================
-// EXIT RETRY (up to 3 attempts, 15s apart)
-// ============================================
-
-const EXIT_RETRY_INTERVAL_MS = 15_000; // 15 seconds
-const EXIT_RETRY_MAX_ATTEMPTS = 3;
-const EXIT_RETRY_ACCURACY_THRESHOLD = 150; // meters
-
-let activeExitRetry: { regionId: string; timer: ReturnType<typeof setTimeout> } | null = null;
-
-function scheduleExitRetry(
-  event: InternalGeofenceEvent,
-  fenceName: string,
-  attempt: number,
-): void {
-  const regionId = event.region.identifier ?? 'unknown';
-
-  // Cancel any existing retry for a different region
-  if (activeExitRetry && activeExitRetry.regionId !== regionId) {
-    clearTimeout(activeExitRetry.timer);
-    activeExitRetry = null;
-  }
-
-  if (attempt > EXIT_RETRY_MAX_ATTEMPTS) {
-    logger.warn('geofence', `🚫 EXIT retry exhausted (${EXIT_RETRY_MAX_ATTEMPTS} attempts): ${fenceName}`);
-    activeExitRetry = null;
-    return;
-  }
-
-  logger.info('geofence', `🔄 EXIT retry ${attempt}/${EXIT_RETRY_MAX_ATTEMPTS} scheduled in 15s: ${fenceName}`);
-
-  const timer = setTimeout(async () => {
-    activeExitRetry = null;
-
-    try {
-      // Get fresh high-accuracy GPS
-      const freshLocation = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.High,
-      });
-
-      const accuracy = freshLocation.coords.accuracy ?? 999;
-      logger.info('geofence', `🔄 EXIT retry ${attempt} GPS: accuracy ${accuracy.toFixed(0)}m`);
-
-      // If still poor accuracy, retry again
-      if (accuracy > EXIT_RETRY_ACCURACY_THRESHOLD) {
-        logger.warn('geofence', `⏳ EXIT retry ${attempt} still poor accuracy (${accuracy.toFixed(0)}m)`);
-        scheduleExitRetry(event, fenceName, attempt + 1);
-        return;
-      }
-
-      // Check if actually outside the fence
-      const fence = fenceCache.get(regionId);
-      if (!fence) {
-        logger.warn('geofence', `🔄 EXIT retry: fence ${regionId} not in cache, discarding`);
-        return;
-      }
-
-      const distance = localCalculateDistance(
-        freshLocation.coords.latitude,
-        freshLocation.coords.longitude,
-        fence.lat,
-        fence.lng,
-      );
-
-      if (distance > fence.radius) {
-        // Confirmed outside — process the exit
-        logger.info('geofence', `✅ EXIT retry ${attempt} CONFIRMED outside ${fenceName} (${distance.toFixed(0)}m > ${fence.radius}m radius)`);
-
-        const geofenceCallback = getGeofenceCallback();
-        if (geofenceCallback) {
-          geofenceCallback({
-            type: 'exit',
-            regionIdentifier: regionId,
-            timestamp: Date.now(),
-          });
-        }
-      } else {
-        // Still inside — discard the exit
-        logger.info('geofence', `🚫 EXIT retry ${attempt}: still inside ${fenceName} (${distance.toFixed(0)}m <= ${fence.radius}m) — discarding exit`);
-      }
-    } catch (error) {
-      logger.error('geofence', `EXIT retry ${attempt} error`, { error: String(error) });
-      scheduleExitRetry(event, fenceName, attempt + 1);
-    }
-  }, EXIT_RETRY_INTERVAL_MS);
-
-  activeExitRetry = { regionId, timer };
-}
-
-/**
- * Cancel any active exit retry (exported for cleanup)
- */
-export function cancelExitRetry(): void {
-  if (activeExitRetry) {
-    clearTimeout(activeExitRetry.timer);
-    activeExitRetry = null;
-    logger.debug('geofence', 'Exit retry cancelled');
-  }
-}
-
-// ============================================
-// GEOFENCE EVENT PROCESSING
+// GEOFENCE EVENT PROCESSING (v4: Bolinha Azul)
 // ============================================
 
 /**
- * Process geofence event (used by backgroundTasks)
+ * Process geofence event (used by backgroundTasks).
+ *
+ * v4 flow:
+ * 1. Reconfiguring (5s window)? → drop
+ * 2. Duplicate (10s)? → drop
+ * 3. Get blue dot position (last known GPS)
+ * 4. Blue dot agrees with event? → process. Disagrees? → phantom, drop.
  */
 export async function processGeofenceEvent(event: InternalGeofenceEvent): Promise<void> {
   const { region, state } = event;
   const regionId = region.identifier ?? 'unknown';
   const eventType = state === Location.GeofencingRegionState.Inside ? 'enter' : 'exit';
 
-  // Queue during reconfigure
+  // 1. Drop during reconfigure (window is 5s — set by locationStore.restartMonitoring)
   if (isReconfiguring) {
-    queueEventDuringReconfigure(event);
+    logger.info('geofence', `⏸️ Event DROPPED (reconfiguring): ${eventType.toUpperCase()} - ${regionId}`);
     return;
   }
 
-  // Check duplicate (10s window)
+  // 2. Dedup (10s window)
   if (isDuplicateEvent(regionId, eventType)) {
     logger.warn('geofence', `🚫 DUPLICATE event ignored: ${eventType.toUpperCase()} - ${regionId}`);
     return;
   }
 
-  // Get fence info
+  // 3. Get fence info
   const fence = fenceCache.get(regionId);
   const fenceName = fence?.name || 'Unknown';
 
-  // GPS accuracy gate
-  try {
-    const currentLocation = await Location.getLastKnownPositionAsync({
-      maxAge: 10000,
-      requiredAccuracy: 100,
-    });
-    if (currentLocation?.coords.accuracy) {
-      const accuracy = currentLocation.coords.accuracy;
-      const threshold = eventType === 'exit' ? 150 : 100;
-      if (accuracy > threshold) {
-        if (eventType === 'exit') {
-          // Don't discard — schedule retry with fresh high-accuracy GPS
-          logger.warn('geofence', `⏳ EXIT deferred (accuracy ${accuracy.toFixed(0)}m > ${threshold}m): ${fenceName}`);
-          scheduleExitRetry(event, fenceName, 1);
+  // 4. BOLINHA AZUL: Get last known GPS position and verify distance
+  if (fence) {
+    try {
+      const currentLocation = await Location.getLastKnownPositionAsync({
+        maxAge: 15000, // 15s — fresh enough for Fused Location
+      });
+
+      if (currentLocation) {
+        const blueDotLat = currentLocation.coords.latitude;
+        const blueDotLng = currentLocation.coords.longitude;
+        const distanceFromFence = localCalculateDistance(blueDotLat, blueDotLng, fence.lat, fence.lng);
+        // Use 1.5x radius as buffer for GPS inaccuracy at fence edge
+        const isInsideFence = distanceFromFence <= fence.radius * 1.5;
+
+        if (eventType === 'enter' && !isInsideFence) {
+          // OS says ENTER but blue dot is outside → phantom
+          logger.warn('geofence', `🚫 PHANTOM ENTRY rejected: blue dot ${distanceFromFence.toFixed(0)}m from ${fenceName} (limit=${(fence.radius * 1.5).toFixed(0)}m)`);
           return;
         }
-        logger.warn('geofence', `🚫 SKIPPED ${eventType} (accuracy ${accuracy.toFixed(0)}m > ${threshold}m): ${fenceName}`);
-        return;
+
+        if (eventType === 'exit' && isInsideFence) {
+          // OS says EXIT but blue dot is inside → GPS bounce
+          logger.warn('geofence', `🚫 GPS BOUNCE rejected: blue dot ${distanceFromFence.toFixed(0)}m from ${fenceName} (inside ${fence.radius}m radius)`);
+          return;
+        }
+
+        // Blue dot agrees with event — log distance for debugging
+        logger.info('geofence', `📍 Geofence ${eventType}: ${fenceName} (blue dot ${distanceFromFence.toFixed(0)}m, ${isInsideFence ? 'inside' : 'outside'})`);
+      } else {
+        // No GPS available — trust the OS event (Fused Location Provider already validated it)
+        logger.info('geofence', `📍 Geofence ${eventType}: ${fenceName} (no GPS cache, trusting OS)`);
       }
-      if (accuracy > 50) {
-        logger.warn('geofence', `⚠️ LOW GPS ACCURACY: ${accuracy.toFixed(0)}m for ${eventType}: ${fenceName}`);
-      }
+    } catch {
+      // GPS check failed — trust the OS event
+      logger.debug('geofence', `📍 Geofence ${eventType}: ${fenceName} (GPS check failed, trusting OS)`);
     }
-  } catch {
-    // Could not check GPS accuracy, proceed normally
-    logger.debug('geofence', 'Could not check GPS accuracy, proceeding');
+  } else {
+    logger.info('geofence', `📍 Geofence ${eventType}: ${regionId} (fence not in cache)`);
   }
 
-  // Log event
-  logger.info('geofence', `📍 Geofence ${eventType}: ${fenceName}`);
-
-  // Call callback
+  // 5. Pass to callback (bootstrap → locationStore)
   const geofenceCallback = getGeofenceCallback();
   if (geofenceCallback) {
     geofenceCallback({

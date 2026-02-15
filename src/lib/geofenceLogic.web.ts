@@ -44,7 +44,6 @@ export function localCheckInsideFence(
 // ============================================
 
 export function setReconfiguring(_value: boolean): void {}
-export function cancelExitRetry(): void {}
 
 // ============================================
 // GEOFENCE EVENT PROCESSING (no-op)
