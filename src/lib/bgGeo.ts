@@ -175,7 +175,7 @@ export async function configure(): Promise<void> {
 
     // Log SDK state to verify license + config
     try {
-      const state = await BackgroundGeolocation.getState();
+      const state = await BackgroundGeolocation.getState() as any;
       logger.info('boot', `📋 SDK state: enabled=${state.enabled}, didLaunchInBackground=${state.didLaunchInBackground}`, {
         enabled: state.enabled,
         trackingMode: state.trackingMode,
