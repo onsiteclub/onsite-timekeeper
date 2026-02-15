@@ -7,7 +7,7 @@
  * Returns text transcription in any language (auto-detected by Whisper).
  */
 
-import { Audio } from 'expo-av';
+import { Audio, InterruptionModeIOS, InterruptionModeAndroid } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
 import { Platform } from 'react-native';
 import { supabase } from '../supabase';
@@ -67,24 +67,21 @@ export async function startRecording(): Promise<boolean | 'denied'> {
         // Already stopped/unloaded, ignore
       }
       currentRecording = null;
+      // Give iOS time to release native AVAudioRecorder resources
+      await new Promise(r => setTimeout(r, 200));
     }
 
-    // Configure audio mode for recording
+    // Configure audio mode for recording (interruptionModeIOS is critical for iOS)
     await Audio.setAudioModeAsync({
       allowsRecordingIOS: true,
       playsInSilentModeIOS: true,
+      interruptionModeIOS: InterruptionModeIOS.DoNotMix,
+      shouldDuckAndroid: true,
+      interruptionModeAndroid: InterruptionModeAndroid.DoNotMix,
     });
 
-    // Create and start recording
-    const recording = new Audio.Recording();
-    try {
-      await recording.prepareToRecordAsync(RECORDING_OPTIONS);
-      await recording.startAsync();
-    } catch (prepError) {
-      // If prepare/start fails, unload to release hardware
-      try { await recording.stopAndUnloadAsync(); } catch { /* ignore */ }
-      throw prepError;
-    }
+    // Create and start recording atomically (recommended over new Recording() + prepare + start)
+    const { recording } = await Audio.Recording.createAsync(RECORDING_OPTIONS);
 
     currentRecording = recording;
     logger.info('voice', 'Whisper recording started');
@@ -112,9 +109,10 @@ export async function stopAndTranscribe(): Promise<string | null> {
     const uri = currentRecording.getURI();
     currentRecording = null;
 
-    // Reset audio mode
+    // Reset audio mode (disable recording so playback works normally)
     await Audio.setAudioModeAsync({
       allowsRecordingIOS: false,
+      interruptionModeIOS: InterruptionModeIOS.DoNotMix,
     });
 
     if (!uri) {
@@ -195,6 +193,7 @@ export async function cancelRecording(): Promise<void> {
 
     await Audio.setAudioModeAsync({
       allowsRecordingIOS: false,
+      interruptionModeIOS: InterruptionModeIOS.DoNotMix,
     });
 
     if (uri) {

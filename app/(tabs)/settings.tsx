@@ -429,6 +429,19 @@ export default function SettingsScreen() {
           <Text style={styles.versionLabel}>Version</Text>
           <Text style={styles.versionValue}>{Constants.expoConfig?.version || '1.0.0'}</Text>
         </View>
+
+        <View style={styles.divider} />
+
+        <TouchableOpacity
+          style={styles.linkRow}
+          onPress={() => router.push('/logs' as any)}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Ionicons name="terminal-outline" size={18} color={colors.textSecondary} />
+            <Text style={styles.linkText}>System Logs</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+        </TouchableOpacity>
       </AccordionSection>
 
       {/* ============================================ */}

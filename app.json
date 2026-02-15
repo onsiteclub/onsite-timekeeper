@@ -2,7 +2,7 @@
   "expo": {
     "name": "OnSite Timekeeper",
     "slug": "onsite-timekeeper",
-    "version": "1.4.0",
+    "version": "1.4.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "onsite-timekeeper",
@@ -12,7 +12,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.onsiteclub.timekeeper",
-      "buildNumber": "9",
+      "buildNumber": "10",
       "config": {
         "googleMapsApiKey": "AIzaSyBdITLu3Kr5OYPr8ZnhxIGVNFHIGEgvfKY"
       },
@@ -35,7 +35,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0B0D10"
       },
-      "versionCode": 6,
+      "versionCode": 7,
       "package": "com.onsiteclub.timekeeper",
       "allowBackup": false,
       "config": {
@@ -113,8 +113,8 @@
         "react-native-background-geolocation",
         {
           "license": {
-            "android": "eyJhbGciOiJFZERTQSIsImtpZCI6ImVkMjU1MTktbWFpbi1VbkMjU1MTktbWFpbiIsInR5cCI6IkpXVCJ9.eyJvcyl6ImFuZHJvaWQiLCJhcHBfaWQiOiJjb20ub25zaXRlY2x1Yi50aW1la2VlcGVyIiwib3JkZXJfbnVtYmVyIjoxNTQ4OSwicHVyY2hhc2VfdXJsIjoiaHR0cHM6Ly9zaG9wLnRyYW5zaXN0b3Jzb2Z0LmNvbS9vcmRlcnMvMjk",
-            "ios": "eyJhbGciOiJFZERTQSIsImtpZCI6ImVkMjU1MTktbWFpbi12MktJU1MTktbWFpbiIsInR5cCI6IkpXVCJ9.eyJvcyl6Imlvc19zaW5nbGUiLCJhcHBfaWQiOiJjb20ub25zaXRlY2x1Yi50aW1la2VlcGVyIiwib3JkZXJfbnVtYmVyIjoxNTQ4OSwicHVyY2hhc2VfdXJsIjoiaHR0cHM6Ly9zaG9wLnRyYW5zaXN0b3Jzb2Z0LmNvbS9vcmRlcnMvMjk"
+            "android": "eyJhbGciOiJFZERTQSIsImtpZCI6ImVkMjU1MTktbWFpbi12MSJ9.eyJvcyI6ImFuZHJvaWQiLCJhcHBfaWQiOiJjb20ub25zaXRlY2x1Yi50aW1la2VlcGVyIiwib3JkZXJfbnVtYmVyIjoxNTQ4OSwicmVuZXdhbF91cmwiOiJodHRwczovL3Nob3AudHJhbnNpc3RvcnNvZnQuY29tL2NhcnQvMTY1MDc4NjE1MDU6MT9ub3RlPTEwMzAyIiwiY3VzdG9tZXJfaWQiOjkzNzcsInByb2R1Y3QiOiJyZWFjdC1uYXRpdmUtYmFja2dyb3VuZC1nZW9sb2NhdGlvbiIsImtleV92ZXJzaW9uIjoxLCJhbGxvd2VkX3N1ZmZpeGVzIjpbIi5kZXYiLCIuZGV2ZWxvcG1lbnQiLCIuc3RhZ2luZyIsIi5zdGFnZSIsIi5xYSIsIi51YXQiLCIudGVzdCIsIi5kZWJ1ZyJdLCJtYXhfYnVpbGRfc3RhbXAiOjIwMjcwMzE1LCJncmFjZV9idWlsZHMiOjAsImVudGl0bGVtZW50cyI6WyJjb3JlIl0sImlhdCI6MTc3MTEyNzkwN30.DMaR-9jymNddxHcUVMxpnMeOtoMgRKzmmQ6p6wV8Zkl_Fu1GN-qDEICbI7y4C31NgbIAs9FAUgGsRUclNsDPDQ",
+            "ios": "eyJhbGciOiJFZERTQSIsImtpZCI6ImVkMjU1MTktbWFpbi12MSJ9.eyJvcyI6ImlvcyIsImFwcF9pZCI6ImNvbS5vbnNpdGVjbHViLnRpbWVrZWVwZXIiLCJvcmRlcl9udW1iZXIiOjE1NDg5LCJyZW5ld2FsX3VybCI6Imh0dHBzOi8vc2hvcC50cmFuc2lzdG9yc29mdC5jb20vY2FydC8xNjUwNzg2MTUwNToxP25vdGU9MTAzMDIiLCJjdXN0b21lcl9pZCI6OTM3NywicHJvZHVjdCI6InJlYWN0LW5hdGl2ZS1iYWNrZ3JvdW5kLWdlb2xvY2F0aW9uIiwia2V5X3ZlcnNpb24iOjEsImFsbG93ZWRfc3VmZml4ZXMiOlsiLmRldiIsIi5kZXZlbG9wbWVudCIsIi5zdGFnaW5nIiwiLnN0YWdlIiwiLnFhIiwiLnVhdCIsIi50ZXN0IiwiLmRlYnVnIl0sIm1heF9idWlsZF9zdGFtcCI6MjAyNzAzMTUsImdyYWNlX2J1aWxkcyI6MCwiZW50aXRsZW1lbnRzIjpbImNvcmUiXSwiaWF0IjoxNzcxMTI3OTA2fQ.TWLKID87AmI-myFp0LjHsw7If4ZzkHXIyQ5Jx8-r5MijX42dgCRTGJE7F20cHEQzcYFD5eozI0pwJAAHzbKpBg"
           },
           "backgroundPermissionRationale": {
             "title": "Allow OnSite Timekeeper to access your location in the background?",

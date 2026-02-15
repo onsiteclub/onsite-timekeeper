@@ -172,6 +172,22 @@ export async function configure(): Promise<void> {
 
     isConfigured = true;
     logger.info('boot', '✅ BackgroundGeolocation configured (transistorsoft)');
+
+    // Log SDK state to verify license + config
+    try {
+      const state = await BackgroundGeolocation.getState();
+      logger.info('boot', `📋 SDK state: enabled=${state.enabled}, didLaunchInBackground=${state.didLaunchInBackground}`, {
+        enabled: state.enabled,
+        trackingMode: state.trackingMode,
+        didLaunchInBackground: state.didLaunchInBackground,
+        stopOnTerminate: state.stopOnTerminate,
+        startOnBoot: state.startOnBoot,
+        distanceFilter: state.distanceFilter,
+        geofenceProximityRadius: state.geofenceProximityRadius,
+      });
+    } catch (stateError) {
+      logger.warn('boot', '⚠️ Could not read SDK state', { error: String(stateError) });
+    }
   } catch (error) {
     logger.error('boot', '❌ BackgroundGeolocation.ready() failed', { error: String(error) });
   }
