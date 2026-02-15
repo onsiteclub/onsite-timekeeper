@@ -15,12 +15,11 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppState, AppStateStatus, Platform, Linking } from 'react-native';
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
-import * as TaskManager from 'expo-task-manager';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { logger } from '../lib/logger';
 import { captureError } from '../lib/database/errors';
 import { useLocationStore } from '../stores/locationStore';
-import { LOCATION_TASK_NAME } from '../lib/constants';
+import { isEnabled as bgGeoIsEnabled } from '../lib/bgGeo';
 
 // ============================================
 // TYPES
@@ -80,18 +79,18 @@ export function usePermissionStatus(): PermissionStatus {
   
   const checkForegroundServiceStatus = useCallback(async () => {
     try {
-      // Check if the background location task is registered and running
-      const isTaskRegistered = await TaskManager.isTaskRegisteredAsync(LOCATION_TASK_NAME);
-      
-      // If monitoring should be active but task is not registered, service was killed
-      if (isMonitoring && !isTaskRegistered) {
+      // Check if the background geolocation SDK is still enabled
+      const isSdkEnabled = await bgGeoIsEnabled();
+
+      // If monitoring should be active but SDK is not enabled, service was killed
+      if (isMonitoring && !isSdkEnabled) {
         setForegroundServiceKilled(true);
         await AsyncStorage.setItem(SERVICE_KILLED_KEY, 'true');
         logger.warn('permissions', '⚠️ Foreground service was killed by system');
       } else {
         // Check stored state
         const wasKilled = await AsyncStorage.getItem(SERVICE_KILLED_KEY);
-        if (wasKilled === 'true' && isTaskRegistered) {
+        if (wasKilled === 'true' && isSdkEnabled) {
           // Service was restored
           setForegroundServiceKilled(false);
           await AsyncStorage.removeItem(SERVICE_KILLED_KEY);

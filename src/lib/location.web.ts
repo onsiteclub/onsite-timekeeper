@@ -5,10 +5,6 @@
  * All functions return safe defaults.
  */
 
-// Platform-aware geofence limits (not relevant on web)
-export const GEOFENCE_LIMIT = 20;
-export const GEOFENCE_WARN_THRESHOLD = 16;
-
 // ============================================
 // TYPES (same as native)
 // ============================================
@@ -85,33 +81,7 @@ export async function startPositionWatch(
 
 export async function stopPositionWatch(): Promise<void> {}
 
-// ============================================
-// GEOFENCING (no-op on web)
-// ============================================
-
-export async function startGeofencing(_regions: GeofenceRegion[]): Promise<boolean> {
-  return false;
-}
-
-export async function stopGeofencing(): Promise<void> {}
-
-export async function isGeofencingActive(): Promise<boolean> {
-  return false;
-}
-
-// ============================================
-// BACKGROUND LOCATION (no-op on web)
-// ============================================
-
-export async function startBackgroundLocation(): Promise<boolean> {
-  return false;
-}
-
-export async function stopBackgroundLocation(): Promise<void> {}
-
-export async function isBackgroundLocationActive(): Promise<boolean> {
-  return false;
-}
+// NOTE: Geofencing + background location now handled by bgGeo.ts (transistorsoft)
 
 // ============================================
 // UTILITIES (pure math — works on web)

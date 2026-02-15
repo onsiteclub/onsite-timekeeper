@@ -35,7 +35,7 @@ export async function createLocation(params: CreateLocationParams): Promise<stri
   const timestamp = now();
 
   // Safety clamp radius (primary validation is in locationStore)
-  const safeRadius = Math.min(1000, Math.max(50, params.radius || 100));
+  const safeRadius = Math.min(1000, Math.max(200, params.radius || 200));
 
   try {
     logger.info('database', `[DB:locations] INSERT - name: ${params.name}, radius: ${safeRadius}`);

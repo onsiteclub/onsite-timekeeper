@@ -14,18 +14,17 @@
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { logger } from '../lib/logger';
-import { Platform } from 'react-native';
 import {
   requestAllPermissions,
   getCurrentLocation,
-  startGeofencing,
-  stopGeofencing,
-  startBackgroundLocation,
-  stopBackgroundLocation,
-  isGeofencingActive as checkGeofencingActive,
-  GEOFENCE_LIMIT,
   type LocationResult,
-} from '../lib/location'; // meters
+} from '../lib/location';
+import {
+  addGeofences as bgGeoAddGeofences,
+  startGeofences as bgGeoStart,
+  stopMonitoring as bgGeoStop,
+  isEnabled as bgGeoIsEnabled,
+} from '../lib/bgGeo';
 import {
   // Location CRUD
   createLocation,
@@ -60,7 +59,7 @@ import {
   addToSkippedToday,
   removeFromSkippedToday,
 } from '../lib/backgroundHelpers';
-import type { GeofenceEvent } from '../lib/backgroundTypes';
+import type { GeofenceEvent } from '../lib/bgGeo';
 import { logGeofenceEvent } from '../lib/eventLog';
 import { useAuthStore } from './authStore';
 import { useSyncStore } from './syncStore';
@@ -68,8 +67,8 @@ import { useSyncStore } from './syncStore';
 import { useDailyLogStore } from './dailyLogStore';
 import { useSettingsStore } from './settingsStore';
 
-// Radius bounds
-const MIN_RADIUS = 50;  // meters
+// Radius bounds (transistorsoft minimum reliable radius is 200m)
+const MIN_RADIUS = 200;  // meters
 const MAX_RADIUS = 1000;
 
 // ============================================
@@ -293,7 +292,7 @@ export const useLocationStore = create<LocationState>((set, get) => ({
       }
 
       // Also check if geofencing was already running (e.g., app was killed and restarted)
-      const isAlreadyRunning = await checkGeofencingActive();
+      const isAlreadyRunning = await bgGeoIsEnabled();
       if (isAlreadyRunning && !get().isMonitoring) {
         logger.info('geofence', '♻️ Geofencing was already active, updating state');
         set({ isMonitoring: true });
@@ -346,19 +345,12 @@ export const useLocationStore = create<LocationState>((set, get) => ({
 
     // Validate radius bounds
     if (radius < MIN_RADIUS || radius > MAX_RADIUS) {
-      throw new Error(`Radius must be between ${MIN_RADIUS}m and ${MAX_RADIUS}m`);
+      throw new Error(`Minimum radius for reliable tracking: ${MIN_RADIUS}m`);
     }
 
     // Get minimum distance setting
     const minDistance = useSettingsStore.getState().distanciaMinimaLocais;
     const existingLocations = get().locations;
-
-    // Check geofence platform limit
-    if (existingLocations.length >= GEOFENCE_LIMIT) {
-      throw new Error(
-        `Maximum of ${GEOFENCE_LIMIT} locations reached on ${Platform.OS === 'ios' ? 'iOS' : 'Android'}. Please delete a location first.`
-      );
-    }
 
     // Track closest location for audit logging
     let closestLocation: { name: string; distance: number; minimum: number } | null = null;
@@ -626,20 +618,16 @@ export const useLocationStore = create<LocationState>((set, get) => ({
     }
 
     try {
-      // Start geofencing
-      const regions = locations.map(l => ({
-        identifier: l.id,
+      // Register geofences + start monitoring (transistorsoft)
+      await bgGeoAddGeofences(locations.map(l => ({
+        id: l.id,
         latitude: l.latitude,
         longitude: l.longitude,
         radius: l.radius,
-        notifyOnEnter: true,
-        notifyOnExit: true,
-      }));
+        name: l.name,
+      })));
 
-      await startGeofencing(regions);
-
-      // Start background location
-      await startBackgroundLocation();
+      await bgGeoStart();
 
       // Save state for next app launch
       await saveMonitoringState(true);
@@ -647,6 +635,35 @@ export const useLocationStore = create<LocationState>((set, get) => ({
       set({ isMonitoring: true });
 
       logger.info('geofence', `✅ Monitoring started (${locations.length} fences)`);
+
+      // Post-start: verify current position matches tracking state
+      // Only inject ENTER (not EXIT) — boot GPS might be briefly inaccurate
+      try {
+        const coords = await getCurrentLocation();
+        if (coords) {
+          const isTracking = hasActiveTracking();
+          let insideFence: LocationDB | null = null;
+          for (const fence of locations) {
+            const distance = calculateDistanceMeters(
+              coords.coords.latitude, coords.coords.longitude,
+              fence.latitude, fence.longitude,
+            );
+            if (distance <= fence.radius) { insideFence = fence; break; }
+          }
+
+          if (insideFence && !isTracking) {
+            logger.info('geofence', `🚀 Post-start: inside "${insideFence.name}" → injecting ENTER`);
+            get().handleGeofenceEvent({
+              type: 'enter',
+              regionIdentifier: insideFence.id,
+              timestamp: Date.now(),
+            });
+          }
+        }
+      } catch {
+        // Non-critical, OS geofencing will catch transitions
+      }
+
       return true;
     } catch (error) {
       logger.error('geofence', 'Error starting monitoring', { error: String(error) });
@@ -659,8 +676,7 @@ export const useLocationStore = create<LocationState>((set, get) => ({
   // ============================================
   stopMonitoring: async () => {
     try {
-      await stopGeofencing();
-      await stopBackgroundLocation();
+      await bgGeoStop();
 
       // Cancel session guard when monitoring is stopped manually
       const { cancelSessionGuard } = await import('../lib/exitHandler');
@@ -694,29 +710,79 @@ export const useLocationStore = create<LocationState>((set, get) => ({
     }
 
     try {
-      // Stop everything
-      await stopGeofencing();
-      await stopBackgroundLocation();
-
-      // Small delay to let OS process the stop
-      await new Promise(resolve => setTimeout(resolve, 100));
-
-      // Start fresh
-      const regions = locations.map(l => ({
-        identifier: l.id,
+      // Re-register geofences (transistorsoft replaces existing ones)
+      await bgGeoAddGeofences(locations.map(l => ({
+        id: l.id,
         latitude: l.latitude,
         longitude: l.longitude,
         radius: l.radius,
-        notifyOnEnter: true,
-        notifyOnExit: true,
-      }));
+        name: l.name,
+      })));
 
-      await startGeofencing(regions);
-      await startBackgroundLocation();
+      // Ensure monitoring is running
+      const running = await bgGeoIsEnabled();
+      if (!running) {
+        await bgGeoStart();
+      }
 
       set({ isMonitoring: true });
 
       logger.info('geofence', `🔄 Monitoring restarted (${locations.length} fences)`);
+
+      // Post-restart: verify GPS position after 5s delay
+      // (gives SDK time to fire initial triggers naturally — if it doesn't, we inject)
+      setTimeout(async () => {
+        try {
+          const userId = useAuthStore.getState().getUserId();
+          if (!userId) return;
+
+          const coords = await getCurrentLocation();
+          if (!coords) return;
+
+          const { locations: currentLocations } = get();
+          const isTracking = hasActiveTracking();
+
+          // Check if inside any fence
+          let insideFence: LocationDB | null = null;
+          for (const fence of currentLocations) {
+            const distance = calculateDistanceMeters(
+              coords.coords.latitude,
+              coords.coords.longitude,
+              fence.latitude,
+              fence.longitude,
+            );
+            if (distance <= fence.radius) {
+              insideFence = fence;
+              break;
+            }
+          }
+
+          if (insideFence && !isTracking) {
+            // Inside fence but no tracking → ENTER was dropped during re-registration
+            logger.info('geofence', `🔄 Post-restart: inside "${insideFence.name}" but no tracking → injecting ENTER`);
+            get().handleGeofenceEvent({
+              type: 'enter',
+              regionIdentifier: insideFence.id,
+              timestamp: Date.now(),
+            });
+          } else if (!insideFence && isTracking) {
+            // Outside all fences but tracking active → EXIT was dropped
+            const tracking = getActiveTrackingState();
+            if (tracking) {
+              logger.info('geofence', `🔄 Post-restart: outside fences but tracking "${tracking.location_name}" → injecting EXIT`);
+              get().handleGeofenceEvent({
+                type: 'exit',
+                regionIdentifier: tracking.location_id,
+                timestamp: Date.now(),
+              });
+            }
+          } else {
+            logger.debug('geofence', `🔄 Post-restart: state consistent (inside=${!!insideFence}, tracking=${isTracking})`);
+          }
+        } catch (error) {
+          logger.warn('geofence', 'Post-restart position check failed', { error: String(error) });
+        }
+      }, 5000);
 
       return true;
     } catch (error) {

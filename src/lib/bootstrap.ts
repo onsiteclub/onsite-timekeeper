@@ -1,18 +1,23 @@
 /**
- * Bootstrap - OnSite Timekeeper v3
+ * Bootstrap - OnSite Timekeeper v5
  *
  * Singleton listener initialization for geofence events.
+ * Uses transistorsoft BackgroundGeolocation SDK.
  */
 
 import { AppState, type AppStateStatus } from 'react-native';
 import { logger } from './logger';
 import { useLocationStore } from '../stores/locationStore';
+import { useDailyLogStore } from '../stores/dailyLogStore';
 import {
-  setGeofenceCallback,
-  clearCallbacks,
+  configure as bgGeoConfigure,
+  setGeofenceHandler,
+  cleanup as bgGeoCleanup,
+} from './bgGeo';
+import {
   setBackgroundUserId,
   clearBackgroundUserId,
-} from './backgroundTasks';
+} from './backgroundHelpers';
 
 // ============================================
 // SINGLETON STATE
@@ -27,6 +32,11 @@ let appStateSubscription: ReturnType<typeof AppState.addEventListener> | null = 
 
 function handleAppStateChange(nextState: AppStateStatus): void {
   logger.debug('boot', `📱 AppState: ${nextState}`);
+
+  if (nextState === 'active') {
+    // App returned to foreground — refresh store so timer recalculates from SQLite enter_at
+    useDailyLogStore.getState().reloadToday();
+  }
 }
 
 // ============================================
@@ -53,7 +63,11 @@ export async function initializeListeners(): Promise<void> {
   logger.info('boot', '🎧 Initializing singleton listeners...');
 
   try {
-    setGeofenceCallback(handleGeofenceEvent);
+    // Configure transistorsoft SDK
+    await bgGeoConfigure();
+
+    // Route geofence events → locationStore
+    setGeofenceHandler(handleGeofenceEvent);
 
     if (appStateSubscription) {
       appStateSubscription.remove();
@@ -81,7 +95,7 @@ export function cleanupListeners(): void {
     appStateSubscription = null;
   }
 
-  clearCallbacks();
+  bgGeoCleanup();
 
   listenersInitialized = false;
   logger.info('boot', '✅ Listeners cleanup complete');

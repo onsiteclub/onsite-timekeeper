@@ -6,12 +6,9 @@
  */
 
 import React, { useEffect, useState, useRef } from 'react';
-import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, ActivityIndicator, Platform, StyleSheet } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-// IMPORTANT: Import background tasks BEFORE anything else
-import '../src/lib/backgroundTasks';
-
 import { colors } from '../src/constants/colors';
 import { logger } from '../src/lib/logger';
 import { initSentry, setUser as setSentryUser, clearUser as clearSentryUser } from '../src/lib/sentry';
@@ -35,10 +32,11 @@ import {
 } from '../src/lib/notifications';
 import {
   initializeListeners,
-  cleanupListeners,
   onUserLogin,
   onUserLogout,
 } from '../src/lib/bootstrap';
+import { BatteryOptimizationModal } from '../src/components/BatteryOptimizationModal';
+import BackgroundGeolocation from 'react-native-background-geolocation';
 
 
 export default function RootLayout() {
@@ -59,6 +57,9 @@ export default function RootLayout() {
   
   // FIX: Lock to prevent initialization loop
   const storesInitInProgress = useRef(false);
+
+  // Battery optimization modal (Android only)
+  const [showBatteryModal, setShowBatteryModal] = useState(false);
 
   // ============================================
   // STORE INITIALIZATION
@@ -176,7 +177,7 @@ export default function RootLayout() {
         // 6. If authenticated, init stores + user session
         if (useAuthStore.getState().isAuthenticated()) {
           await initializeStores();
-          
+
           const currentUser = useAuthStore.getState().user;
           if (currentUser) {
             await onUserLogin(currentUser.id);
@@ -194,10 +195,9 @@ export default function RootLayout() {
 
     bootstrap();
 
-    // Cleanup on unmount (app close)
-    return () => {
-      cleanupListeners();
-    };
+    // NOTE: No cleanup here — listeners MUST survive background transitions.
+    // When the app is killed, the JS engine is destroyed anyway.
+    // cleanupListeners() is only called on explicit logout (onUserLogout).
   }, []);
 
   // ============================================
@@ -243,6 +243,22 @@ export default function RootLayout() {
         setSentryUser(currentUser.id);
         userSessionRef.current = currentUser.id;
       }
+
+      // Android: check battery optimization after login
+      if (Platform.OS === 'android') {
+        const settings = useSettingsStore.getState();
+        if (!settings.batteryOptimizationSkipped) {
+          try {
+            const isIgnoring = await BackgroundGeolocation.deviceSettings
+              .isIgnoringBatteryOptimizations();
+            if (!isIgnoring) {
+              setShowBatteryModal(true);
+            }
+          } catch {
+            // SDK not ready or method not available — skip silently
+          }
+        }
+      }
     });
   }, [isReady, isAuthenticated, storesInitialized]); // FIX: Removed 'user' dependency
 
@@ -258,6 +274,14 @@ export default function RootLayout() {
       });
     }
   }, [isReady, isAuthenticated]);
+
+  // Battery optimization modal dismiss handler
+  const handleBatteryModalDismiss = (skipped: boolean) => {
+    setShowBatteryModal(false);
+    if (skipped) {
+      useSettingsStore.getState().updateSetting('batteryOptimizationSkipped', true);
+    }
+  };
 
   // Navigation guard
   useEffect(() => {
@@ -299,6 +323,12 @@ export default function RootLayout() {
           }}
         />
       </Stack>
+      {Platform.OS === 'android' && (
+        <BatteryOptimizationModal
+          visible={showBatteryModal}
+          onDismiss={handleBatteryModalDismiss}
+        />
+      )}
     </ErrorBoundary>
   );
 }

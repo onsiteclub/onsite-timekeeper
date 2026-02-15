@@ -7,4 +7,3 @@
 // Storage keys
 export const USER_ID_KEY = '@onsite:userId';
 export const SKIPPED_TODAY_KEY = '@onsite:skippedToday';
-export { LOCATION_TASK as LOCATION_TASK_NAME } from './backgroundTypes';

@@ -70,9 +70,16 @@ interface SettingsState {
   pendingReportExport: PendingReportExport | null;
 
   // ============================================
+  // BATTERY OPTIMIZATION (Android)
+  // ============================================
+
+  /** True if user skipped the battery optimization onboarding modal */
+  batteryOptimizationSkipped: boolean;
+
+  // ============================================
   // DEBUG
   // ============================================
-  
+
   devMonitorEnabled: boolean;
 
   // ============================================
@@ -138,6 +145,9 @@ const DEFAULT_SETTINGS: SettingsData = {
 
   // Report export
   pendingReportExport: null,
+
+  // Battery optimization
+  batteryOptimizationSkipped: false,
 
   // Debug
   devMonitorEnabled: false,
@@ -276,6 +286,7 @@ export const useSettingsStore = create<SettingsState>()(
         minimumLocationDistance: state.minimumLocationDistance,
         distanciaMinimaLocais: state.distanciaMinimaLocais,
         pendingReportExport: state.pendingReportExport,
+        batteryOptimizationSkipped: state.batteryOptimizationSkipped,
         devMonitorEnabled: state.devMonitorEnabled,
       }),
     }

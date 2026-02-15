@@ -12,7 +12,7 @@ import { AppState, AppStateStatus } from 'react-native';
 import { logger } from '../lib/logger';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { initDatabase, trackMetric } from '../lib/database';
-import { setBackgroundUserId, clearBackgroundUserId } from '../lib/backgroundTasks';
+import { setBackgroundUserId, clearBackgroundUserId } from '../lib/backgroundHelpers';
 import type { Session, User } from '@supabase/supabase-js';
 
 // ============================================

@@ -17,7 +17,9 @@ import {
   Modal,
   TextInput,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
+import { startActivityAsync, ActivityAction } from 'expo-intent-launcher';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import Constants from 'expo-constants';
@@ -239,6 +241,16 @@ export default function SettingsScreen() {
     }
   };
 
+  const handleOpenBatterySettings = async () => {
+    try {
+      await startActivityAsync(ActivityAction.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, {
+        data: 'package:com.onsiteclub.timekeeper',
+      });
+    } catch {
+      Alert.alert('Error', 'Could not open battery settings. Please go to Settings > Apps > OnSite Timekeeper > Battery manually.');
+    }
+  };
+
   // Get user initials for avatar
   const getUserInitials = () => {
     const email = user?.email || '';
@@ -330,6 +342,35 @@ export default function SettingsScreen() {
           onChange={(v) => settings.updateSetting('vibrationEnabled', v)}
         />
       </AccordionSection>
+
+      {/* ============================================ */}
+      {/* BATTERY OPTIMIZATION (Android only) */}
+      {/* ============================================ */}
+      {Platform.OS === 'android' && (
+        <AccordionSection title="Battery" icon="battery-half-outline">
+          <TouchableOpacity
+            style={styles.legalButton}
+            onPress={handleOpenBatterySettings}
+          >
+            <View style={styles.legalButtonContent}>
+              <Ionicons name="shield-checkmark-outline" size={20} color={colors.primary} />
+              <View style={styles.legalButtonText}>
+                <Text style={styles.legalButtonTitle}>Battery Optimization</Text>
+                <Text style={styles.legalButtonSubtitle}>
+                  Allow unrestricted background access
+                </Text>
+              </View>
+            </View>
+            {settings.batteryOptimizationSkipped ? (
+              <View style={styles.reviewBadge}>
+                <Text style={styles.reviewBadgeText}>Review</Text>
+              </View>
+            ) : (
+              <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+            )}
+          </TouchableOpacity>
+        </AccordionSection>
+      )}
 
       {/* ============================================ */}
       {/* LEGAL SECTION */}
@@ -706,6 +747,19 @@ const styles = StyleSheet.create({
   legalButtonSubtitle: {
     fontSize: 13,
     color: colors.textSecondary,
+  },
+
+  // Battery optimization badge
+  reviewBadge: {
+    backgroundColor: colors.warningSoft,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  reviewBadgeText: {
+    color: colors.warning,
+    fontSize: 11,
+    fontWeight: '600',
   },
 
   footer: {

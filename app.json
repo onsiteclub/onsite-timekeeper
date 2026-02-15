@@ -2,7 +2,7 @@
   "expo": {
     "name": "OnSite Timekeeper",
     "slug": "onsite-timekeeper",
-    "version": "1.2.0",
+    "version": "1.4.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "onsite-timekeeper",
@@ -12,7 +12,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.onsiteclub.timekeeper",
-      "buildNumber": "6",
+      "buildNumber": "8",
       "config": {
         "googleMapsApiKey": "AIzaSyBdITLu3Kr5OYPr8ZnhxIGVNFHIGEgvfKY"
       },
@@ -34,7 +34,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0B0D10"
       },
-      "versionCode": 4,
+      "versionCode": 6,
       "package": "com.onsiteclub.timekeeper",
       "allowBackup": false,
       "config": {
@@ -54,6 +54,7 @@
         "RECEIVE_BOOT_COMPLETED",
         "VIBRATE",
         "WAKE_LOCK",
+        "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
         "RECORD_AUDIO"
       ]
     },
@@ -85,7 +86,7 @@
         "expo-build-properties",
         {
           "android": {
-            "kotlinVersion": "1.9.25",
+            "kotlinVersion": "2.0.21",
             "compileSdkVersion": 35,
             "targetSdkVersion": 35,
             "minSdkVersion": 24
@@ -104,6 +105,22 @@
         {
           "microphonePermission": "OnSite Timekeeper needs the microphone for voice commands.",
           "speechRecognitionPermission": "OnSite Timekeeper uses speech recognition for voice commands."
+        }
+      ],
+      "react-native-background-fetch",
+      [
+        "react-native-background-geolocation",
+        {
+          "license": {
+            "android": "eyJhbGciOiJFZERTQSIsImtpZCI6ImVkMjU1MTktbWFpbi1VbkMjU1MTktbWFpbiIsInR5cCI6IkpXVCJ9.eyJvcyl6ImFuZHJvaWQiLCJhcHBfaWQiOiJjb20ub25zaXRlY2x1Yi50aW1la2VlcGVyIiwib3JkZXJfbnVtYmVyIjoxNTQ4OSwicHVyY2hhc2VfdXJsIjoiaHR0cHM6Ly9zaG9wLnRyYW5zaXN0b3Jzb2Z0LmNvbS9vcmRlcnMvMjk",
+            "ios": "eyJhbGciOiJFZERTQSIsImtpZCI6ImVkMjU1MTktbWFpbi12MktJU1MTktbWFpbiIsInR5cCI6IkpXVCJ9.eyJvcyl6Imlvc19zaW5nbGUiLCJhcHBfaWQiOiJjb20ub25zaXRlY2x1Yi50aW1la2VlcGVyIiwib3JkZXJfbnVtYmVyIjoxNTQ4OSwicHVyY2hhc2VfdXJsIjoiaHR0cHM6Ly9zaG9wLnRyYW5zaXN0b3Jzb2Z0LmNvbS9vcmRlcnMvMjk"
+          },
+          "backgroundPermissionRationale": {
+            "title": "Allow OnSite Timekeeper to access your location in the background?",
+            "message": "OnSite Timekeeper needs background location to automatically detect when you arrive at or leave work.",
+            "positiveAction": "Change to Always Allow",
+            "negativeAction": "Cancel"
+          }
         }
       ]
     ],
