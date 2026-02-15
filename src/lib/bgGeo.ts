@@ -61,10 +61,8 @@ export async function configure(): Promise<void> {
   if (isConfigured) return;
 
   try {
-    // v5 types expect nested config but runtime uses flat — cast to any
-    await BackgroundGeolocation.ready({
-      reset: true,
-      locationAuthorizationRequest: 'Always',
+    const config = {
+      locationAuthorizationRequest: 'Any',
       desiredAccuracy: BackgroundGeolocation.DesiredAccuracy.High,
       distanceFilter: 50,
       geofenceProximityRadius: 1000,
@@ -84,7 +82,12 @@ export async function configure(): Promise<void> {
       autoSyncThreshold: 0,
       logLevel: BackgroundGeolocation.LogLevel.Info,
       logMaxDays: 3,
-    } as any);
+    };
+
+    // ready() only applies config on FIRST launch — subsequent launches use cached state.
+    // So we call ready() first, then setConfig() to ensure our values override on EVERY launch.
+    await BackgroundGeolocation.ready(config as any);
+    await BackgroundGeolocation.setConfig(config as any);
 
     // Register geofence event listener
     BackgroundGeolocation.onGeofence((event) => {
