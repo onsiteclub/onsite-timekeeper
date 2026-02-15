@@ -308,6 +308,23 @@ export async function switchToIdleMode(): Promise<void> {
 }
 
 // ============================================
+// BATTERY OPTIMIZATION (Android)
+// ============================================
+
+/**
+ * Check if battery optimization is disabled for this app (Android only).
+ * Wraps BackgroundGeolocation.deviceSettings so _layout.tsx
+ * doesn't import the native module directly (breaks web build).
+ */
+export async function isIgnoringBatteryOptimizations(): Promise<boolean> {
+  try {
+    return await (BackgroundGeolocation.deviceSettings as any).isIgnoringBatteryOptimizations();
+  } catch {
+    return true; // Assume OK if check fails
+  }
+}
+
+// ============================================
 // CLEANUP
 // ============================================
 

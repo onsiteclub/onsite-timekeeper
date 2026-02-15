@@ -23,5 +23,6 @@ export async function stopMonitoring(): Promise<void> {}
 export async function isEnabled(): Promise<boolean> { return false; }
 export async function switchToActiveMode(): Promise<void> {}
 export async function switchToIdleMode(): Promise<void> {}
+export async function isIgnoringBatteryOptimizations(): Promise<boolean> { return true; }
 export function cleanup(): void {}
 export async function getUserIdForBackground(): Promise<string | null> { return null; }

@@ -36,7 +36,7 @@ import {
   onUserLogout,
 } from '../src/lib/bootstrap';
 import { BatteryOptimizationModal } from '../src/components/BatteryOptimizationModal';
-import BackgroundGeolocation from 'react-native-background-geolocation';
+import { isIgnoringBatteryOptimizations } from '../src/lib/bgGeo';
 
 
 export default function RootLayout() {
@@ -249,8 +249,7 @@ export default function RootLayout() {
         const settings = useSettingsStore.getState();
         if (!settings.batteryOptimizationSkipped) {
           try {
-            const isIgnoring = await BackgroundGeolocation.deviceSettings
-              .isIgnoringBatteryOptimizations();
+            const isIgnoring = await isIgnoringBatteryOptimizations();
             if (!isIgnoring) {
               setShowBatteryModal(true);
             }
