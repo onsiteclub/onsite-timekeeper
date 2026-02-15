@@ -72,7 +72,6 @@ export default function MapScreen() {
     // Store data
     locations,
     currentLocation,
-    isMonitoringActive,
 
     // Setters
     setNewLocationName,
@@ -91,7 +90,6 @@ export default function MapScreen() {
     handleCirclePress,
     handleCircleLongPress,
     handleChangeRadius,
-    handleToggleMonitoring,
     handleCloseRadiusModal,
     cancelAndClearPin,
   } = useMapScreen();
@@ -256,17 +254,6 @@ export default function MapScreen() {
         activeOpacity={0.7}
       >
         <Ionicons name="locate" size={24} color={colors.primary} />
-      </TouchableOpacity>
-
-      {/* MONITORING BUTTON - with explicit elevation for Android */}
-      <TouchableOpacity
-        style={[styles.monitorButton, isMonitoringActive && styles.monitorButtonActive, { elevation: 10, zIndex: 100 }]}
-        onPress={handleToggleMonitoring}
-        activeOpacity={0.7}
-      >
-        <Text style={[styles.monitorText, isMonitoringActive && styles.monitorTextActive]}>
-          {isMonitoringActive ? '🟢 Monitoring' : '⚪ Monitoring OFF'}
-        </Text>
       </TouchableOpacity>
 
       {/* FAB button to add location */}

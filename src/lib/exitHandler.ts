@@ -19,7 +19,7 @@ import { upsertDailyHours, getDailyHours, formatTimeHHMM } from './database/dail
 // CONSTANTS
 // ============================================
 
-const EXIT_COOLDOWN_MS = 60 * 1000; // 60 seconds
+const EXIT_COOLDOWN_MS = 30 * 1000; // 30 seconds
 const SESSION_GUARD_FIRST_MS  = 10 * 60 * 60 * 1000; // 10 hours
 const SESSION_GUARD_REPEAT_MS =  2 * 60 * 60 * 1000; // 2 hours
 const SESSION_GUARD_MAX_MS    = 16 * 60 * 60 * 1000; // 16 hours
@@ -310,7 +310,7 @@ export async function onGeofenceExit(
     timeoutId,
   });
 
-  logger.info('session', `⏳ Exit cooldown started (60s): ${locationName}`);
+  logger.info('session', `⏳ Exit cooldown started (${EXIT_COOLDOWN_MS / 1000}s): ${locationName}`);
 }
 
 // ============================================

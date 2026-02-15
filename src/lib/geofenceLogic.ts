@@ -12,8 +12,8 @@
  * - EXIT + blue dot outside fence → real → process
  * - EXIT + blue dot inside fence → GPS bounce → ignore
  *
- * Removed: exit retry, reconfigure queue, accuracy gates.
- * Kept: dedup (10s), reconfigure window (5s), fence cache, distance calc.
+ * Removed: exit retry, reconfigure queue, reconfigure window, accuracy gates.
+ * Kept: dedup (10s), fence cache, distance calc.
  */
 
 import * as Location from 'expo-location';
@@ -131,22 +131,6 @@ function isDuplicateEvent(regionId: string, eventType: string): boolean {
 }
 
 // ============================================
-// RECONFIGURE STATE (simplified — just drop events during window)
-// ============================================
-
-let isReconfiguring = false;
-
-/**
- * Set reconfiguring state (used by locationStore, syncStore).
- * During reconfiguration, ALL events are dropped (no queue).
- * The reconcileState() safety net will catch any real state mismatch after the window closes.
- */
-export function setReconfiguring(value: boolean): void {
-  isReconfiguring = value;
-  logger.debug('geofence', `Reconfiguring: ${value}`);
-}
-
-// ============================================
 // GEOFENCE EVENT PROCESSING (v4: Bolinha Azul)
 // ============================================
 
@@ -154,33 +138,28 @@ export function setReconfiguring(value: boolean): void {
  * Process geofence event (used by backgroundTasks).
  *
  * v4 flow:
- * 1. Reconfiguring (5s window)? → drop
- * 2. Duplicate (10s)? → drop
- * 3. Get blue dot position (last known GPS)
- * 4. Blue dot agrees with event? → process. Disagrees? → phantom, drop.
+ * 1. Duplicate (10s)? → drop
+ * 2. Get blue dot position (last known GPS)
+ * 3. Blue dot agrees with event? → process. Disagrees? → phantom, drop.
+ *
+ * No reconfigure window needed — bolinha azul validates everything.
  */
 export async function processGeofenceEvent(event: InternalGeofenceEvent): Promise<void> {
   const { region, state } = event;
   const regionId = region.identifier ?? 'unknown';
   const eventType = state === Location.GeofencingRegionState.Inside ? 'enter' : 'exit';
 
-  // 1. Drop during reconfigure (window is 5s — set by locationStore.restartMonitoring)
-  if (isReconfiguring) {
-    logger.info('geofence', `⏸️ Event DROPPED (reconfiguring): ${eventType.toUpperCase()} - ${regionId}`);
-    return;
-  }
-
-  // 2. Dedup (10s window)
+  // 1. Dedup (10s window)
   if (isDuplicateEvent(regionId, eventType)) {
     logger.warn('geofence', `🚫 DUPLICATE event ignored: ${eventType.toUpperCase()} - ${regionId}`);
     return;
   }
 
-  // 3. Get fence info
+  // 2. Get fence info
   const fence = fenceCache.get(regionId);
   const fenceName = fence?.name || 'Unknown';
 
-  // 4. BOLINHA AZUL: Get last known GPS position and verify distance
+  // 3. BOLINHA AZUL: Get last known GPS position and verify distance
   if (fence) {
     try {
       const currentLocation = await Location.getLastKnownPositionAsync({
@@ -191,23 +170,21 @@ export async function processGeofenceEvent(event: InternalGeofenceEvent): Promis
         const blueDotLat = currentLocation.coords.latitude;
         const blueDotLng = currentLocation.coords.longitude;
         const distanceFromFence = localCalculateDistance(blueDotLat, blueDotLng, fence.lat, fence.lng);
-        // Use 1.5x radius as buffer for GPS inaccuracy at fence edge
-        const isInsideFence = distanceFromFence <= fence.radius * 1.5;
 
-        if (eventType === 'enter' && !isInsideFence) {
-          // OS says ENTER but blue dot is outside → phantom
+        if (eventType === 'enter' && distanceFromFence > fence.radius * 1.5) {
+          // OS says ENTER but blue dot is far outside → phantom
           logger.warn('geofence', `🚫 PHANTOM ENTRY rejected: blue dot ${distanceFromFence.toFixed(0)}m from ${fenceName} (limit=${(fence.radius * 1.5).toFixed(0)}m)`);
           return;
         }
 
-        if (eventType === 'exit' && isInsideFence) {
-          // OS says EXIT but blue dot is inside → GPS bounce
-          logger.warn('geofence', `🚫 GPS BOUNCE rejected: blue dot ${distanceFromFence.toFixed(0)}m from ${fenceName} (inside ${fence.radius}m radius)`);
+        if (eventType === 'exit' && distanceFromFence <= fence.radius * 0.7) {
+          // OS says EXIT but blue dot is deep inside fence → GPS bounce
+          logger.warn('geofence', `🚫 GPS BOUNCE rejected: blue dot ${distanceFromFence.toFixed(0)}m from ${fenceName} (deep inside ${fence.radius}m radius)`);
           return;
         }
 
-        // Blue dot agrees with event — log distance for debugging
-        logger.info('geofence', `📍 Geofence ${eventType}: ${fenceName} (blue dot ${distanceFromFence.toFixed(0)}m, ${isInsideFence ? 'inside' : 'outside'})`);
+        // Blue dot agrees with event
+        logger.info('geofence', `📍 Geofence ${eventType}: ${fenceName} (blue dot ${distanceFromFence.toFixed(0)}m, radius=${fence.radius}m)`);
       } else {
         // No GPS available — trust the OS event (Fused Location Provider already validated it)
         logger.info('geofence', `📍 Geofence ${eventType}: ${fenceName} (no GPS cache, trusting OS)`);
@@ -220,7 +197,7 @@ export async function processGeofenceEvent(event: InternalGeofenceEvent): Promis
     logger.info('geofence', `📍 Geofence ${eventType}: ${regionId} (fence not in cache)`);
   }
 
-  // 5. Pass to callback (bootstrap → locationStore)
+  // 4. Pass to callback (bootstrap → locationStore)
   const geofenceCallback = getGeofenceCallback();
   if (geofenceCallback) {
     geofenceCallback({
@@ -228,5 +205,26 @@ export async function processGeofenceEvent(event: InternalGeofenceEvent): Promis
       regionIdentifier: regionId,
       timestamp: Date.now(),
     });
+  } else {
+    // Callback is null — app process was killed by Android (Doze mode).
+    // Try to reinitialize listeners and deliver the event.
+    logger.warn('geofence', `⚠️ Callback null (process killed?) — reinitializing for ${eventType} @ ${regionId}`);
+    try {
+      const { initializeListeners } = await import('./bootstrap');
+      await initializeListeners();
+      const retryCallback = getGeofenceCallback();
+      if (retryCallback) {
+        logger.info('geofence', `✅ Reinitialized — delivering ${eventType} @ ${regionId}`);
+        retryCallback({
+          type: eventType,
+          regionIdentifier: regionId,
+          timestamp: Date.now(),
+        });
+      } else {
+        logger.error('geofence', `❌ Reinit failed — ${eventType} @ ${regionId} LOST`);
+      }
+    } catch (e) {
+      logger.error('geofence', `❌ Reinit error — ${eventType} @ ${regionId} LOST`, { error: String(e) });
+    }
   }
 }

@@ -34,8 +34,6 @@ export interface InternalGeofenceEvent {
 // ============================================
 
 export type GeofenceCallback = (event: GeofenceEvent) => void;
-export type LocationCallback = (location: Location.LocationObject) => void;
-export type ReconcileCallback = () => Promise<void>;
 
 // ============================================
 // CONSTANTS

@@ -59,21 +59,9 @@ import {
   updateActiveFences,
   addToSkippedToday,
   removeFromSkippedToday,
-  checkInsideFence,
 } from '../lib/backgroundHelpers';
-import { setReconfiguring, localCalculateDistance } from '../lib/geofenceLogic';
 import type { GeofenceEvent } from '../lib/backgroundTypes';
-import {
-  interpretEvent,
-  logGeofenceEvent,
-  logEventForTraining,
-  buildWorkerProfile,
-  buildDeviceContextAsync,
-  isEntryEvent,
-  isExitEvent,
-  type TimekeeperEvent,
-  type AIVerdict,
-} from '../lib/ai/interpreter';
+import { logGeofenceEvent } from '../lib/eventLog';
 import { useAuthStore } from './authStore';
 import { useSyncStore } from './syncStore';
 // NOTE: WorkSessionStore removed in V3 - now using exitHandler directly
@@ -89,13 +77,7 @@ const MAX_RADIUS = 1000;
 // ============================================
 
 const MONITORING_STATE_KEY = '@onsite:monitoringEnabled';
-let isReconciling = false;
-let lastReconcileAt = 0;
-const RECONCILE_COOLDOWN_MS = 2000;
-
-// Periodic reconcile (safety net for missed exits)
-const PERIODIC_RECONCILE_MS = 5 * 60 * 1000; // 5 minutes
-let periodicReconcileTimer: ReturnType<typeof setInterval> | null = null;
+// v4: OS geofencing is the sole decision maker for enter/exit. No Guardian AI, no reconcile, no GPS-based exit.
 
 // ============================================
 // HELPER: Calculate distance between two points (Haversine)
@@ -158,8 +140,7 @@ export interface LocationState {
   updateLocation: (id: string, updates: Partial<Pick<LocationDB, 'name' | 'latitude' | 'longitude' | 'radius' | 'color'>>) => Promise<void>; // Alias
   startMonitoring: () => Promise<boolean>;
   stopMonitoring: () => Promise<void>;
-  restartMonitoring: () => Promise<boolean>; // NEW: Restart with reconfiguration window
-  reconcileState: () => Promise<void>; // NEW: Check GPS and create entry/exit if needed
+  restartMonitoring: () => Promise<boolean>;
   handleGeofenceEvent: (event: GeofenceEvent) => Promise<void>;
   handleManualEntry: (locationId: string) => Promise<string>;
   handleManualExit: (locationId: string) => Promise<void>;
@@ -206,141 +187,7 @@ async function loadMonitoringState(): Promise<boolean> {
   }
 }
 
-// ============================================
-// AI HELPER: Interpret event and act on verdict
-// Used by both handleGeofenceEvent and reconcileState
-// ============================================
-
-interface ProcessAIEventParams {
-  userId: string;
-  locationId: string;
-  locationName: string;
-  locationLat: number;
-  locationLng: number;
-  locationRadius: number;
-  gpsLat: number;
-  gpsLng: number;
-  gpsAccuracy: number;
-  eventType: TimekeeperEvent['type'];
-  /** Zustand set/get for updating store state */
-  set: (partial: Partial<LocationState>) => void;
-  /** regionIdentifier for reverting currentFenceId on ignore */
-  regionIdentifier?: string;
-}
-
-async function processEventWithAI(params: ProcessAIEventParams): Promise<void> {
-  const {
-    userId, locationId, locationName,
-    locationLat, locationLng, locationRadius,
-    gpsLat, gpsLng, gpsAccuracy,
-    eventType, set, regionIdentifier,
-  } = params;
-
-  const distanceFromCenter = localCalculateDistance(
-    gpsLat, gpsLng, locationLat, locationLng
-  );
-
-  const timekeeperEvent: TimekeeperEvent = {
-    type: eventType,
-    timestamp: new Date().toISOString(),
-    latitude: gpsLat,
-    longitude: gpsLng,
-    accuracy: gpsAccuracy,
-    fence_id: locationId,
-    fence_name: locationName,
-    fence_latitude: locationLat,
-    fence_longitude: locationLng,
-    fence_radius: locationRadius,
-    distance_from_center: distanceFromCenter,
-  };
-
-  let verdict: AIVerdict;
-  try {
-    verdict = await interpretEvent(timekeeperEvent, userId);
-  } catch (error) {
-    logger.error('ai', 'interpretEvent failed, falling through to direct handling', { error: String(error) });
-    verdict = {
-      action: isEntryEvent(eventType) ? 'confirm_entry' : 'confirm_exit',
-      confidence: 0.5,
-      reason: 'AI interpreter error — fallback to direct processing',
-    };
-  }
-
-  // Log for future training (non-blocking)
-  try {
-    const profile = buildWorkerProfile(userId);
-    const device = await buildDeviceContextAsync();
-    const activeState = getActiveTrackingState();
-    const sessionDurationMin = activeState?.enter_at
-      ? Math.round((Date.now() - new Date(activeState.enter_at).getTime()) / 60000)
-      : null;
-    logEventForTraining(timekeeperEvent, verdict, profile, device, 0, sessionDurationMin);
-  } catch {
-    // Non-critical
-  }
-
-  // ─── ACT ON VERDICT (v4: Guardian is consultant, never blocks) ───
-  switch (verdict.action) {
-    case 'confirm_entry':
-      logGeofenceEvent(userId, locationId, 'entry', gpsAccuracy, gpsLat, gpsLng);
-      await onGeofenceEnter(userId, locationId, locationName);
-      break;
-
-    case 'confirm_exit':
-      logGeofenceEvent(userId, locationId, 'exit', gpsAccuracy, gpsLat, gpsLng);
-      await onGeofenceExit(userId, locationId, locationName);
-      break;
-
-    case 'ignore_entry':
-      logger.info('ai', `Entry ignored: ${verdict.reason}`);
-      set({ currentFenceId: null });
-      break;
-
-    case 'ignore_exit':
-      // v4: This should rarely happen now (exits are always confirmed).
-      // But if it does, still log it and DON'T block — schedule reconcile instead.
-      logger.warn('ai', `Exit ignore requested but scheduling reconcile: ${verdict.reason}`);
-      setTimeout(() => useLocationStore.getState().reconcileState(), 30_000);
-      break;
-
-    case 'wait_more_data':
-      // v4: Don't wait forever — schedule reconcile as safety net
-      logger.info('ai', `Event deferred, scheduling reconcile: ${verdict.reason}`);
-      setTimeout(() => useLocationStore.getState().reconcileState(), 30_000);
-      break;
-
-    case 'flag_review':
-      logger.warn('ai', `Flagged for review: ${verdict.reason}`);
-      // v4: Process anyway — flag is informational, not blocking
-      if (isEntryEvent(eventType)) {
-        logGeofenceEvent(userId, locationId, 'entry', gpsAccuracy, gpsLat, gpsLng);
-        await onGeofenceEnter(userId, locationId, locationName);
-      } else if (isExitEvent(eventType)) {
-        logGeofenceEvent(userId, locationId, 'exit', gpsAccuracy, gpsLat, gpsLng);
-        await onGeofenceExit(userId, locationId, locationName);
-      }
-      break;
-
-    case 'estimate_exit_time':
-      logger.info('ai', `Using estimated exit: ${verdict.estimated_time}`);
-      logGeofenceEvent(userId, locationId, 'exit', gpsAccuracy, gpsLat, gpsLng);
-      await onGeofenceExit(userId, locationId, locationName);
-      break;
-
-    default:
-      logger.warn('ai', `Unknown verdict action: ${verdict.action}, processing normally`);
-      if (isEntryEvent(eventType)) {
-        logGeofenceEvent(userId, locationId, 'entry', gpsAccuracy, gpsLat, gpsLng);
-        await onGeofenceEnter(userId, locationId, locationName);
-      } else if (isExitEvent(eventType)) {
-        logGeofenceEvent(userId, locationId, 'exit', gpsAccuracy, gpsLat, gpsLng);
-        await onGeofenceExit(userId, locationId, locationName);
-      }
-  }
-
-  // Update active session state
-  set({ activeSession: getActiveTrackingState() });
-}
+// (Guardian AI removed in v4 — OS geofencing + exitHandler are the only decision makers)
 
 // ============================================
 // STORE
@@ -590,14 +437,13 @@ export const useLocationStore = create<LocationState>((set, get) => ({
       await get().reloadLocations();
       
       if (get().isMonitoring) {
-        // Use restartMonitoring to suppress phantom events
+        // Restart with updated fences (bolinha azul validates events)
         await get().restartMonitoring();
       } else {
   // Auto-start if this is the first location
   const { locations, permissionStatus } = get();
   if (permissionStatus === 'granted' && locations.length > 0) {
     logger.info('geofence', '🚀 First location added, auto-starting monitoring');
-    // NOTE: No need for setReconfiguring here - first location has no phantom events
     await get().startMonitoring();
   }
 }
@@ -695,7 +541,7 @@ export const useLocationStore = create<LocationState>((set, get) => ({
       await get().reloadLocations();
       
       if (get().isMonitoring) {
-        // Use restartMonitoring to suppress phantom events
+        // Restart with updated fences (bolinha azul validates events)
         await get().restartMonitoring();
       }
 
@@ -738,7 +584,7 @@ export const useLocationStore = create<LocationState>((set, get) => ({
       await get().reloadLocations();
 
       if (get().isMonitoring) {
-        // Use restartMonitoring to suppress phantom events
+        // Restart with updated fences (bolinha azul validates events)
         await get().restartMonitoring();
       }
 
@@ -800,13 +646,6 @@ export const useLocationStore = create<LocationState>((set, get) => ({
 
       set({ isMonitoring: true });
 
-      // Start periodic reconcile (safety net for missed entries AND exits)
-      if (periodicReconcileTimer) clearInterval(periodicReconcileTimer);
-      periodicReconcileTimer = setInterval(async () => {
-        logger.info('geofence', '🔁 Periodic reconcile (5 min safety net)');
-        await get().reconcileState();
-      }, PERIODIC_RECONCILE_MS);
-
       logger.info('geofence', `✅ Monitoring started (${locations.length} fences)`);
       return true;
     } catch (error) {
@@ -822,12 +661,6 @@ export const useLocationStore = create<LocationState>((set, get) => ({
     try {
       await stopGeofencing();
       await stopBackgroundLocation();
-
-      // Stop periodic reconcile
-      if (periodicReconcileTimer) {
-        clearInterval(periodicReconcileTimer);
-        periodicReconcileTimer = null;
-      }
 
       // Cancel session guard when monitoring is stopped manually
       const { cancelSessionGuard } = await import('../lib/exitHandler');
@@ -845,8 +678,7 @@ export const useLocationStore = create<LocationState>((set, get) => ({
 
   // ============================================
   // RESTART MONITORING
-  // v4: Uses 5s reconfiguration window to drop phantom events.
-  // reconcileState() safety net catches real mismatches after window closes.
+  // v4: No reconfigure window — bolinha azul validates all events.
   // ============================================
   restartMonitoring: async () => {
     const { locations, permissionStatus } = get();
@@ -857,23 +689,11 @@ export const useLocationStore = create<LocationState>((set, get) => ({
     }
 
     if (locations.length === 0) {
-      // No locations, just stop
       await get().stopMonitoring();
       return false;
     }
 
     try {
-      // Open reconfiguration window BEFORE stopping
-      // This suppresses phantom events for 3 seconds
-      // When window closes, reconcileState() will be called automatically
-      setReconfiguring(true);
-
-      // Pause periodic reconcile during restart
-      if (periodicReconcileTimer) {
-        clearInterval(periodicReconcileTimer);
-        periodicReconcileTimer = null;
-      }
-
       // Stop everything
       await stopGeofencing();
       await stopBackgroundLocation();
@@ -896,154 +716,19 @@ export const useLocationStore = create<LocationState>((set, get) => ({
 
       set({ isMonitoring: true });
 
-      // Restart periodic reconcile (entries AND exits)
-      periodicReconcileTimer = setInterval(async () => {
-        logger.info('geofence', '🔁 Periodic reconcile (5 min safety net)');
-        await get().reconcileState();
-      }, PERIODIC_RECONCILE_MS);
-
       logger.info('geofence', `🔄 Monitoring restarted (${locations.length} fences)`);
-      
-      // v4: Close reconfigure window after 5s (was 1s — phantom events can arrive up to 20s late)
-      // Events during this window are dropped. reconcileState() catches real mismatches after.
-      setTimeout(() => {
-        setReconfiguring(false);
-        logger.debug('geofence', '🔓 Reconfigure window closed (5s)');
-      }, 5000);
-      
+
       return true;
     } catch (error) {
-      setReconfiguring(false);
       logger.error('geofence', 'Error restarting monitoring', { error: String(error) });
       return false;
     }
   },
 
   // ============================================
-  // RECONCILE STATE (NEW!)
-  // Check actual GPS position and create entry/exit if needed
-  // Called automatically when reconfigure window closes
+  // HANDLE GEOFENCE EVENT (v4: direct → exitHandler, no AI)
   // ============================================
-  reconcileState: async () => {
-    // Cooldown: evita reconcile duplicado
-    const now = Date.now();
-    if (isReconciling || (now - lastReconcileAt) < RECONCILE_COOLDOWN_MS) {
-      logger.debug('geofence', '🟡 Reconcile skipped (cooldown)');
-      return;
-    }
-    
-    isReconciling = true;
-    lastReconcileAt = now;
-
-    const userId = useAuthStore.getState().getUserId();
-    if (!userId) {
-      logger.warn('geofence', 'Cannot reconcile: no userId');
-      isReconciling = false;
-      return;
-    }
-    
-
-    try {
-      logger.info('geofence', '🔍 Reconciling state...');
-
-      // Get current GPS position
-      const location = await getCurrentLocation();
-      if (!location) {
-        logger.warn('geofence', 'Cannot reconcile: no GPS');
-        return;
-      }
-
-      // v4: Relaxed further — Fused Location is usable at 200m for reconcile (safety net)
-      const MIN_ACCURACY_FOR_RECONCILE = 200; // metros
-      if (location.accuracy && location.accuracy > MIN_ACCURACY_FOR_RECONCILE) {
-        logger.warn('geofence', `⏸️ Reconcile deferred: low accuracy (${location.accuracy.toFixed(0)}m)`);
-        setTimeout(() => get().reconcileState(), 10000);
-        return;
-      }
-
-      const { latitude, longitude } = location.coords;
-
-      // Check which fence we're in (if any)
-      const { isInside, fence } = await checkInsideFence(latitude, longitude, userId, false);
-
-      // V3: Get current tracking state
-      const activeTracking = getActiveTrackingState();
-
-      console.log(`[RECONCILE] 🔍 GPS: accuracy=${location.accuracy?.toFixed(0)}m | isInside=${isInside} fence=${fence?.name ?? 'none'} | tracking=${activeTracking?.location_name ?? 'none'}`);
-      logger.debug('geofence', 'Reconcile state', {
-        isInside,
-        fence: fence?.name,
-        activeTracking: activeTracking?.location_name,
-      });
-
-      const gpsAccuracy = location.accuracy ?? 50;
-
-      // Case 1: Inside a fence but no tracking → AI-verified entry
-      if (isInside && fence && !activeTracking) {
-        console.log(`[RECONCILE] 🟢 CASE 1: Inside ${fence.name} but NO tracking → triggering entry`);
-        logger.info('geofence', `🧭 Reconcile: inside ${fence.name} with no tracking — AI verify entry`);
-        set({ currentFenceId: fence.id });
-        await processEventWithAI({
-          userId,
-          locationId: fence.id,
-          locationName: fence.name,
-          locationLat: fence.latitude,
-          locationLng: fence.longitude,
-          locationRadius: fence.radius,
-          gpsLat: latitude,
-          gpsLng: longitude,
-          gpsAccuracy,
-          eventType: 'reconcile_entry',
-          set,
-          regionIdentifier: fence.id,
-        });
-      }
-
-      // Case 2: Outside all fences but tracking → AI-verified exit
-      else if (!isInside && activeTracking) {
-        console.log(`[RECONCILE] 🔴 CASE 2: Outside all fences but tracking ${activeTracking.location_name} → triggering exit`);
-        logger.info('geofence', `🧭 Reconcile: outside with active tracking — AI verify exit`);
-        set({ currentFenceId: null });
-        // Use tracked location's coords for fence info
-        const trackedLocation = await getLocationById(activeTracking.location_id);
-        const fenceLat = trackedLocation?.latitude ?? latitude;
-        const fenceLng = trackedLocation?.longitude ?? longitude;
-        const fenceRadius = trackedLocation?.radius ?? 100;
-        await processEventWithAI({
-          userId,
-          locationId: activeTracking.location_id,
-          locationName: activeTracking.location_name,
-          locationLat: fenceLat,
-          locationLng: fenceLng,
-          locationRadius: fenceRadius,
-          gpsLat: latitude,
-          gpsLng: longitude,
-          gpsAccuracy,
-          eventType: 'reconcile_exit',
-          set,
-          regionIdentifier: activeTracking.location_id,
-        });
-      }
-
-      // Case 3: Already consistent
-      else {
-        console.log(`[RECONCILE] ✅ CASE 3: State consistent (inside=${isInside}, tracking=${!!activeTracking})`);
-        logger.info('geofence', `✅ Reconcile: State already consistent`);
-        set({ currentFenceId: isInside && fence ? fence.id : null });
-      }
-
-
-} catch (error) {
-      logger.error('geofence', 'Error in reconcileState', { error: String(error) });
-    } finally {
-      isReconciling = false;
-    }
-  },
-
-  // ============================================
-  // HANDLE GEOFENCE EVENT (V4: AI Guardião integration)
-  // ============================================
-handleGeofenceEvent: async (event) => {
+  handleGeofenceEvent: async (event) => {
     const userId = useAuthStore.getState().getUserId();
     if (!userId) {
       logger.warn('geofence', 'Cannot handle event: no userId');
@@ -1069,41 +754,35 @@ handleGeofenceEvent: async (event) => {
 
     logger.info('geofence', `📍 Geofence ${event.type}: ${location.name}`);
 
-    // Get current GPS for audit + AI context
+    // Get current GPS for audit
     let coords: LocationResult | null = null;
     try {
       coords = await getCurrentLocation();
-    } catch (e) {
+    } catch {
       logger.warn('geofence', 'Could not get GPS for audit');
     }
 
-    // V2: Track geofence trigger
+    // Track geofence trigger
     await trackGeofenceTrigger(userId, coords?.accuracy ?? null);
 
-    // Map GeofenceEvent type ('enter'/'exit') to AI type ('entry'/'exit')
-    const aiEventType: 'entry' | 'exit' = event.type === 'enter' ? 'entry' : 'exit';
-
-    // v4: logGeofenceEvent moved to processEventWithAI (only log confirmed events)
     const gpsLat = coords?.coords.latitude ?? location.latitude;
     const gpsLng = coords?.coords.longitude ?? location.longitude;
     const gpsAccuracy = coords?.accuracy ?? 999;
 
-    // ─── AI GUARDIÃO: Interpret + act via shared helper ───
     try {
-      await processEventWithAI({
-        userId,
-        locationId: location.id,
-        locationName: location.name,
-        locationLat: location.latitude,
-        locationLng: location.longitude,
-        locationRadius: location.radius,
-        gpsLat,
-        gpsLng,
-        gpsAccuracy,
-        eventType: aiEventType,
-        set,
-        regionIdentifier: event.regionIdentifier,
-      });
+      // Log event for history
+      const eventType: 'entry' | 'exit' = event.type === 'enter' ? 'entry' : 'exit';
+      logGeofenceEvent(userId, location.id, eventType, gpsAccuracy, gpsLat, gpsLng);
+
+      // Act directly via exitHandler
+      if (event.type === 'enter') {
+        await onGeofenceEnter(userId, location.id, location.name);
+      } else {
+        await onGeofenceExit(userId, location.id, location.name);
+      }
+
+      // Update active session state
+      set({ activeSession: getActiveTrackingState() });
     } catch (error) {
       logger.error('geofence', 'Error handling geofence event', { error: String(error) });
 

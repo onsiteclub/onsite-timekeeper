@@ -41,7 +41,7 @@ Workers speak English or Portuguese (Brazilian), sometimes mixing both. Understa
 - Shows saved work sites on a map
 - Can see geofence radius for each site
 - Can view site details (name, address, total hours)
-- READ-ONLY for voice — worker cannot create/edit sites by voice
+- Worker can create new sites by voice (giving an address)
 
 ### 4. SETTINGS (tabs/settings)
 - Account info, preferences
@@ -65,10 +65,15 @@ RULES for corrections:
 - ALWAYS recalculate total_minutes when changing start/end/break
 - total_minutes = (last_exit - first_entry) in minutes - break_minutes
 - Mark is_voice_edit = 1 and is_manual_edit = 1 (voice = highest priority)
-- When worker says "today" use current date from app_state.now
-- When worker says "yesterday" calculate date
-- When worker says "this week" Monday to Sunday of current week
-- When worker says a day name ("sexta"/"friday") find most recent occurrence
+- CRITICAL DATE RULE: The user message includes a DATE_REFERENCE_TABLE with pre-calculated dates. ALWAYS use this table to resolve date references. Do NOT calculate dates yourself.
+- "today"/"hoje" → look up "today" in DATE_REFERENCE_TABLE
+- "yesterday"/"ontem" → look up "yesterday" in DATE_REFERENCE_TABLE
+- Day names ("sexta"/"friday"/"segunda"/"monday") → look up the day name in DATE_REFERENCE_TABLE
+- "this week"/"essa semana" → look up "this_week_start" and "this_week_end" in DATE_REFERENCE_TABLE
+- "last week"/"semana passada" → look up "last_week_start" and "last_week_end" in DATE_REFERENCE_TABLE
+- Specific dates ("dia 5"/"february 5th") → resolve to YYYY-MM-DD in current or most recent month
+- The "date" field in your response MUST always be in YYYY-MM-DD format
+- Cross-reference with recent_days data to verify records exist (for delete). For update_record, you can create new records.
 - NEVER ask confirmation for simple corrections. Just do it.
 - Worker voice OVERRIDES everything — GPS, AI Secretary, everything.
 
@@ -83,6 +88,19 @@ RULES for start:
 - Worker says "start at [site name]" → match site_name from available_sites
 - If has_active_session is true → respond that timer is already running, no action needed
 - If available_sites is empty → respond that worker needs to add a site first in the Map tab
+
+### Create Location (new geofence site)
+- Worker says an address or describes a location
+- App will geocode the address and create a geofence
+- Worker can optionally specify a custom name and radius
+
+RULES for create_location:
+- ALWAYS include the full address as spoken by the worker in the "address" field
+- If worker gives a name ("cria canteiro norte na rua X"), use that name in site_name
+- If no name given, leave site_name empty (app will use the geocoded address)
+- Default radius is 100 meters unless worker specifies otherwise
+- DO NOT ask for coordinates — the app handles geocoding from the address
+- NEVER ask confirmation. Just create it.
 
 ### Reports & Export
 - Generate report for a period
@@ -109,7 +127,7 @@ RULES for start:
 NEVER do any of these, even if the worker asks:
 - Delete the account or log out
 - Delete ALL data at once (only individual days)
-- Create or edit work sites/locations/geofences
+- Edit or delete existing work sites/geofences
 - Change geofence radius or position
 - Access other workers' data
 - Change settings (notifications, preferences, account)
@@ -149,6 +167,16 @@ If worker asks for something you can't do, explain briefly and suggest they do i
   "site_name": "Site name from available_sites, or null for first/most recent",
   "reason": "Worker said: comeca",
   "response_text": "Timer iniciado no Canteiro Norte."
+}
+
+### create_location — Create a new work site from an address
+{
+  "action": "create_location",
+  "site_name": "Canteiro Norte",
+  "address": "Rua Augusta 1200, Sao Paulo",
+  "radius": 100,
+  "reason": "Worker said: cria uma cerca na Rua Augusta 1200",
+  "response_text": "Pronto. Canteiro criado na Rua Augusta 1200 com raio de 100 metros."
 }
 
 ### session_control — Pause/Resume/Stop
@@ -282,12 +310,72 @@ Deno.serve(async (req: Request) => {
       );
     }
 
+    // ─── BUILD DATE REFERENCE TABLE ───
+    // Pre-calculate all date references so GPT-4o doesn't need to do calendar math
+    const todayStr = app_state.today_date || app_state.now?.split("T")[0] || new Date().toISOString().split("T")[0];
+    const todayDate = new Date(todayStr + "T12:00:00"); // noon to avoid timezone edge cases
+
+    const dayNamesEN = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+    const dayNamesPT = ["domingo", "segunda", "terca", "quarta", "quinta", "sexta", "sabado"];
+
+    const dateRef: Record<string, string> = {};
+    dateRef["today"] = todayStr;
+    dateRef["hoje"] = todayStr;  // Portuguese
+
+    // Yesterday
+    const yesterday = new Date(todayDate);
+    yesterday.setDate(yesterday.getDate() - 1);
+    dateRef["yesterday"] = yesterday.toISOString().split("T")[0];
+    dateRef["ontem"] = yesterday.toISOString().split("T")[0];  // Portuguese
+
+    // Day before yesterday
+    const dayBeforeYesterday = new Date(todayDate);
+    dayBeforeYesterday.setDate(dayBeforeYesterday.getDate() - 2);
+    dateRef["day_before_yesterday"] = dayBeforeYesterday.toISOString().split("T")[0];
+    dateRef["anteontem"] = dayBeforeYesterday.toISOString().split("T")[0];  // Portuguese
+
+    // Last 7 days with day names (both EN and PT)
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(todayDate);
+      d.setDate(d.getDate() - i);
+      const dateStr = d.toISOString().split("T")[0];
+      const dayIdx = d.getDay();
+      dateRef[dayNamesEN[dayIdx]] = dateStr;
+      dateRef[dayNamesPT[dayIdx]] = dateStr;
+    }
+
+    // This week (Monday to Sunday)
+    const todayDow = todayDate.getDay(); // 0=Sun
+    const mondayOffset = todayDow === 0 ? -6 : 1 - todayDow;
+    const thisMonday = new Date(todayDate);
+    thisMonday.setDate(thisMonday.getDate() + mondayOffset);
+    const thisSunday = new Date(thisMonday);
+    thisSunday.setDate(thisSunday.getDate() + 6);
+    dateRef["this_week_start"] = thisMonday.toISOString().split("T")[0];
+    dateRef["this_week_end"] = thisSunday.toISOString().split("T")[0];
+
+    // Last week
+    const lastMonday = new Date(thisMonday);
+    lastMonday.setDate(lastMonday.getDate() - 7);
+    const lastSunday = new Date(lastMonday);
+    lastSunday.setDate(lastSunday.getDate() + 6);
+    dateRef["last_week_start"] = lastMonday.toISOString().split("T")[0];
+    dateRef["last_week_end"] = lastSunday.toISOString().split("T")[0];
+
+    const dateRefText = Object.entries(dateRef)
+      .map(([key, val]) => `  ${key} = ${val}`)
+      .join("\n");
+
     // ─── BUILD MESSAGE ───
     const userMessage = `
 VOICE TRANSCRIPT: "${transcript}"
 
+DATE_REFERENCE_TABLE (use these EXACT dates, do NOT calculate yourself):
+${dateRefText}
+
 CURRENT APP STATE:
-- Date/Time now: ${app_state.now}
+- TODAY: ${todayStr} (${dayNamesEN[todayDate.getDay()]})
+- Local time now: ${app_state.now}
 - Active session: ${app_state.has_active_session}
 - Current site: ${app_state.current_site || "none"}
 - Timer: ${app_state.timer || "not running"}

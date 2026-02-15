@@ -11,18 +11,9 @@ import { logger } from './logger';
 export async function addToSkippedToday(_locationId: string): Promise<void> {}
 export async function removeFromSkippedToday(_locationId: string): Promise<void> {}
 export async function clearSkippedToday(): Promise<void> {}
-export async function checkInsideFence(
-  _latitude: number,
-  _longitude: number,
-  _userId: string,
-): Promise<{ isInside: boolean; fence: null }> {
-  return { isInside: false, fence: null };
-}
 
 // Callback stubs
 export function setGeofenceCallback(_callback: unknown): void {}
-export function setReconcileCallback(_callback: unknown): void {}
-export function setLocationCallback(_callback: unknown): void {}
 export function clearCallbacks(): void {}
 
 // Background user stubs

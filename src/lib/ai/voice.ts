@@ -18,15 +18,18 @@ import { db, toLocalDateString } from '../database/core';
 import { getDailyHours, upsertDailyHours } from '../database/daily';
 import { buildWorkerProfile } from './interpreter';
 import { useLocationStore } from '../../stores/locationStore';
+import { buscarEnderecoAutocomplete } from '../geocoding';
 
 // ============================================================
 // TYPES
 // ============================================================
 
 export interface VoiceAction {
-  action: 'start' | 'update_record' | 'delete_record' | 'pause' | 'resume' | 'stop' | 'send_report' | 'generate_report' | 'query' | 'navigate' | 'cannot_do' | 'clarify';
+  action: 'start' | 'update_record' | 'delete_record' | 'pause' | 'resume' | 'stop' | 'send_report' | 'generate_report' | 'query' | 'navigate' | 'create_location' | 'cannot_do' | 'clarify';
   site_name?: string;
   date?: string;
+  address?: string;
+  radius?: number;
   changes?: {
     first_entry?: string;
     last_exit?: string;
@@ -50,6 +53,7 @@ export interface VoiceAction {
 
 export interface VoiceAppState {
   now: string;
+  today_date: string;        // YYYY-MM-DD local date (canonical reference for AI)
   has_active_session: boolean;
   current_site: string | null;
   timer: string | null;
@@ -113,12 +117,14 @@ export async function processVoiceCommand(
 
     const action = data as VoiceAction;
 
-    // Log full AI response for debugging
+    // Log full AI response for debugging (console + logger for visibility)
+    console.log('[VOICE] AI response:', JSON.stringify(action, null, 2));
     logger.info('voice', `AI response: ${action.action}`, {
       date: action.date,
       changes: action.changes ? JSON.stringify(action.changes) : undefined,
       period: action.period ? JSON.stringify(action.period) : undefined,
       screen: action.screen,
+      reason: action.reason,
     });
 
     // Execute the action
@@ -146,11 +152,14 @@ async function executeVoiceAction(
   switch (action.action) {
     case 'update_record': {
       if (!action.date || !action.changes) {
+        console.log('[VOICE] update_record SKIPPED: missing date or changes', { date: action.date, changes: action.changes });
         logger.warn('voice', `update_record: missing date or changes`, { date: action.date, changes: action.changes });
         break;
       }
 
+      console.log(`[VOICE] update_record: target date = ${action.date}, changes =`, action.changes);
       const existing = getDailyHours(userId, action.date);
+      console.log(`[VOICE] update_record: existing record for ${action.date}:`, existing ? 'FOUND' : 'NULL (will create new)');
 
       // Resolve each field: AI value > existing value > fallback
       const firstEntry = action.changes.first_entry || existing?.first_entry || undefined;
@@ -193,6 +202,7 @@ async function executeVoiceAction(
       });
 
       if (!result) {
+        console.log(`[VOICE] update_record: upsert FAILED for ${action.date}`);
         logger.error('voice', `update_record: upsert FAILED for ${action.date}`);
         break;
       }
@@ -205,27 +215,34 @@ async function executeVoiceAction(
           [userId, action.date]
         );
       } catch (e) {
+        console.log(`[VOICE] update_record: marking voice edit failed:`, String(e));
         logger.error('voice', `update_record: marking voice edit failed`, { error: String(e) });
       }
 
+      console.log(`[VOICE] update_record: SUCCESS ${action.date} → ${totalMinutes}min (entry=${firstEntry}, exit=${lastExit})`);
       logger.info('voice', `update_record: SUCCESS ${action.date} → ${totalMinutes}min`);
       break;
     }
 
     case 'delete_record': {
       if (!action.date) {
+        console.log('[VOICE] delete_record SKIPPED: missing date');
         logger.warn('voice', `delete_record: missing date`);
         break;
       }
+      console.log(`[VOICE] delete_record: target date = ${action.date}`);
       const existingForDelete = getDailyHours(userId, action.date);
       if (!existingForDelete) {
+        console.log(`[VOICE] delete_record: NO RECORD found for ${action.date} — nothing to delete`);
         logger.warn('voice', `delete_record: no record found for ${action.date}`);
         break;
       }
+      console.log(`[VOICE] delete_record: found record for ${action.date}, deleting...`);
       db.runSync(
         `UPDATE daily_hours SET deleted_at = datetime('now'), updated_at = datetime('now'), synced_at = NULL WHERE user_id = ? AND date = ? AND deleted_at IS NULL`,
         [userId, action.date]
       );
+      console.log(`[VOICE] delete_record: SUCCESS soft-deleted ${action.date}`);
       logger.info('voice', `delete_record: SUCCESS soft-deleted ${action.date}`);
       break;
     }
@@ -246,6 +263,46 @@ async function executeVoiceAction(
         logger.info('voice', `start: SUCCESS at ${target.name}`);
       } catch (e) {
         logger.error('voice', `start: failed`, { error: String(e) });
+      }
+      break;
+    }
+
+    case 'create_location': {
+      if (!action.address) {
+        logger.warn('voice', 'create_location: missing address');
+        break;
+      }
+
+      // Use current GPS location as bias so geocoding prioritizes nearby results
+      const userCoords = useLocationStore.getState().currentLocation;
+      console.log(`[VOICE] create_location: geocoding "${action.address}" (bias: ${userCoords ? `${userCoords.latitude.toFixed(2)},${userCoords.longitude.toFixed(2)}` : 'none'})`);
+      const geoResults = await buscarEnderecoAutocomplete(
+        action.address,
+        userCoords?.latitude,
+        userCoords?.longitude,
+      );
+      if (!geoResults || geoResults.length === 0) {
+        console.log(`[VOICE] create_location: geocoding FAILED for "${action.address}"`);
+        logger.warn('voice', `create_location: geocoding failed for "${action.address}"`);
+        break;
+      }
+
+      const geo = geoResults[0];
+      // Use site_name from AI, or extract just "number, street" from geocoded address
+      const shortAddress = geo.endereco ? geo.endereco.split(', ').slice(0, 2).join(', ') : '';
+      const locationName = action.site_name || shortAddress || action.address;
+      const locationRadius = action.radius || 100;
+
+      console.log(`[VOICE] create_location: "${locationName}" at (${geo.latitude}, ${geo.longitude}), radius=${locationRadius}`);
+      try {
+        await useLocationStore.getState().addLocation(
+          locationName, geo.latitude, geo.longitude, locationRadius
+        );
+        console.log(`[VOICE] create_location: SUCCESS "${locationName}"`);
+        logger.info('voice', `create_location: SUCCESS "${locationName}" at (${geo.latitude.toFixed(2)}, ${geo.longitude.toFixed(2)})`);
+      } catch (e) {
+        console.log(`[VOICE] create_location: FAILED`, String(e));
+        logger.error('voice', `create_location: failed`, { error: String(e) });
       }
       break;
     }

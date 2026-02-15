@@ -69,6 +69,9 @@ interface DailyLogState {
   // Week summary (for quick view)
   weekLogs: DailyLog[];
 
+  // Monotonic counter — bumped on every data change so UI hooks can react
+  dataVersion: number;
+
   // Actions
   initialize: () => Promise<void>;
   reloadToday: () => Promise<void>;
@@ -150,6 +153,7 @@ export const useDailyLogStore = create<DailyLogState>((set, get) => ({
     startTime: null,
   },
   weekLogs: [],
+  dataVersion: 0,
 
   // ============================================
   // INITIALIZE
@@ -191,7 +195,10 @@ export const useDailyLogStore = create<DailyLogState>((set, get) => ({
       const today = getToday();
       const entry = getDailyHours(userId, today);
 
-      set({ todayLog: entry ? entryToLog(entry) : null });
+      set(state => ({
+        todayLog: entry ? entryToLog(entry) : null,
+        dataVersion: state.dataVersion + 1,
+      }));
 
       logger.debug('dailyLog', 'Today reloaded', {
         hasLog: !!entry,

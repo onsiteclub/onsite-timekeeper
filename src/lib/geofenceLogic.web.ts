@@ -40,12 +40,6 @@ export function localCheckInsideFence(
 }
 
 // ============================================
-// RECONFIGURE STATE (no-op)
-// ============================================
-
-export function setReconfiguring(_value: boolean): void {}
-
-// ============================================
 // GEOFENCE EVENT PROCESSING (no-op)
 // ============================================
 

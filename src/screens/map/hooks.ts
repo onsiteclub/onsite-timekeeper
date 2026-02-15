@@ -12,6 +12,7 @@ import type MapView from 'react-native-maps';
 import type { Region } from 'react-native-maps';
 import type { TextInput } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
+import { useFocusEffect } from 'expo-router';
 
 import {
   useLocationStore,
@@ -104,11 +105,12 @@ export function useMapScreen() {
   // EFFECTS
   // ============================================
 
-  // Update location on mount
-  useEffect(() => {
-    // FIX: Use refreshCurrentLocation (no args) instead of updateLocation
-    refreshCurrentLocation();
-  }, []);
+  // Refresh GPS when map tab is focused (not just on mount)
+  useFocusEffect(
+    useCallback(() => {
+      refreshCurrentLocation();
+    }, [])
+  );
 
   // Update region when location changes
   useEffect(() => {
@@ -301,13 +303,15 @@ export function useMapScreen() {
     // For new users (no locations), the pulsing circle guides them to tap
   }, [animateToLocation, locations.length]);
 
-  const handleGoToMyLocation = useCallback(() => {
+  const handleGoToMyLocation = useCallback(async () => {
+    // Request fresh GPS before animating (don't use stale position)
+    await refreshCurrentLocation();
     if (currentLocation) {
       animateToLocation(currentLocation.latitude, currentLocation.longitude, 'default');
     } else {
       Alert.alert('GPS', 'Location not available');
     }
-  }, [currentLocation, animateToLocation]);
+  }, [currentLocation, animateToLocation, refreshCurrentLocation]);
 
   const handleConfirmAddLocation = useCallback(async () => {
     // Validation: if no name, shake and don't close

@@ -119,44 +119,6 @@ export const styles = StyleSheet.create({
     elevation: 4,
   },
 
-  monitorButton: {
-    position: 'absolute',
-    top: Platform.OS === 'ios' ? 130 : 110,
-    left: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.card,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-    shadowColor: colors.black,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 4,
-  },
-  monitorButtonActive: {
-    backgroundColor: colors.success,
-  },
-  monitorDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.textMuted,
-    marginRight: 6,
-  },
-  monitorDotActive: {
-    backgroundColor: colors.white,
-  },
-  monitorText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: colors.text,
-  },
-  monitorTextActive: {
-    color: colors.white,
-  },
-
   // ============================================
   // LOCATION LABELS (on map)
   // ============================================

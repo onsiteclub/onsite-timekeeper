@@ -160,7 +160,7 @@ const modalStyles = StyleSheet.create({
   },
   container: {
     width: '100%',
-    maxWidth: 340,
+    maxWidth: 420,
     backgroundColor: colors.card,
     borderRadius: 20,
     padding: 20,

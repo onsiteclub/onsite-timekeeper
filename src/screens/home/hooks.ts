@@ -29,7 +29,7 @@ import {
 import { useDailyLogStore } from '../../stores/dailyLogStore';
 import { useSyncStore } from '../../stores/syncStore';
 import { useSettingsStore } from '../../stores/settingsStore';
-import { formatDuration, getDailyHoursByPeriod, upsertDailyHours, updateDailyHours, deleteDailyHours, deleteDailyHoursById, getToday } from '../../lib/database';
+import { formatDuration, getDailyHoursByPeriod, upsertDailyHours, updateDailyHours, deleteDailyHours, deleteDailyHoursById, getToday, toLocalDateString } from '../../lib/database';
 import type { DailyHoursEntry } from '../../lib/database/daily';
 import { getActiveTrackingState, getPauseSeconds, updatePauseSeconds, type ActiveTracking } from '../../lib/exitHandler';
 import { generateCompleteReport } from '../../lib/reports';
@@ -130,6 +130,7 @@ export function useHomeScreen() {
   
   // V3: Use dailyLogStore and locationStore instead of recordStore
   const { reloadToday, todayLog } = useDailyLogStore();
+  const dataVersion = useDailyLogStore(s => s.dataVersion);
   const { handleManualEntry, handleManualExit } = useLocationStore();
 
   // V3: Get current session from active_tracking
@@ -179,9 +180,9 @@ export function useHomeScreen() {
   }) => {
     if (!userId) throw new Error('User not authenticated');
 
-    const date = params.entry.split('T')[0];
     const entryTime = new Date(params.entry);
     const exitTime = new Date(params.exit);
+    const date = toLocalDateString(entryTime);
     const durationMs = exitTime.getTime() - entryTime.getTime();
     const durationMinutes = Math.max(0, Math.round(durationMs / 60000) - (params.pauseMinutes || 0));
 
@@ -214,14 +215,39 @@ export function useHomeScreen() {
       pause_minutes?: number;
       manually_edited?: number;
       edit_reason?: string;
+      location_id?: string;
+      location_name?: string;
     }
   ) => {
     if (!userId) throw new Error('User not authenticated');
-    // For V3, we update today's entry since we don't have session IDs
-    const today = getToday();
-    updateDailyHours(userId, today, {
-      breakMinutes: updates.pause_minutes,
+
+    // Extract the correct date from entry_at (local date, not UTC)
+    const entryTime = updates.entry_at ? new Date(updates.entry_at) : new Date();
+    const exitTime = updates.exit_at ? new Date(updates.exit_at) : entryTime;
+    const date = toLocalDateString(entryTime);
+
+    // Calculate total minutes from entry/exit
+    const durationMs = exitTime.getTime() - entryTime.getTime();
+    const pauseMinutes = updates.pause_minutes || 0;
+    const totalMinutes = Math.max(0, Math.round(durationMs / 60000) - pauseMinutes);
+
+    // Format first_entry and last_exit as HH:MM
+    const firstEntry = `${entryTime.getHours().toString().padStart(2, '0')}:${entryTime.getMinutes().toString().padStart(2, '0')}`;
+    const lastExit = `${exitTime.getHours().toString().padStart(2, '0')}:${exitTime.getMinutes().toString().padStart(2, '0')}`;
+
+    // Upsert with all fields (handles both existing and new records)
+    // locationName/locationId use COALESCE in SQL, so undefined preserves existing values
+    upsertDailyHours({
+      userId,
+      date,
+      totalMinutes,
+      breakMinutes: pauseMinutes,
+      locationName: updates.location_name,
+      locationId: updates.location_id,
+      verified: false,
       source: 'edited',
+      firstEntry,
+      lastExit,
     });
     reloadToday();
   };
@@ -488,8 +514,8 @@ export function useHomeScreen() {
     let periodEnd: Date;
 
     if (pendingReportExport.periodStart && pendingReportExport.periodEnd) {
-      periodStart = new Date(pendingReportExport.periodStart);
-      periodEnd = new Date(pendingReportExport.periodEnd);
+      periodStart = new Date(pendingReportExport.periodStart + 'T00:00:00');
+      periodEnd = new Date(pendingReportExport.periodEnd + 'T00:00:00');
     } else {
       // Default to current week
       periodStart = getWeekStart(new Date());
@@ -631,7 +657,7 @@ export function useHomeScreen() {
     } else {
       loadMonthSessions();
     }
-  }, [viewMode, currentWeek, currentMonth, loadWeekSessions, loadMonthSessions]);
+  }, [viewMode, currentWeek, currentMonth, loadWeekSessions, loadMonthSessions, dataVersion]);
 
   // Note: Removed useEffect[currentSession] - was causing memory issues
   // The effect above already handles all necessary reloads
@@ -1021,10 +1047,10 @@ export function useHomeScreen() {
 
     setManualDate(date);
     setManualLocationId(locations[0]?.id || '');
-    // Default values: 08:00 and 17:00
+    // Default values in 12h format: 08:00 AM and 05:00 PM
     setManualEntryH('08');
     setManualEntryM('00');
-    setManualExitH('17');
+    setManualExitH('05');
     setManualExitM('00');
     setManualPause('');
     // Reset entry mode
@@ -1138,12 +1164,15 @@ export function useHomeScreen() {
     try {
       if (editingSessionId) {
         // EDIT MODE: Update existing session
+        const location = locations.find(l => l.id === manualLocationId);
         await editRecord(editingSessionId, {
           entry_at: entryDate.toISOString(),
           exit_at: exitDate.toISOString(),
           pause_minutes: pauseMinutes,
           manually_edited: 1,
           edit_reason: 'Edited manually by user',
+          location_id: manualLocationId || undefined,
+          location_name: location?.name || undefined,
         });
         setEditingSessionId(null);
       } else {

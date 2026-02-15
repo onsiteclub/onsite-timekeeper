@@ -89,6 +89,7 @@ export interface ReportResult {
  * If corrections are made, updates SQLite directly.
  */
 export async function cleanupDay(userId: string, date: string): Promise<void> {
+  console.log(`[AI-SECRETARY] 📋 cleanupDay called for ${date}`);
   try {
     // Read today's record
     const record = db.getFirstSync<DailyRecord>(
@@ -101,15 +102,19 @@ export async function cleanupDay(userId: string, date: string): Promise<void> {
     );
 
     if (!record) {
+      console.log(`[AI-SECRETARY] ⚠️ No record found for ${date} — skipping`);
       logger.warn('secretary', `No record found for ${date}`);
       return;
     }
 
     // Don't touch manually edited records
     if (record.is_manual_edit) {
+      console.log(`[AI-SECRETARY] 🚫 Skipping ${date} — manually edited by worker (is_manual_edit=1)`);
       logger.info('secretary', `Skipping ${date} — manually edited by worker`);
       return;
     }
+
+    console.log(`[AI-SECRETARY] 📊 Record: ${date} | entry=${record.first_entry} exit=${record.last_exit} total=${record.total_minutes}min break=${record.break_minutes}min`);
 
     // Get worker profile (reuses buildWorkerProfile from Fase 1)
     const profile = buildWorkerProfile(userId);
@@ -132,6 +137,7 @@ export async function cleanupDay(userId: string, date: string): Promise<void> {
     });
 
     if (error || data?.fallback) {
+      console.log(`[AI-SECRETARY] ❌ AI unavailable for ${date} — keeping original data`);
       logger.warn('secretary', 'AI secretary unavailable, keeping original data');
       return;
     }
@@ -140,11 +146,13 @@ export async function cleanupDay(userId: string, date: string): Promise<void> {
 
     // If no corrections, nothing to do
     if (!result.corrections || result.corrections.length === 0) {
+      console.log(`[AI-SECRETARY] ✅ ${date} looks good — no corrections needed`);
       logger.info('secretary', `${date} looks good — no corrections needed`);
       return;
     }
 
     // Apply corrections to SQLite
+    console.log(`[AI-SECRETARY] 🔧 Applying ${result.corrections.length} corrections to ${date}:`, result.corrections.map(c => `${c.field}: ${c.from} → ${c.to} (${c.reason})`).join(', '));
     logger.info('secretary', `Applying ${result.corrections.length} corrections to ${date}`);
 
     db.runSync(
@@ -180,8 +188,10 @@ export async function cleanupDay(userId: string, date: string): Promise<void> {
       );
     }
 
+    console.log(`[AI-SECRETARY] ✅ ${date} cleaned up: ${result.corrections.map(c => c.field).join(', ')}`);
     logger.info('secretary', `${date} cleaned up: ${result.corrections.map(c => c.field).join(', ')}`);
   } catch (error) {
+    console.log(`[AI-SECRETARY] ❌ Daily cleanup FAILED: ${String(error)}`);
     logger.error('secretary', 'Daily cleanup failed', { error: String(error) });
     // Non-critical — original data is preserved
   }
@@ -200,6 +210,7 @@ export async function generateReport(
   startDate: string,
   endDate: string
 ): Promise<ReportResult | null> {
+  console.log(`[AI-SECRETARY] 📄 generateReport called: ${startDate} to ${endDate}`);
   try {
     const records = db.getAllSync<DailyRecord>(
       `SELECT id, date, location_id, location_name, first_entry, last_exit,
@@ -212,9 +223,11 @@ export async function generateReport(
     );
 
     if (records.length === 0) {
+      console.log(`[AI-SECRETARY] ⚠️ No records found for ${startDate} to ${endDate}`);
       return null;
     }
 
+    console.log(`[AI-SECRETARY] 📊 Found ${records.length} records, calling AI Edge Function...`);
     const profile = buildWorkerProfile(userId);
 
     const { data, error } = await supabase.functions.invoke('ai-secretary', {
@@ -233,12 +246,15 @@ export async function generateReport(
     });
 
     if (error || data?.fallback) {
+      console.log(`[AI-SECRETARY] ❌ AI unavailable for report — generating basic fallback`);
       logger.warn('secretary', 'AI secretary unavailable, generating basic report');
       return generateBasicReport(records, startDate, endDate);
     }
 
+    console.log(`[AI-SECRETARY] ✅ Report generated: ${(data as ReportResult).summary?.total_days} days, ${(data as ReportResult).summary?.total_worked_hours}h`);
     return data as ReportResult;
   } catch (error) {
+    console.log(`[AI-SECRETARY] ❌ Report generation FAILED: ${String(error)}`);
     logger.error('secretary', 'Report generation failed', { error: String(error) });
     return null;
   }

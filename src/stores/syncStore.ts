@@ -56,7 +56,7 @@ import {
   type DailyHoursEntry,
 } from '../lib/database/daily';
 import { useAuthStore } from './authStore';
-import { setReconfiguring } from '../lib/geofenceLogic';
+
 
 // ============================================
 // CONSTANTS
@@ -641,12 +641,7 @@ async function downloadLocations(userId: string): Promise<{ count: number; error
 
       if (locations.length > 0 && !isMonitoring) {
         logger.info('sync', '🚀 Starting monitoring after download...');
-        setReconfiguring(true);
         await startMonitoring();
-
-        setTimeout(() => {
-          setReconfiguring(false);
-        }, 1000);
       }
     }
   } catch (error) {

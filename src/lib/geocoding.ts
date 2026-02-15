@@ -1,25 +1,21 @@
 /**
  * Geocoding Service - OnSite Timekeeper
- * 
- * Uses Nominatim (OpenStreetMap) for:
- * - Search addresses → coordinates (forward geocoding)
- * - Coordinates → address (reverse geocoding)
- * 
- * IMPROVED:
- * - Smart search: tries local first, then expands
- * - Country detection from GPS
- * - Better proximity sorting
- * - Fallback strategy for better results
- * 
+ *
+ * Uses Photon (photon.komoot.io) for:
+ * - Search addresses AND places/POIs → coordinates (forward geocoding)
+ * - Supports businesses, landmarks, schools, restaurants, etc.
+ * - Location bias via lat/lon (prioritizes nearby results)
+ *
+ * Photon is powered by OpenStreetMap + Elasticsearch
  * 100% free, no API key needed
  */
 
 import { logger } from './logger';
 
-// Base URL for Nominatim
-const NOMINATIM_URL = 'https://nominatim.openstreetmap.org';
+// Base URL for Photon geocoder (komoot public instance)
+const PHOTON_URL = 'https://photon.komoot.io/api/';
 
-// Required User-Agent (Nominatim policy)
+// Required User-Agent
 const USER_AGENT = 'OnSiteTimekeeper/1.0';
 
 // ============================================
@@ -36,48 +32,9 @@ export interface ResultadoGeocodificacao {
   distancia?: number; // Distance from bias point in km
 }
 
-interface BuscaOptions {
-  limite?: number;
-  biasLatitude?: number;
-  biasLongitude?: number;
-  countryCodes?: string[];
-  strategy?: 'local_first' | 'global';
-}
-
 // ============================================
-// COUNTRY DETECTION
+// HAVERSINE DISTANCE
 // ============================================
-
-function detectCountryCodes(latitude: number, longitude: number): string[] {
-  const regions: { codes: string[]; minLat: number; maxLat: number; minLon: number; maxLon: number }[] = [
-    { codes: ['ca'], minLat: 41.7, maxLat: 83.1, minLon: -141.0, maxLon: -52.6 },
-    { codes: ['us'], minLat: 24.5, maxLat: 49.4, minLon: -125.0, maxLon: -66.9 },
-    { codes: ['mx'], minLat: 14.5, maxLat: 32.7, minLon: -118.4, maxLon: -86.7 },
-    { codes: ['gb'], minLat: 49.9, maxLat: 60.8, minLon: -8.6, maxLon: 1.8 },
-    { codes: ['au'], minLat: -43.6, maxLat: -10.7, minLon: 113.3, maxLon: 153.6 },
-    { codes: ['br'], minLat: -33.8, maxLat: 5.3, minLon: -73.9, maxLon: -34.8 },
-  ];
-
-  const detected: string[] = [];
-  
-  for (const region of regions) {
-    if (
-      latitude >= region.minLat && latitude <= region.maxLat &&
-      longitude >= region.minLon && longitude <= region.maxLon
-    ) {
-      detected.push(...region.codes);
-    }
-  }
-
-  if (detected.includes('ca') && latitude < 50) {
-    if (!detected.includes('us')) detected.push('us');
-  }
-  if (detected.includes('us') && latitude > 40) {
-    if (!detected.includes('ca')) detected.push('ca');
-  }
-
-  return detected.length > 0 ? detected : [];
-}
 
 function calcularDistanciaKm(
   lat1: number, lon1: number,
@@ -86,7 +43,7 @@ function calcularDistanciaKm(
   const R = 6371;
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = 
+  const a =
     Math.sin(dLat / 2) * Math.sin(dLat / 2) +
     Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
     Math.sin(dLon / 2) * Math.sin(dLon / 2);
@@ -95,41 +52,28 @@ function calcularDistanciaKm(
 }
 
 // ============================================
-// FORWARD GEOCODING (Address → Coordinates)
+// FORWARD GEOCODING (Address/Place → Coordinates)
 // ============================================
 
-async function searchNominatim(
+async function searchPhoton(
   query: string,
-  options: {
-    limit: number;
-    viewbox?: string;
-    bounded?: boolean;
-    countryCodes?: string[];
-  }
+  options: { limit: number; lat?: number; lon?: number }
 ): Promise<ResultadoGeocodificacao[]> {
   const params: Record<string, string> = {
     q: query,
-    format: 'json',
     limit: String(options.limit),
-    addressdetails: '1',
   };
 
-  if (options.viewbox) {
-    params.viewbox = options.viewbox;
-    params.bounded = options.bounded ? '1' : '0';
-  }
-
-  if (options.countryCodes && options.countryCodes.length > 0) {
-    params.countrycodes = options.countryCodes.join(',');
+  // Location bias — Photon natively prioritizes results near this point
+  if (options.lat !== undefined && options.lon !== undefined) {
+    params.lat = String(options.lat);
+    params.lon = String(options.lon);
+    params.location_bias_scale = '0.6'; // Strong bias toward user location
   }
 
   const response = await fetch(
-    `${NOMINATIM_URL}/search?` + new URLSearchParams(params),
-    {
-      headers: {
-        'User-Agent': USER_AGENT,
-      },
-    }
+    `${PHOTON_URL}?${new URLSearchParams(params)}`,
+    { headers: { 'User-Agent': USER_AGENT } }
   );
 
   if (!response.ok) {
@@ -138,115 +82,73 @@ async function searchNominatim(
 
   const data = await response.json();
 
-  return data.map((item: any) => ({
-    latitude: parseFloat(item.lat),
-    longitude: parseFloat(item.lon),
-    endereco: item.display_name,
-    cidade: item.address?.city || item.address?.town || item.address?.village,
-    estado: item.address?.state,
-    pais: item.address?.country,
-  }));
+  return (data.features || []).map((feature: any) => {
+    const props = feature.properties || {};
+    const [lon, lat] = feature.geometry.coordinates;
+
+    // Build human-readable address from structured fields
+    const parts: string[] = [];
+    if (props.name) parts.push(props.name);
+    const streetPart = [props.housenumber, props.street].filter(Boolean).join(' ');
+    if (streetPart) parts.push(streetPart);
+    const city = props.city || props.town || props.village;
+    if (city) parts.push(city);
+    const endereco = parts.join(', ') || props.name || query;
+
+    return {
+      latitude: lat,
+      longitude: lon,
+      endereco,
+      cidade: city,
+      estado: props.state,
+      pais: props.country,
+    };
+  });
 }
 
 /**
- * Search addresses with smart strategy (internal)
+ * Search addresses and places with location bias (internal)
  */
 async function buscarEndereco(
   query: string,
-  options: BuscaOptions | number = 5
+  options: {
+    limite?: number;
+    biasLatitude?: number;
+    biasLongitude?: number;
+  } = {}
 ): Promise<ResultadoGeocodificacao[]> {
   try {
-    const opts: BuscaOptions = typeof options === 'number' 
-      ? { limite: options } 
-      : options;
-    
-    const limite = opts.limite ?? 5;
-    const strategy = opts.strategy ?? 'local_first';
+    const limite = options.limite ?? 5;
 
-    if (!query || query.length < 3) {
+    if (!query || query.length < 2) {
       return [];
     }
 
-    const hasLocation = opts.biasLatitude !== undefined && opts.biasLongitude !== undefined;
+    const hasLocation = options.biasLatitude !== undefined && options.biasLongitude !== undefined;
 
-    logger.debug('gps', `🔍 Searching: "${query}"`, {
-      bias: hasLocation ? `${opts.biasLatitude!.toFixed(4)},${opts.biasLongitude!.toFixed(4)}` : 'none',
-      strategy,
+    logger.debug('gps', `Searching: "${query}"`, {
+      bias: hasLocation ? `${options.biasLatitude!.toFixed(4)},${options.biasLongitude!.toFixed(4)}` : 'none',
     });
 
-    let resultados: ResultadoGeocodificacao[] = [];
+    // Single call — Photon handles bias natively via lat/lon
+    let resultados = await searchPhoton(query, {
+      limit: limite,
+      lat: options.biasLatitude,
+      lon: options.biasLongitude,
+    });
 
-    if (hasLocation && strategy === 'local_first') {
-      const detectedCountries = opts.countryCodes ?? detectCountryCodes(opts.biasLatitude!, opts.biasLongitude!);
-      
-      const radiusDeg = 1.0;
-      const viewbox = [
-        opts.biasLongitude! - radiusDeg,
-        opts.biasLatitude! + radiusDeg,
-        opts.biasLongitude! + radiusDeg,
-        opts.biasLatitude! - radiusDeg,
-      ].join(',');
-
-      logger.debug('gps', '📍 Trying local bounded search...');
-      resultados = await searchNominatim(query, {
-        limit: limite,
-        viewbox,
-        bounded: true,
-        countryCodes: detectedCountries,
-      });
-
-      if (resultados.length < 3) {
-        logger.debug('gps', '🌍 Expanding to country-level search...');
-        const moreResults = await searchNominatim(query, {
-          limit: limite,
-          viewbox,
-          bounded: false,
-          countryCodes: detectedCountries,
-        });
-        
-        const existingCoords = new Set(resultados.map(r => `${r.latitude.toFixed(5)},${r.longitude.toFixed(5)}`));
-        for (const r of moreResults) {
-          const key = `${r.latitude.toFixed(5)},${r.longitude.toFixed(5)}`;
-          if (!existingCoords.has(key)) {
-            resultados.push(r);
-            existingCoords.add(key);
-          }
-        }
-      }
-
-      if (resultados.length < 2 && detectedCountries.length > 0) {
-        logger.debug('gps', '🌐 Trying global search...');
-        const globalResults = await searchNominatim(query, {
-          limit: limite,
-          viewbox,
-          bounded: false,
-        });
-
-        const existingCoords = new Set(resultados.map(r => `${r.latitude.toFixed(5)},${r.longitude.toFixed(5)}`));
-        for (const r of globalResults) {
-          const key = `${r.latitude.toFixed(5)},${r.longitude.toFixed(5)}`;
-          if (!existingCoords.has(key)) {
-            resultados.push(r);
-            existingCoords.add(key);
-          }
-        }
-      }
-
+    // Calculate distance from user for display and sorting
+    if (hasLocation) {
       resultados = resultados.map(r => ({
         ...r,
-        distancia: calcularDistanciaKm(opts.biasLatitude!, opts.biasLongitude!, r.latitude, r.longitude),
+        distancia: calcularDistanciaKm(options.biasLatitude!, options.biasLongitude!, r.latitude, r.longitude),
       }));
 
       resultados.sort((a, b) => (a.distancia ?? Infinity) - (b.distancia ?? Infinity));
-
-    } else {
-      resultados = await searchNominatim(query, { limit: limite });
     }
 
-    resultados = resultados.slice(0, limite);
-
     const closestDist = resultados[0]?.distancia;
-    logger.info('gps', `✅ ${resultados.length} result(s)`, {
+    logger.info('gps', `${resultados.length} result(s)`, {
       closest: closestDist ? `${closestDist.toFixed(1)}km` : 'n/a',
     });
 
@@ -258,8 +160,8 @@ async function buscarEndereco(
 }
 
 /**
- * Search addresses with autocomplete (for use with debounce)
- * Uses smart local-first strategy
+ * Search addresses and places with autocomplete (for use with debounce)
+ * Searches POIs, businesses, landmarks, AND street addresses
  */
 export async function buscarEnderecoAutocomplete(
   query: string,
@@ -270,7 +172,6 @@ export async function buscarEnderecoAutocomplete(
     limite: 6,
     biasLatitude,
     biasLongitude,
-    strategy: 'local_first',
   });
 }
 
@@ -280,7 +181,7 @@ export async function buscarEnderecoAutocomplete(
 
 /**
  * Format address for short display
- * Ex: "123 Main St, Downtown, Toronto"
+ * Ex: "McDonald's, 670 Bronson Ave, Ottawa"
  */
 export function formatarEnderecoResumido(endereco: string): string {
   if (!endereco) return '';

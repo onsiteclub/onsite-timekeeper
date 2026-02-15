@@ -393,9 +393,9 @@ export async function startBackgroundLocation(): Promise<boolean> {
     await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
       accuracy: Location.Accuracy.Balanced,
       activityType: Location.ActivityType.Other,
-      distanceInterval: 50, // Update every 50m of movement
-      timeInterval: 60000, // Or every 1 minute
-      deferredUpdatesInterval: 300000, // Batch every 5 min
+      distanceInterval: 30, // Update every 30m of movement
+      timeInterval: 30000, // Or every 30 seconds
+      deferredUpdatesInterval: 60000, // Batch max 1 min (was 5 min — too slow for exit detection)
       showsBackgroundLocationIndicator: true,
       pausesUpdatesAutomatically: false,
       foregroundService: {

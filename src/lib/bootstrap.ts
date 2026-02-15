@@ -9,14 +9,10 @@ import { logger } from './logger';
 import { useLocationStore } from '../stores/locationStore';
 import {
   setGeofenceCallback,
-  setReconcileCallback,
-  setLocationCallback,
   clearCallbacks,
   setBackgroundUserId,
   clearBackgroundUserId,
 } from './backgroundTasks';
-import { getBackgroundUserId, checkInsideFence } from './backgroundHelpers';
-import type * as Location from 'expo-location';
 
 // ============================================
 // SINGLETON STATE
@@ -45,65 +41,6 @@ function handleGeofenceEvent(event: { type: 'enter' | 'exit'; regionIdentifier: 
 }
 
 // ============================================
-// RECONCILE CALLBACK
-// ============================================
-
-async function handleReconcile(): Promise<void> {
-  logger.info('geofence', '🔄 Reconcile triggered');
-
-  const locationStore = useLocationStore.getState();
-  await locationStore.reconcileState();
-}
-
-// ============================================
-// LOCATION UPDATE CALLBACK (GPS-based exit detection)
-// ============================================
-
-async function handleLocationUpdate(location: Location.LocationObject): Promise<void> {
-  try {
-    const { coords } = location;
-    const locationStore = useLocationStore.getState();
-    const currentFenceId = locationStore.currentFenceId;
-
-    if (!currentFenceId) {
-      return;
-    }
-
-    const userId = await getBackgroundUserId();
-    if (!userId) {
-      logger.debug('gps', 'No userId for location update, skipping');
-      return;
-    }
-
-    const result = await checkInsideFence(
-      coords.latitude,
-      coords.longitude,
-      userId
-    );
-
-    if (!result.isInside) {
-      logger.info('gps', `📍 GPS detected exit from fence: ${currentFenceId}`, {
-        lat: coords.latitude.toFixed(6),
-        lng: coords.longitude.toFixed(6),
-        accuracy: coords.accuracy?.toFixed(0) ?? 'N/A',
-      });
-
-      locationStore.handleGeofenceEvent({
-        type: 'exit',
-        regionIdentifier: currentFenceId,
-        timestamp: Date.now(),
-      });
-    } else {
-      logger.debug('gps', `📍 Still inside fence: ${currentFenceId}`, {
-        distance: result.distance?.toFixed(0) ?? 'N/A',
-      });
-    }
-  } catch (error) {
-    logger.error('gps', 'Error in location update handler', { error: String(error) });
-  }
-}
-
-// ============================================
 // INITIALIZE LISTENERS (CALL ONCE!)
 // ============================================
 
@@ -117,8 +54,6 @@ export async function initializeListeners(): Promise<void> {
 
   try {
     setGeofenceCallback(handleGeofenceEvent);
-    setReconcileCallback(handleReconcile);
-    setLocationCallback(handleLocationUpdate);
 
     if (appStateSubscription) {
       appStateSubscription.remove();

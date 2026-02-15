@@ -211,6 +211,7 @@ export function upsertDailyHours(params: UpsertDailyHoursParams): DailyHoursEntr
   } = params;
 
   try {
+    // Check for existing record (including soft-deleted)
     const existing = getDailyHours(userId, date);
     const timestamp = now();
 
@@ -255,40 +256,88 @@ export function upsertDailyHours(params: UpsertDailyHoursParams): DailyHoursEntr
         verified,
       });
     } else {
-      // CREATE new record
-      const id = generateUUID();
-
-      db.runSync(
-        `INSERT INTO daily_hours (
-          id, user_id, date, total_minutes, break_minutes,
-          location_name, location_id, verified, source, type,
-          first_entry, last_exit, notes, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          id,
-          userId,
-          date,
-          totalMinutes,
-          breakMinutes,
-          locationName || null,
-          locationId || null,
-          verified ? 1 : 0,
-          source,
-          type,
-          firstEntry || null,
-          lastExit || null,
-          notes || null,
-          timestamp,
-          timestamp,
-        ]
+      // Check if there's a soft-deleted record blocking INSERT
+      const softDeleted = db.getFirstSync<{ id: string }>(
+        `SELECT id FROM daily_hours WHERE user_id = ? AND date = ? AND deleted_at IS NOT NULL`,
+        [userId, date]
       );
 
-      logger.info('database', `[daily_hours] CREATED ${date}`, {
-        totalMinutes,
-        source,
-        type,
-        verified,
-      });
+      if (softDeleted) {
+        // Resurrect the soft-deleted record
+        db.runSync(
+          `UPDATE daily_hours SET
+            total_minutes = ?,
+            break_minutes = ?,
+            location_name = ?,
+            location_id = ?,
+            verified = ?,
+            source = ?,
+            type = ?,
+            first_entry = ?,
+            last_exit = ?,
+            notes = ?,
+            deleted_at = NULL,
+            updated_at = ?,
+            synced_at = NULL
+          WHERE user_id = ? AND date = ?`,
+          [
+            totalMinutes,
+            breakMinutes,
+            locationName || null,
+            locationId || null,
+            verified ? 1 : 0,
+            source,
+            type,
+            firstEntry || null,
+            lastExit || null,
+            notes || null,
+            timestamp,
+            userId,
+            date,
+          ]
+        );
+
+        logger.info('database', `[daily_hours] RESURRECTED (was soft-deleted) ${date}`, {
+          totalMinutes,
+          source,
+          type,
+        });
+      } else {
+        // CREATE new record
+        const id = generateUUID();
+
+        db.runSync(
+          `INSERT INTO daily_hours (
+            id, user_id, date, total_minutes, break_minutes,
+            location_name, location_id, verified, source, type,
+            first_entry, last_exit, notes, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            id,
+            userId,
+            date,
+            totalMinutes,
+            breakMinutes,
+            locationName || null,
+            locationId || null,
+            verified ? 1 : 0,
+            source,
+            type,
+            firstEntry || null,
+            lastExit || null,
+            notes || null,
+            timestamp,
+            timestamp,
+          ]
+        );
+
+        logger.info('database', `[daily_hours] CREATED ${date}`, {
+          totalMinutes,
+          source,
+          type,
+          verified,
+        });
+      }
     }
 
     return getDailyHours(userId, date);

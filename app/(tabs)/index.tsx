@@ -25,6 +25,7 @@ import {
   StatusBar,
   InputAccessoryView,
   Keyboard,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -479,10 +480,14 @@ export default function HomeScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: '#F3F4F6' }} edges={['top']}>
       <StatusBar barStyle="dark-content" backgroundColor="#F3F4F6" />
 
-      <View style={fixedStyles.container}>
+      <KeyboardAvoidingView
+        style={fixedStyles.container}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+      >
         <ScrollView
           style={{ flex: 1 }}
-          contentContainerStyle={{ flexGrow: 1 }}
+          contentContainerStyle={{ flexGrow: 1, paddingBottom: 40 }}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
@@ -625,11 +630,14 @@ export default function HomeScreen() {
                   timerRingStyles.statusBadge,
                   isPaused ? timerRingStyles.statusBadgePaused : timerRingStyles.statusBadgeActive
                 ]}>
-                  <Text style={[
-                    timerRingStyles.statusBadgeText,
-                    isPaused ? timerRingStyles.statusBadgeTextPaused : timerRingStyles.statusBadgeTextActive
-                  ]}>
-                    {isPaused ? 'Paused' : 'Active'} • {currentSession.location_name}
+                  <Text
+                    style={[
+                      timerRingStyles.statusBadgeText,
+                      isPaused ? timerRingStyles.statusBadgeTextPaused : timerRingStyles.statusBadgeTextActive
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {isPaused ? 'Paused' : 'Active'} • {currentSession.location_name.length > 25 ? currentSession.location_name.slice(0, 25) + '…' : currentSession.location_name}
                   </Text>
                 </View>
 
@@ -1073,7 +1081,7 @@ export default function HomeScreen() {
           </View>
         </InputAccessoryView>
       )}
-      </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

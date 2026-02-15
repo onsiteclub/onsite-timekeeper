@@ -24,9 +24,7 @@ import {
 
 import {
   setGeofenceCallback,
-  setReconcileCallback,
   clearCallbacks,
-  getLocationCallback,
 } from './taskCallbacks';
 
 import { processGeofenceEvent } from './geofenceLogic';
@@ -36,7 +34,6 @@ export {
   addToSkippedToday,
   removeFromSkippedToday,
   clearSkippedToday,
-  checkInsideFence,
 } from './backgroundHelpers';
 
 // ============================================
@@ -45,8 +42,6 @@ export {
 
 export {
   setGeofenceCallback,
-  setReconcileCallback,
-  setLocationCallback,
   clearCallbacks,
 } from './taskCallbacks';
 
@@ -125,7 +120,7 @@ TaskManager.defineTask(GEOFENCE_TASK, async ({ data, error }) => {
   }
 });
 
-// Dedup: prevent duplicate location events within short window
+// Location task: telemetry/logging only (no enter/exit decisions)
 let lastLocationTimestamp = 0;
 
 TaskManager.defineTask(LOCATION_TASK, async ({ data, error }) => {
@@ -150,15 +145,6 @@ TaskManager.defineTask(LOCATION_TASK, async ({ data, error }) => {
     lat: location.coords.latitude.toFixed(6),
     lng: location.coords.longitude.toFixed(6),
   });
-
-  const locationCallback = getLocationCallback();
-  if (locationCallback) {
-    try {
-      locationCallback(location);
-    } catch (e) {
-      logger.error('gps', 'Error in location callback', { error: String(e) });
-    }
-  }
 });
 
 logger.info('boot', '📋 Background tasks V3 loaded (simplified, no heartbeat)', {

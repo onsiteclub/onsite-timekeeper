@@ -43,13 +43,30 @@ let currentRecording: Audio.Recording | null = null;
  * Request microphone permission and start recording audio.
  * Returns true if recording started successfully.
  */
-export async function startRecording(): Promise<boolean> {
+export async function startRecording(): Promise<boolean | 'denied'> {
   try {
+    // Check if permission is permanently denied (user must go to settings)
+    const current = await Audio.getPermissionsAsync();
+    if (!current.granted && !current.canAskAgain) {
+      logger.warn('voice', 'Microphone permission permanently denied — user must enable in settings');
+      return 'denied';
+    }
+
     // Request permission
     const { granted } = await Audio.requestPermissionsAsync();
     if (!granted) {
       logger.warn('voice', 'Microphone permission not granted');
-      return false;
+      return 'denied';
+    }
+
+    // Clean up any stale recording that wasn't properly released
+    if (currentRecording) {
+      try {
+        await currentRecording.stopAndUnloadAsync();
+      } catch {
+        // Already stopped/unloaded, ignore
+      }
+      currentRecording = null;
     }
 
     // Configure audio mode for recording
@@ -60,8 +77,14 @@ export async function startRecording(): Promise<boolean> {
 
     // Create and start recording
     const recording = new Audio.Recording();
-    await recording.prepareToRecordAsync(RECORDING_OPTIONS);
-    await recording.startAsync();
+    try {
+      await recording.prepareToRecordAsync(RECORDING_OPTIONS);
+      await recording.startAsync();
+    } catch (prepError) {
+      // If prepare/start fails, unload to release hardware
+      try { await recording.stopAndUnloadAsync(); } catch { /* ignore */ }
+      throw prepError;
+    }
 
     currentRecording = recording;
     logger.info('voice', 'Whisper recording started');

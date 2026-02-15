@@ -21,6 +21,7 @@ import {
   Platform,
   Keyboard,
   ScrollView,
+  Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -38,7 +39,7 @@ import { useAuthStore } from '../stores/authStore';
 import { useDailyLogStore } from '../stores/dailyLogStore';
 import { useLocationStore } from '../stores/locationStore';
 import { logger } from '../lib/logger';
-import { getDailyHoursByPeriod } from '../lib/database';
+import { getDailyHoursByPeriod, getToday } from '../lib/database';
 import { generateAndShareTimesheetPDF } from '../lib/timesheetPdf';
 import type { DailyHoursEntry } from '../lib/database/daily';
 import type { ComputedSession } from '../screens/home/hooks';
@@ -102,6 +103,7 @@ export function VoiceCommandSheet({ visible, onClose }: VoiceCommandSheetProps) 
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [completedAction, setCompletedAction] = useState<CompletedAction | null>(null);
+  const [showMicPermissionBanner, setShowMicPermissionBanner] = useState(false);
   const hasAutoStarted = useRef(false);
   const msgIdRef = useRef(0);
 
@@ -118,6 +120,7 @@ export function VoiceCommandSheet({ visible, onClose }: VoiceCommandSheetProps) 
       setIsLoading(false);
       setIsRecording(false);
       setIsTranscribing(false);
+      setShowMicPermissionBanner(false);
       hasAutoStarted.current = false;
 
       const timer = setTimeout(() => {
@@ -142,15 +145,26 @@ export function VoiceCommandSheet({ visible, onClose }: VoiceCommandSheetProps) 
     }
   }, [messages, isLoading]);
 
+  const openAppSettings = useCallback(() => {
+    if (Platform.OS === 'ios') {
+      Linking.openURL('app-settings:');
+    } else {
+      Linking.openSettings();
+    }
+  }, []);
+
   const handleStartRecording = async () => {
     try {
       setInputText('');
       setCompletedAction(null);
       const started = await startRecording();
-      if (started) {
+      if (started === true) {
         setIsRecording(true);
+      } else if (started === 'denied') {
+        addMessage('ai', '🎙️ Microphone permission is disabled. Tap "Open Settings" below to enable it.');
+        setShowMicPermissionBanner(true);
       } else {
-        addMessage('ai', 'Microphone permission required.');
+        addMessage('ai', 'Could not start recording.');
       }
     } catch (error) {
       logger.error('voice', 'Failed to start Whisper recording', { error: String(error) });
@@ -232,8 +246,13 @@ export function VoiceCommandSheet({ visible, onClose }: VoiceCommandSheetProps) 
       const locations = useLocationStore.getState().locations;
       const activeLocation = locations.find(l => l.id === currentFenceId);
 
+      const todayLocal = getToday(); // YYYY-MM-DD local (avoids UTC timezone bugs)
+      const nowLocal = new Date();
+      const nowLocalISO = `${todayLocal}T${nowLocal.getHours().toString().padStart(2,'0')}:${nowLocal.getMinutes().toString().padStart(2,'0')}:${nowLocal.getSeconds().toString().padStart(2,'0')}`;
+
       const appState: VoiceAppState = {
-        now: new Date().toISOString(),
+        now: nowLocalISO,
+        today_date: todayLocal,
         has_active_session: tracking.isTracking,
         current_site: tracking.locationName || activeLocation?.name || null,
         timer: null,
@@ -256,8 +275,15 @@ export function VoiceCommandSheet({ visible, onClose }: VoiceCommandSheetProps) 
       }
 
       if (['update_record', 'delete_record'].includes(result.actionExecuted)) {
+        // Reload both today and week to reflect changes on past dates
         await useDailyLogStore.getState().reloadToday();
         await useDailyLogStore.getState().reloadWeek();
+      }
+
+      if (result.actionExecuted === 'create_location') {
+        // addLocation() already reloads locations + restarts geofencing
+        // Reload store state so UI reflects the new location
+        await useLocationStore.getState().reloadLocations();
       }
 
       // Handle report generation (both send_report and generate_report)
@@ -277,8 +303,8 @@ export function VoiceCommandSheet({ visible, onClose }: VoiceCommandSheetProps) 
           await generateAndShareTimesheetPDF(finished, {
             employeeName,
             employeeId: userId,
-            periodStart: new Date(period.start),
-            periodEnd: new Date(period.end),
+            periodStart: new Date(period.start + 'T00:00:00'),
+            periodEnd: new Date(period.end + 'T00:00:00'),
           });
         }
       }
@@ -303,7 +329,7 @@ export function VoiceCommandSheet({ visible, onClose }: VoiceCommandSheetProps) 
         }, 600);
       }
 
-      const actionable = ['start', 'update_record', 'delete_record', 'send_report', 'generate_report', 'stop', 'pause', 'resume'];
+      const actionable = ['start', 'update_record', 'delete_record', 'send_report', 'generate_report', 'stop', 'pause', 'resume', 'create_location'];
       if (actionable.includes(result.actionExecuted)) {
         setCompletedAction({
           type: result.actionExecuted,
@@ -347,6 +373,8 @@ export function VoiceCommandSheet({ visible, onClose }: VoiceCommandSheetProps) 
       router.push(`/(tabs)/reports?viewDate=${viewDate}`);
     } else if (action?.type === 'send_report' || action?.type === 'generate_report') {
       router.push('/(tabs)/reports');
+    } else if (action?.type === 'create_location') {
+      router.push('/(tabs)/map');
     }
   }, [onClose, completedAction, router]);
 
@@ -471,13 +499,23 @@ export function VoiceCommandSheet({ visible, onClose }: VoiceCommandSheetProps) 
               {(completedAction.type === 'update_record' ||
                 completedAction.type === 'delete_record' ||
                 completedAction.type === 'send_report' ||
-                completedAction.type === 'generate_report') && (
+                completedAction.type === 'generate_report' ||
+                completedAction.type === 'create_location') && (
                 <TouchableOpacity style={s.actionBtnSecondary} onPress={handleViewChanges}>
                   <Ionicons name="eye-outline" size={16} color={colors.amber} />
                   <Text style={s.actionBtnSecondaryText}>View</Text>
                 </TouchableOpacity>
               )}
             </View>
+          )}
+
+          {/* Microphone permission banner */}
+          {showMicPermissionBanner && (
+            <TouchableOpacity style={s.micPermissionBanner} onPress={openAppSettings}>
+              <Ionicons name="settings-outline" size={18} color={colors.white} />
+              <Text style={s.micPermissionText}>Open Settings to enable microphone</Text>
+              <Ionicons name="chevron-forward" size={16} color={colors.white} />
+            </TouchableOpacity>
           )}
 
           {/* Input row — always visible */}
@@ -745,6 +783,23 @@ const s = StyleSheet.create({
     color: colors.amber,
   },
   // Input row
+  micPermissionBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginHorizontal: 12,
+    marginBottom: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: colors.amber,
+    borderRadius: 12,
+  },
+  micPermissionText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.white,
+  },
   inputRow: {
     flexDirection: 'row',
     alignItems: 'center',
