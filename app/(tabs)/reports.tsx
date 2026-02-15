@@ -43,7 +43,9 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CALENDAR_PADDING = 32;
 const CALENDAR_GAP = 2;
 const DAYS_PER_WEEK = 7;
-const DAY_SIZE = Math.floor((SCREEN_WIDTH - CALENDAR_PADDING - (CALENDAR_GAP * 6)) / DAYS_PER_WEEK);
+// Cap calendar width to 500px on web to keep 7-column grid readable on desktop
+const CALENDAR_WIDTH = Platform.OS === 'web' ? Math.min(SCREEN_WIDTH, 500) : SCREEN_WIDTH;
+const DAY_SIZE = Math.floor((CALENDAR_WIDTH - CALENDAR_PADDING - (CALENDAR_GAP * 6)) / DAYS_PER_WEEK);
 
 // ============================================
 // AGGREGATED LOCATION INTERFACE
@@ -1525,6 +1527,7 @@ const reportStyles = StyleSheet.create({
     // paddingTop handled by SafeAreaView wrapper
     paddingTop: 12,
     paddingBottom: 8,
+    ...(Platform.OS === 'web' ? { maxWidth: 500, alignSelf: 'center' as const, width: '100%' as unknown as number } : {}),
   },
   header: {
     marginBottom: 8,
