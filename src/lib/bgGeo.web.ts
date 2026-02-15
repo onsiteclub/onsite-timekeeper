@@ -21,5 +21,7 @@ export async function removeAllGeofences(): Promise<void> {}
 export async function startGeofences(): Promise<void> {}
 export async function stopMonitoring(): Promise<void> {}
 export async function isEnabled(): Promise<boolean> { return false; }
+export async function switchToActiveMode(): Promise<void> {}
+export async function switchToIdleMode(): Promise<void> {}
 export function cleanup(): void {}
 export async function getUserIdForBackground(): Promise<string | null> { return null; }
