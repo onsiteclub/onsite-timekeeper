@@ -2,7 +2,7 @@
   "expo": {
     "name": "OnSite Timekeeper",
     "slug": "onsite-timekeeper",
-    "version": "1.4.1",
+    "version": "1.4.2",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "onsite-timekeeper",
@@ -12,7 +12,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.onsiteclub.timekeeper",
-      "buildNumber": "10",
+      "buildNumber": "11",
       "config": {
         "googleMapsApiKey": "AIzaSyBdITLu3Kr5OYPr8ZnhxIGVNFHIGEgvfKY"
       },
@@ -35,7 +35,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0B0D10"
       },
-      "versionCode": 7,
+      "versionCode": 8,
       "package": "com.onsiteclub.timekeeper",
       "allowBackup": false,
       "config": {
