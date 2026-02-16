@@ -11,6 +11,7 @@ import React from 'react';
 import {
   View,
   Text,
+  Image,
   TouchableOpacity,
   TextInput,
   Animated,
@@ -26,6 +27,9 @@ import { SearchBox } from '../../src/screens/map/SearchBox';
 import { styles } from '../../src/screens/map/styles';
 import { RADIUS_OPTIONS } from '../../src/screens/map/constants';
 import { MapPermissionBanner } from '../../src/components/PermissionBanner';
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const appIcon = require('../../assets/icon.png');
 
 export default function MapScreen() {
   const {
@@ -98,11 +102,13 @@ export default function MapScreen() {
           )}
         </MapView>
 
-        {/* CROSSHAIR - Only in State A */}
+        {/* BRANDED PIN - Fixed at map center in State A */}
         {isAddingMode && (
-          <View style={styles.crosshairContainer} pointerEvents="none">
-            <Ionicons name="location" size={36} color={colors.primary} style={{ marginTop: -36 }} />
-            <View style={styles.crosshairDot} />
+          <View style={styles.pinContainer} pointerEvents="none">
+            <View style={styles.pinBubble}>
+              <Image source={appIcon} style={styles.pinImage} />
+            </View>
+            <View style={styles.pinNeedle} />
           </View>
         )}
 

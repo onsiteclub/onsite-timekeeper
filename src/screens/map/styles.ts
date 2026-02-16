@@ -100,24 +100,47 @@ export const styles = StyleSheet.create({
     elevation: 4,
   },
 
-  // Crosshair pin (State A only)
-  crosshairContainer: {
+  // Branded pin (State A — fixed at map center)
+  pinContainer: {
     position: 'absolute',
     top: '50%',
     left: '50%',
-    width: 40,
-    height: 40,
-    marginLeft: -20,
-    marginTop: -20,
+    alignItems: 'center',
+    // Offset so the needle tip sits exactly at center
+    marginLeft: -24,
+    marginTop: -56,
+  },
+  pinBubble: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 3,
+    borderColor: colors.amber,
     justifyContent: 'center',
     alignItems: 'center',
+    overflow: 'hidden',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 5,
+    elevation: 6,
   },
-  crosshairDot: {
-    position: 'absolute',
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.primary,
+  pinImage: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+  },
+  pinNeedle: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 8,
+    borderRightWidth: 8,
+    borderTopWidth: 10,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: colors.amber,
+    marginTop: -1,
   },
 
   // Permission banner wrapper
