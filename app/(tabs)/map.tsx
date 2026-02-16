@@ -29,7 +29,7 @@ import { RADIUS_OPTIONS } from '../../src/screens/map/constants';
 import { MapPermissionBanner } from '../../src/components/PermissionBanner';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const appIcon = require('../../assets/icon.png');
+const pinIcon = require('../../assets/notification-icon.png');
 
 export default function MapScreen() {
   const {
@@ -105,7 +105,7 @@ export default function MapScreen() {
         {/* BRANDED PIN - Always fixed at map center */}
         <View style={styles.pinWrapper} pointerEvents="none">
           <View style={styles.pinBubble}>
-            <Image source={appIcon} style={styles.pinImage} />
+            <Image source={pinIcon} style={styles.pinImage} />
           </View>
           <View style={styles.pinNeedle} />
         </View>
