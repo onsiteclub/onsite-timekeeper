@@ -39,7 +39,6 @@ import { WEEKDAYS_SHORT, getDayKey } from '../../src/screens/home/helpers';
 import { generateAndShareTimesheetPDF } from '../../src/lib/timesheetPdf';
 import { logger } from '../../src/lib/logger';
 import { Alert } from 'react-native';
-import { AnimatedRing } from '../../src/components/AnimatedRing';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CALENDAR_PADDING = 32;
@@ -638,68 +637,111 @@ export default function ReportsScreen() {
       <StatusBar barStyle="dark-content" backgroundColor="#F3F4F6" />
 
       <View style={reportStyles.container}>
-      {/* COMPACT TIMER */}
-      <Card style={compactTimerStyles.card}>
-        <AnimatedRing
-          state={currentSession ? (isPaused ? 'paused' : 'active') : 'idle'}
-          size={120}
-          strokeWidth={8}
-        >
-          {currentSession ? (
-            <View style={compactTimerStyles.content}>
-              <Text style={compactTimerStyles.statusText} numberOfLines={1}>
-                {isPaused ? 'Paused' : 'Active'} {currentSession.location_name ? `• ${currentSession.location_name.length > 15 ? currentSession.location_name.slice(0, 15) + '…' : currentSession.location_name}` : ''}
-              </Text>
-              <Text style={[
-                compactTimerStyles.timer,
-                isPaused && compactTimerStyles.timerPaused
-              ]}>
-                {timer}
-              </Text>
-              <Text style={compactTimerStyles.breakText}>
-                Break: {pauseTimer}
-              </Text>
-            </View>
-          ) : canRestart ? (
-            <View style={compactTimerStyles.content}>
-              <Text style={compactTimerStyles.statusText}>Ready</Text>
-              <Text style={compactTimerStyles.timerIdle}>00:00:00</Text>
-            </View>
-          ) : (
-            <View style={compactTimerStyles.content}>
-              <Ionicons name="location-outline" size={24} color={colors.textMuted} />
-              <Text style={compactTimerStyles.waitingText}>
-                {isGeofencingActive ? 'Waiting...' : 'No location'}
-              </Text>
-            </View>
-          )}
-        </AnimatedRing>
+      {/* TIMER HERO CARD */}
+      {(() => {
+        const isActive = !!currentSession && !isPaused;
+        const isPausedState = !!currentSession && isPaused;
+        const isReady = !currentSession && !!canRestart;
+        const isLocked = !currentSession && !canRestart;
 
-        {/* Timer action buttons */}
-        {currentSession ? (
-          <View style={compactTimerStyles.actions}>
-            {isPaused ? (
-              <TouchableOpacity style={compactTimerStyles.resumeBtn} onPress={handleResume}>
-                <Ionicons name="play" size={16} color={colors.white} />
-                <Text style={compactTimerStyles.btnText}>RESUME</Text>
-              </TouchableOpacity>
+        const locationName = currentSession?.location_name
+          || activeLocation?.name
+          || null;
+
+        return (
+          <View style={[
+            heroStyles.card,
+            isActive && heroStyles.cardActive,
+            isPausedState && heroStyles.cardPaused,
+            isLocked && heroStyles.cardLocked,
+          ]}>
+            {/* Location chip */}
+            <View style={[
+              heroStyles.chip,
+              isActive && heroStyles.chipActive,
+              isPausedState && heroStyles.chipPaused,
+              isLocked && heroStyles.chipLocked,
+            ]}>
+              <Ionicons
+                name={isLocked ? 'lock-closed' : 'location'}
+                size={13}
+                color={isActive ? colors.green : isPausedState ? colors.amber : isReady ? colors.green : colors.iconMuted}
+              />
+              <Text style={[
+                heroStyles.chipText,
+                isActive && heroStyles.chipTextActive,
+                isPausedState && heroStyles.chipTextPaused,
+                isLocked && heroStyles.chipTextLocked,
+              ]} numberOfLines={1}>
+                {locationName || (isGeofencingActive ? 'Aproxime-se de um local' : 'Sem local configurado')}
+              </Text>
+            </View>
+
+            {/* Timer display */}
+            <Text style={[
+              heroStyles.timer,
+              isActive && heroStyles.timerActive,
+              isPausedState && heroStyles.timerPaused,
+              isLocked && heroStyles.timerLocked,
+            ]}>
+              {currentSession ? timer : '00:00:00'}
+            </Text>
+
+            {/* Break line (only when active/paused) */}
+            {currentSession && (
+              <Text style={[
+                heroStyles.breakText,
+                isPausedState && heroStyles.breakTextPaused,
+              ]}>
+                {isPaused ? `☕ pausa: ${pauseTimer}` : `☕ ${pauseTimer}`}
+              </Text>
+            )}
+
+            {/* Progress bar */}
+            <View style={heroStyles.progressTrack}>
+              {isActive && <View style={[heroStyles.progressFill, { width: '100%' }]} />}
+              {isPausedState && <View style={[heroStyles.progressFillPaused, { width: '60%' }]} />}
+            </View>
+
+            {/* Action button */}
+            {currentSession ? (
+              <View style={heroStyles.actions}>
+                {isPaused ? (
+                  <TouchableOpacity style={heroStyles.resumeBtn} onPress={handleResume} activeOpacity={0.8}>
+                    <Ionicons name="play" size={18} color={colors.white} />
+                    <Text style={heroStyles.btnTextLight}>RETOMAR</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity style={heroStyles.pauseBtn} onPress={handlePause} activeOpacity={0.8}>
+                    <Ionicons name="pause" size={18} color={colors.white} />
+                    <Text style={heroStyles.btnTextLight}>PAUSA</Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity style={heroStyles.stopBtn} onPress={handleStop} activeOpacity={0.8}>
+                  <Ionicons name="stop" size={16} color={colors.error} />
+                  <Text style={heroStyles.stopBtnText}>PARAR</Text>
+                </TouchableOpacity>
+              </View>
             ) : (
-              <TouchableOpacity style={compactTimerStyles.pauseBtn} onPress={handlePause}>
-                <Ionicons name="pause" size={16} color={colors.white} />
-                <Text style={compactTimerStyles.btnText}>PAUSE</Text>
+              <TouchableOpacity
+                style={[heroStyles.startBtn, isLocked && heroStyles.startBtnLocked]}
+                onPress={isReady ? handleRestart : undefined}
+                activeOpacity={isReady ? 0.8 : 1}
+                disabled={isLocked}
+              >
+                <Ionicons
+                  name={isLocked ? 'lock-closed' : 'play'}
+                  size={18}
+                  color={isLocked ? colors.iconMuted : colors.white}
+                />
+                <Text style={[heroStyles.btnTextLight, isLocked && heroStyles.btnTextLocked]}>
+                  START
+                </Text>
               </TouchableOpacity>
             )}
-            <TouchableOpacity style={compactTimerStyles.stopBtn} onPress={handleStop}>
-              <Text style={compactTimerStyles.stopBtnText}>STOP</Text>
-            </TouchableOpacity>
           </View>
-        ) : canRestart ? (
-          <TouchableOpacity style={compactTimerStyles.startBtn} onPress={handleRestart}>
-            <Ionicons name="play" size={16} color={colors.white} />
-            <Text style={compactTimerStyles.btnText}>START</Text>
-          </TouchableOpacity>
-        ) : null}
-      </Card>
+        );
+      })()}
 
       {/* CALENDAR CARD - Hidden in date range mode */}
       {!dateRangeMode && (
@@ -882,7 +924,7 @@ export default function ReportsScreen() {
 
       {/* EXPORT BUTTON - Footer */}
       {!dateRangeMode && (
-        <View style={compactTimerStyles.footerRow}>
+        <View style={heroStyles.footerRow}>
           <TouchableOpacity
             style={reportStyles.exportRangeBtn}
             activeOpacity={0.7}
@@ -2581,109 +2623,190 @@ const reportStyles = StyleSheet.create({
 });
 
 // ============================================
-// COMPACT TIMER STYLES
+// TIMER HERO STYLES
 // ============================================
 
-const compactTimerStyles = StyleSheet.create({
+const heroStyles = StyleSheet.create({
+  // Card states
   card: {
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
     marginHorizontal: 16,
     marginBottom: 8,
-  },
-  content: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  statusText: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: colors.textSecondary,
-    marginBottom: 2,
-    textAlign: 'center',
-  },
-  timer: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: colors.text,
-    fontVariant: ['tabular-nums'],
-  },
-  timerPaused: {
-    opacity: 0.7,
-  },
-  timerIdle: {
-    fontSize: 22,
-    fontWeight: '600',
-    color: colors.text,
-    fontVariant: ['tabular-nums'],
-  },
-  breakText: {
-    fontSize: 10,
-    fontWeight: '500',
-    color: colors.textSecondary,
-    marginTop: 2,
-  },
-  waitingText: {
-    fontSize: 11,
-    fontWeight: '500',
-    color: colors.textMuted,
-    marginTop: 4,
-    textAlign: 'center',
-  },
-  actions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    marginTop: 10,
-  },
-  pauseBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    backgroundColor: colors.green,
     borderRadius: 20,
-  },
-  resumeBtn: {
-    flexDirection: 'row',
+    paddingVertical: 20,
+    paddingHorizontal: 20,
     alignItems: 'center',
-    gap: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    backgroundColor: colors.amber,
-    borderRadius: 20,
-  },
-  stopBtn: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    backgroundColor: colors.surfaceMuted,
-    borderRadius: 20,
+    backgroundColor: colors.white,
     borderWidth: 1,
     borderColor: colors.border,
   },
-  stopBtnText: {
+  cardActive: {
+    backgroundColor: '#F0FDFA',  // teal-50
+    borderColor: withOpacity(colors.green, 0.25),
+  },
+  cardPaused: {
+    backgroundColor: '#FFFBEB',  // amber-50
+    borderColor: withOpacity(colors.amber, 0.25),
+  },
+  cardLocked: {
+    backgroundColor: colors.surfaceMuted,
+    borderColor: colors.borderLight,
+  },
+
+  // Location chip
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    backgroundColor: withOpacity(colors.green, 0.08),
+    marginBottom: 14,
+    maxWidth: '90%',
+  },
+  chipActive: {
+    backgroundColor: withOpacity(colors.green, 0.12),
+  },
+  chipPaused: {
+    backgroundColor: withOpacity(colors.amber, 0.12),
+  },
+  chipLocked: {
+    backgroundColor: withOpacity(colors.iconMuted, 0.1),
+  },
+  chipText: {
     fontSize: 13,
     fontWeight: '600',
+    color: colors.green,
+  },
+  chipTextActive: {
+    color: colors.green,
+  },
+  chipTextPaused: {
+    color: colors.amber,
+  },
+  chipTextLocked: {
+    color: colors.textMuted,
+    fontWeight: '500',
+  },
+
+  // Timer display
+  timer: {
+    fontSize: 42,
+    fontWeight: '300',
     color: colors.text,
+    fontVariant: ['tabular-nums'],
+    letterSpacing: 2,
+    marginBottom: 4,
+  },
+  timerActive: {
+    fontWeight: '300',
+    color: colors.green,
+  },
+  timerPaused: {
+    color: colors.amber,
+    opacity: 0.85,
+  },
+  timerLocked: {
+    color: colors.iconMuted,
+    opacity: 0.4,
+  },
+
+  // Break info
+  breakText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: colors.textSecondary,
+    marginBottom: 2,
+  },
+  breakTextPaused: {
+    color: colors.amber,
+  },
+
+  // Progress bar
+  progressTrack: {
+    width: '80%',
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: colors.borderLight,
+    marginVertical: 14,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 2,
+    backgroundColor: colors.green,
+  },
+  progressFillPaused: {
+    height: '100%',
+    borderRadius: 2,
+    backgroundColor: colors.amber,
+  },
+
+  // Action buttons
+  actions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
   startBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 32,
     backgroundColor: colors.green,
-    borderRadius: 20,
-    marginTop: 10,
+    borderRadius: 14,
   },
-  btnText: {
-    fontSize: 13,
+  startBtnLocked: {
+    backgroundColor: colors.buttonDisabled,
+  },
+  pauseBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 11,
+    backgroundColor: colors.green,
+    borderRadius: 14,
+  },
+  resumeBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 11,
+    backgroundColor: colors.amber,
+    borderRadius: 14,
+  },
+  stopBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingVertical: 11,
+    paddingHorizontal: 20,
+    backgroundColor: colors.white,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: withOpacity(colors.error, 0.2),
+  },
+  stopBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.error,
+  },
+  btnTextLight: {
+    fontSize: 14,
     fontWeight: '600',
     color: colors.white,
   },
+  btnTextLocked: {
+    color: colors.iconMuted,
+  },
+
   // Footer row for export button
   footerRow: {
     paddingHorizontal: 16,
