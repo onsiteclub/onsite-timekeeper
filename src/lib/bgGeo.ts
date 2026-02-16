@@ -65,7 +65,7 @@ export async function configure(): Promise<void> {
     const config = {
       // DEBUG: set true to emit sounds on ALL SDK events (movement, GPS, geofence, heartbeat)
       // SDK doesn't support selective sounds (geofence-only) — it's all or nothing
-      debug: false,
+      debug: true,
       locationAuthorizationRequest: 'Always',
       desiredAccuracy: BackgroundGeolocation.DesiredAccuracy.High,
       distanceFilter: 50,

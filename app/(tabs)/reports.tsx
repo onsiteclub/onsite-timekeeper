@@ -97,6 +97,7 @@ export default function ReportsScreen() {
     timer,
     isPaused,
     pauseTimer,
+    cooldownSeconds,
     handlePause,
     handleResume,
     handleStop,
@@ -553,10 +554,12 @@ export default function ReportsScreen() {
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
       onMoveShouldSetPanResponder: (_, gestureState) => {
-        // Only respond to horizontal swipes (dx > dy)
+        // Only claim responder for clear horizontal swipes (dx > dy + threshold)
+        // Higher threshold avoids stealing taps from child TouchableOpacity on iOS
         const { dx, dy } = gestureState;
-        return Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 20;
+        return Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 30;
       },
+      onShouldBlockNativeResponder: () => false,
       onPanResponderRelease: (_, gestureState) => {
         const { dx } = gestureState;
         const SWIPE_THRESHOLD = 50;
@@ -695,6 +698,16 @@ export default function ReportsScreen() {
               ]}>
                 {isPaused ? `☕ break: ${pauseTimer}` : `☕ ${pauseTimer}`}
               </Text>
+            )}
+
+            {/* Cooldown warning */}
+            {cooldownSeconds > 0 && (
+              <View style={heroStyles.cooldownRow}>
+                <Ionicons name="warning" size={14} color={colors.amber} />
+                <Text style={heroStyles.cooldownText}>
+                  You left the jobsite. Return within {cooldownSeconds}s or tracking stops.
+                </Text>
+              </View>
             )}
 
             {/* Progress bar */}
@@ -2739,6 +2752,24 @@ const heroStyles = StyleSheet.create({
     marginBottom: 2,
   },
   breakTextPaused: {
+    color: colors.amber,
+  },
+
+  // Cooldown warning
+  cooldownRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 4,
+    marginBottom: 2,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    backgroundColor: 'rgba(245, 158, 11, 0.12)',
+    borderRadius: 8,
+  },
+  cooldownText: {
+    fontSize: 11,
+    fontWeight: '600',
     color: colors.amber,
   },
 

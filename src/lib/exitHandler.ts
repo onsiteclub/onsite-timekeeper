@@ -38,6 +38,16 @@ interface PendingExit {
 
 const pendingExits = new Map<string, PendingExit>();
 
+/**
+ * Returns the cooldown expiry timestamp (ms) for a location, or 0 if none.
+ * UI can poll this to show a countdown warning.
+ */
+export function getCooldownExpiresAt(locationId: string): number {
+  const pending = pendingExits.get(locationId);
+  if (!pending) return 0;
+  return pending.exitTime.getTime() + EXIT_COOLDOWN_MS;
+}
+
 // ============================================
 // ACTIVE TRACKING (SQLite singleton)
 // ============================================

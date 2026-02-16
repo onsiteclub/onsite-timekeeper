@@ -31,7 +31,7 @@ import { useSyncStore } from '../../stores/syncStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { formatDuration, getDailyHoursByPeriod, upsertDailyHours, updateDailyHours, deleteDailyHours, deleteDailyHoursById, getToday, toLocalDateString } from '../../lib/database';
 import type { DailyHoursEntry } from '../../lib/database/daily';
-import { getActiveTrackingState, getPauseSeconds, updatePauseSeconds, type ActiveTracking } from '../../lib/exitHandler';
+import { getActiveTrackingState, getPauseSeconds, updatePauseSeconds, getCooldownExpiresAt, type ActiveTracking } from '../../lib/exitHandler';
 import { generateCompleteReport } from '../../lib/reports';
 
 import {
@@ -281,6 +281,7 @@ export function useHomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [timer, setTimer] = useState('00:00:00');
   const [isPaused, setIsPaused] = useState(false);
+  const [cooldownSeconds, setCooldownSeconds] = useState(0);
 
   // Pause timer (pause_seconds persisted in SQLite via active_tracking)
   const [pauseTimer, setPauseTimer] = useState('00:00:00');
@@ -605,6 +606,26 @@ export function useHomeScreen() {
     const interval = setInterval(updateTimer, 1000);
     return () => clearInterval(interval);
   }, [currentSession, isPaused, frozenTime]);
+
+  // Cooldown countdown effect — polls exitHandler for pending exit
+  useEffect(() => {
+    if (!currentSession) {
+      setCooldownSeconds(0);
+      return;
+    }
+    const tick = () => {
+      const expiresAt = getCooldownExpiresAt(currentSession.location_id);
+      if (expiresAt > 0) {
+        const remaining = Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
+        setCooldownSeconds(remaining);
+      } else {
+        setCooldownSeconds(0);
+      }
+    };
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [currentSession]);
 
   // Pause timer effect
   useEffect(() => {
@@ -1553,6 +1574,7 @@ const getSuggestedTimes = useCallback((locationId: string) => {
     timer,
     isPaused,
     pauseTimer,
+    cooldownSeconds,
     
     // Calendar
     viewMode,
