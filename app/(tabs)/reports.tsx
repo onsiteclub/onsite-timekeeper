@@ -673,7 +673,7 @@ export default function ReportsScreen() {
                 isPausedState && heroStyles.chipTextPaused,
                 isLocked && heroStyles.chipTextLocked,
               ]} numberOfLines={1}>
-                {locationName || (isGeofencingActive ? 'Aproxime-se de um local' : 'Sem local configurado')}
+                {locationName || (isGeofencingActive ? 'Waiting for location...' : 'No location set')}
               </Text>
             </View>
 
@@ -693,7 +693,7 @@ export default function ReportsScreen() {
                 heroStyles.breakText,
                 isPausedState && heroStyles.breakTextPaused,
               ]}>
-                {isPaused ? `☕ pausa: ${pauseTimer}` : `☕ ${pauseTimer}`}
+                {isPaused ? `☕ break: ${pauseTimer}` : `☕ ${pauseTimer}`}
               </Text>
             )}
 
@@ -709,17 +709,17 @@ export default function ReportsScreen() {
                 {isPaused ? (
                   <TouchableOpacity style={heroStyles.resumeBtn} onPress={handleResume} activeOpacity={0.8}>
                     <Ionicons name="play" size={18} color={colors.white} />
-                    <Text style={heroStyles.btnTextLight}>RETOMAR</Text>
+                    <Text style={heroStyles.btnTextLight}>RESUME</Text>
                   </TouchableOpacity>
                 ) : (
                   <TouchableOpacity style={heroStyles.pauseBtn} onPress={handlePause} activeOpacity={0.8}>
                     <Ionicons name="pause" size={18} color={colors.white} />
-                    <Text style={heroStyles.btnTextLight}>PAUSA</Text>
+                    <Text style={heroStyles.btnTextLight}>PAUSE</Text>
                   </TouchableOpacity>
                 )}
                 <TouchableOpacity style={heroStyles.stopBtn} onPress={handleStop} activeOpacity={0.8}>
                   <Ionicons name="stop" size={16} color={colors.error} />
-                  <Text style={heroStyles.stopBtnText}>PARAR</Text>
+                  <Text style={heroStyles.stopBtnText}>STOP</Text>
                 </TouchableOpacity>
               </View>
             ) : (
@@ -762,7 +762,7 @@ export default function ReportsScreen() {
                 {formatMonthYear(currentMonth)}
               </Text>
               <Text style={reportStyles.calendarTotalLabel}>
-                Total no mês
+                Monthly Total
               </Text>
               <Text style={reportStyles.calendarTotal}>
                 {formatDuration(monthTotalMinutes)}
