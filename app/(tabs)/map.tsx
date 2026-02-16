@@ -106,8 +106,12 @@ export default function MapScreen() {
           </View>
         )}
 
-        {/* SEARCH BOX */}
+        {/* SEARCH BOX — shows address in display mode, search on tap */}
         <SearchBox
+          address={address}
+          isGeocoding={isGeocoding}
+          latitude={fence ? fence.latitude : mapCenter?.lat}
+          longitude={fence ? fence.longitude : mapCenter?.lng}
           currentLatitude={currentLocation?.latitude}
           currentLongitude={currentLocation?.longitude}
           onSelectResult={handleSelectSearchResult}
@@ -141,14 +145,6 @@ export default function MapScreen() {
           // STATE A: Adding new fence
           <View style={styles.panelContent}>
             <View>
-              {/* Address from reverse geocode */}
-              <View style={styles.addressRow}>
-                <Ionicons name="location-outline" size={16} color={colors.textSecondary} />
-                <Text style={styles.addressText} numberOfLines={1}>
-                  {isGeocoding ? 'Looking up address...' : (address || 'Pan map to select location')}
-                </Text>
-              </View>
-
               {/* Name input */}
               <Animated.View style={{ transform: [{ translateX: shakeAnimation }] }}>
                 <TextInput
@@ -210,14 +206,6 @@ export default function MapScreen() {
               <Text style={styles.fenceName} numberOfLines={1}>
                 {fence!.name}
               </Text>
-
-              {/* Address */}
-              <View style={styles.addressRow}>
-                <Ionicons name="location-outline" size={14} color={colors.textSecondary} />
-                <Text style={styles.addressText} numberOfLines={1}>
-                  {isGeocoding ? 'Looking up address...' : (address || `${fence!.latitude.toFixed(4)}, ${fence!.longitude.toFixed(4)}`)}
-                </Text>
-              </View>
 
               {/* Radius chips (editable, saves immediately) */}
               <View style={styles.radiusRow}>

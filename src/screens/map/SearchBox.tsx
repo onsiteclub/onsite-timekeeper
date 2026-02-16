@@ -1,13 +1,9 @@
 /**
  * SearchBox Component - OnSite Timekeeper
- * 
- * Memoized search component to prevent MapView re-renders
- * when user types in the search input.
- * 
- * IMPROVED:
- * - Shows distance from current location
- * - Better visual feedback
- * - Clearer result formatting
+ *
+ * v2: Dual-mode — displays current address by default,
+ * tap magnifying glass to switch to search mode.
+ * Translucent background over the map.
  */
 
 import React, { memo, useState, useRef, useEffect, useCallback } from 'react';
@@ -24,8 +20,8 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../../constants/colors';
-import { 
-  buscarEnderecoAutocomplete, 
+import {
+  buscarEnderecoAutocomplete,
   formatarEnderecoResumido,
 } from '../../lib/geocoding';
 import { AUTOCOMPLETE_DELAY, type SearchResult } from './constants';
@@ -36,6 +32,14 @@ import { logger } from '../../lib/logger';
 // ============================================
 
 interface SearchBoxProps {
+  /** Reverse-geocoded address from hooks (display mode) */
+  address: string;
+  /** Whether reverse geocoding is in progress */
+  isGeocoding: boolean;
+  /** Coordinates to show as fallback when no address */
+  latitude?: number;
+  longitude?: number;
+  /** User's current GPS for distance calc in search results */
   currentLatitude?: number;
   currentLongitude?: number;
   onSelectResult: (result: SearchResult) => void;
@@ -58,10 +62,15 @@ function formatDistance(distancia?: number): string {
 
 function getDistanceColor(distancia?: number): string {
   if (distancia === undefined) return colors.textMuted;
-  if (distancia < 5) return '#22C55E';    // Green - very close
-  if (distancia < 20) return '#3B82F6';   // Blue - nearby
-  if (distancia < 100) return '#F59E0B';  // Orange - moderate
-  return '#EF4444';                        // Red - far
+  if (distancia < 5) return '#22C55E';
+  if (distancia < 20) return '#3B82F6';
+  if (distancia < 100) return '#F59E0B';
+  return '#EF4444';
+}
+
+function formatCoords(lat?: number, lng?: number): string {
+  if (lat === undefined || lng === undefined) return '';
+  return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
 }
 
 // ============================================
@@ -69,6 +78,10 @@ function getDistanceColor(distancia?: number): string {
 // ============================================
 
 export const SearchBox = memo(function SearchBox({
+  address,
+  isGeocoding,
+  latitude,
+  longitude,
   currentLatitude,
   currentLongitude,
   onSelectResult,
@@ -76,10 +89,16 @@ export const SearchBox = memo(function SearchBox({
   const inputRef = useRef<TextInput>(null);
   const autocompleteTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const [searching, setSearching] = useState(false); // display vs search mode
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [showResults, setShowResults] = useState(false);
+
+  // Display text for address bar
+  const displayText = isGeocoding
+    ? 'Looking up address...'
+    : address || formatCoords(latitude, longitude) || 'Pan map to select location';
 
   // Cleanup timeout on unmount
   useEffect(() => {
@@ -90,27 +109,46 @@ export const SearchBox = memo(function SearchBox({
     };
   }, []);
 
+  // Focus input when entering search mode
+  useEffect(() => {
+    if (searching) {
+      setTimeout(() => inputRef.current?.focus(), 100);
+    }
+  }, [searching]);
+
+  const enterSearchMode = useCallback(() => {
+    setSearching(true);
+    setQuery('');
+    setResults([]);
+    setShowResults(false);
+  }, []);
+
+  const exitSearchMode = useCallback(() => {
+    setSearching(false);
+    setQuery('');
+    setResults([]);
+    setShowResults(false);
+    Keyboard.dismiss();
+  }, []);
+
   // Handle search input change with debounce
   const handleSearchChange = useCallback((text: string) => {
     setQuery(text);
 
-    // Cancel previous search
     if (autocompleteTimeout.current) {
       clearTimeout(autocompleteTimeout.current);
     }
 
-    // If text too short, clear results
     if (text.length < 3) {
       setResults([]);
       setShowResults(false);
       return;
     }
 
-    // Debounce: wait for user to stop typing
     setIsSearching(true);
     autocompleteTimeout.current = setTimeout(async () => {
       try {
-        logger.debug('ui', `🔍 Searching: "${text}"`);
+        logger.debug('ui', `Searching: "${text}"`);
         const searchResults = await buscarEnderecoAutocomplete(
           text,
           currentLatitude,
@@ -118,12 +156,6 @@ export const SearchBox = memo(function SearchBox({
         );
         setResults(searchResults);
         setShowResults(searchResults.length > 0);
-        
-        if (searchResults.length > 0) {
-          logger.debug('ui', `✅ Found ${searchResults.length} results`, {
-            closest: searchResults[0].distancia ? `${searchResults[0].distancia.toFixed(1)}km` : 'n/a',
-          });
-        }
       } catch (error) {
         logger.error('ui', 'Autocomplete error', { error: String(error) });
       } finally {
@@ -134,21 +166,13 @@ export const SearchBox = memo(function SearchBox({
 
   // Handle result selection
   const handleSelectResult = useCallback((result: SearchResult) => {
-    logger.debug('ui', `📍 Selected: ${formatarEnderecoResumido(result.endereco)}`, {
-      distance: result.distancia ? `${result.distancia.toFixed(1)}km` : 'n/a',
-    });
+    logger.debug('ui', `Selected: ${formatarEnderecoResumido(result.endereco)}`);
     setShowResults(false);
+    setSearching(false);
     setQuery('');
     Keyboard.dismiss();
     onSelectResult(result);
   }, [onSelectResult]);
-
-  // Clear search
-  const handleClear = useCallback(() => {
-    setQuery('');
-    setResults([]);
-    setShowResults(false);
-  }, []);
 
   // Handle submit (enter key)
   const handleSubmit = useCallback(async () => {
@@ -170,43 +194,57 @@ export const SearchBox = memo(function SearchBox({
     }
   }, [query, currentLatitude, currentLongitude]);
 
-  // Handle blur (user taps outside) - close results with delay
-  // Delay allows result selection to process first
-  const handleBlur = useCallback(() => {
-    setTimeout(() => {
-      setShowResults(false);
-    }, 200);
-  }, []);
-
   return (
     <View style={styles.container}>
-      {/* Search Input */}
-      <View style={styles.searchBox}>
-        <Ionicons name="search" size={18} color="#666666" style={styles.icon} />
-        <TextInput
-          ref={inputRef}
-          style={styles.input}
-          placeholder="Search address or place..."
-          placeholderTextColor="#999999"
-          value={query}
-          onChangeText={handleSearchChange}
-          onSubmitEditing={handleSubmit}
-          returnKeyType="search"
-          onFocus={() => setShowResults(results.length > 0)}
-          onBlur={handleBlur}
-        />
-        {isSearching && (
-          <ActivityIndicator size="small" color={colors.primary} style={styles.loader} />
-        )}
-        {query.length > 0 && !isSearching && (
-          <TouchableOpacity onPress={handleClear} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-            <Ionicons name="close-circle" size={20} color="#999999" />
-          </TouchableOpacity>
+      {/* ===== BAR ===== */}
+      <View style={styles.bar}>
+        {searching ? (
+          // SEARCH MODE: text input + close button
+          <>
+            <Ionicons name="search" size={18} color={colors.textSecondary} style={styles.barIcon} />
+            <TextInput
+              ref={inputRef}
+              style={styles.barInput}
+              placeholder="Search address or place..."
+              placeholderTextColor={colors.textMuted}
+              value={query}
+              onChangeText={handleSearchChange}
+              onSubmitEditing={handleSubmit}
+              returnKeyType="search"
+            />
+            {isSearching && (
+              <ActivityIndicator size="small" color={colors.primary} style={styles.barLoader} />
+            )}
+            <TouchableOpacity
+              onPress={exitSearchMode}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Ionicons name="close-circle" size={22} color={colors.textSecondary} />
+            </TouchableOpacity>
+          </>
+        ) : (
+          // DISPLAY MODE: address text + search button
+          <>
+            <Ionicons name="location" size={18} color={colors.primary} style={styles.barIcon} />
+            <Text style={styles.barText} numberOfLines={1}>
+              {displayText}
+            </Text>
+            {isGeocoding && (
+              <ActivityIndicator size="small" color={colors.primary} style={styles.barLoader} />
+            )}
+            <TouchableOpacity
+              onPress={enterSearchMode}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              style={styles.searchButton}
+            >
+              <Ionicons name="search" size={20} color={colors.textSecondary} />
+            </TouchableOpacity>
+          </>
         )}
       </View>
 
-      {/* Results dropdown */}
-      {showResults && results.length > 0 && (
+      {/* ===== SEARCH RESULTS ===== */}
+      {searching && showResults && results.length > 0 && (
         <View style={styles.results}>
           <ScrollView keyboardShouldPersistTaps="handled" style={styles.resultsList}>
             {results.map((result, index) => (
@@ -238,8 +276,7 @@ export const SearchBox = memo(function SearchBox({
               </TouchableOpacity>
             ))}
           </ScrollView>
-          
-          {/* Hint at bottom */}
+
           {currentLatitude && (
             <View style={styles.resultsHint}>
               <Ionicons name="navigate" size={12} color={colors.textMuted} />
@@ -251,8 +288,8 @@ export const SearchBox = memo(function SearchBox({
         </View>
       )}
 
-      {/* No results message */}
-      {showResults && results.length === 0 && !isSearching && query.length >= 3 && (
+      {/* No results */}
+      {searching && showResults && results.length === 0 && !isSearching && query.length >= 3 && (
         <View style={styles.noResults}>
           <Ionicons name="search-outline" size={20} color={colors.textMuted} />
           <Text style={styles.noResultsText}>No addresses found</Text>
@@ -266,6 +303,8 @@ export const SearchBox = memo(function SearchBox({
 // STYLES
 // ============================================
 
+const TRANSLUCENT_BG = 'rgba(255, 255, 255, 0.88)';
+
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
@@ -274,39 +313,54 @@ const styles = StyleSheet.create({
     right: 16,
     zIndex: 10,
   },
-  searchBox: {
+
+  // The main bar (both modes)
+  bar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    backgroundColor: TRANSLUCENT_BG,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
     elevation: 4,
   },
-  icon: {
+  barIcon: {
     marginRight: 10,
   },
-  input: {
+  barText: {
     flex: 1,
-    fontSize: 16,
-    color: '#1A1A1A',
+    fontSize: 14,
+    fontWeight: '500',
+    color: colors.text,
+    lineHeight: 18,
+  },
+  barInput: {
+    flex: 1,
+    fontSize: 15,
+    color: colors.text,
     paddingVertical: 0,
   },
-  loader: {
+  barLoader: {
     marginRight: 8,
   },
+  searchButton: {
+    marginLeft: 8,
+    padding: 4,
+  },
+
+  // Results dropdown
   results: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
+    backgroundColor: TRANSLUCENT_BG,
+    borderRadius: 14,
     marginTop: 8,
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
     elevation: 4,
     overflow: 'hidden',
   },
@@ -318,7 +372,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
+    borderBottomColor: 'rgba(0, 0, 0, 0.06)',
   },
   resultIconContainer: {
     width: 32,
@@ -335,19 +389,19 @@ const styles = StyleSheet.create({
   resultText: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#1A1A1A',
+    color: colors.text,
     lineHeight: 18,
   },
   resultSubtext: {
     fontSize: 12,
-    color: '#666666',
+    color: colors.textSecondary,
     marginTop: 2,
   },
   distanceBadge: {
     marginLeft: 8,
     paddingHorizontal: 8,
     paddingVertical: 4,
-    backgroundColor: '#F5F5F5',
+    backgroundColor: 'rgba(0, 0, 0, 0.05)',
     borderRadius: 6,
   },
   distanceText: {
@@ -360,8 +414,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 8,
     borderTopWidth: 1,
-    borderTopColor: '#F0F0F0',
-    backgroundColor: '#FAFAFA',
+    borderTopColor: 'rgba(0, 0, 0, 0.06)',
+    backgroundColor: 'rgba(245, 245, 245, 0.7)',
     gap: 4,
   },
   resultsHintText: {
@@ -372,8 +426,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
+    backgroundColor: TRANSLUCENT_BG,
+    borderRadius: 14,
     marginTop: 8,
     padding: 16,
     shadowColor: '#000000',
