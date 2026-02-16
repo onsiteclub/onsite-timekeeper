@@ -1,47 +1,28 @@
 /**
  * Map Screen Styles - OnSite Timekeeper
+ *
+ * v2: 75% map + 25% bottom panel layout
  */
 
-import { StyleSheet, Dimensions, Platform } from 'react-native';
+import { StyleSheet, Platform } from 'react-native';
 import { colors, withOpacity } from '../../constants/colors';
-
-const { width } = Dimensions.get('window');
 
 export const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
   },
+
+  // Map takes 75% of screen
+  mapContainer: {
+    flex: 3,
+  },
   map: {
     flex: 1,
   },
 
   // ============================================
-  // MARKERS
-  // ============================================
-  marker: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: colors.white,
-    shadowColor: colors.black,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
-    elevation: 4,
-  },
-  tempMarker: {
-    backgroundColor: colors.primary,
-  },
-  markerText: {
-    fontSize: 16,
-  },
-
-  // ============================================
-  // SEARCH - WHITE BACKGROUND
+  // SEARCH (used by SearchBox.tsx)
   // ============================================
   searchContainer: {
     position: 'absolute',
@@ -100,7 +81,7 @@ export const styles = StyleSheet.create({
   },
 
   // ============================================
-  // BUTTONS
+  // MAP OVERLAYS
   // ============================================
   myLocationButton: {
     position: 'absolute',
@@ -119,8 +100,38 @@ export const styles = StyleSheet.create({
     elevation: 4,
   },
 
+  // Crosshair pin (State A only)
+  crosshairContainer: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    width: 40,
+    height: 40,
+    marginLeft: -20,
+    marginTop: -20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  crosshairDot: {
+    position: 'absolute',
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.primary,
+  },
+
+  // Permission banner wrapper
+  permissionBannerWrapper: {
+    position: 'absolute',
+    top: 120,
+    left: 0,
+    right: 0,
+    zIndex: 50,
+    elevation: 5,
+  },
+
   // ============================================
-  // LOCATION LABELS (on map)
+  // LOCATION LABELS (on map markers)
   // ============================================
   locationLabel: {
     flexDirection: 'row',
@@ -151,93 +162,87 @@ export const styles = StyleSheet.create({
   },
 
   // ============================================
-  // HINT
+  // BOTTOM PANEL (25% of screen)
   // ============================================
-  hintContainer: {
-    position: 'absolute',
-    bottom: 100,
-    left: 20,
-    right: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: withOpacity(colors.black, 0.7),
-    padding: 16,
-    borderRadius: 12,
-  },
-  hintText: {
-    color: colors.white,
-    fontSize: 14,
-    textAlign: 'center',
-  },
-
-  // ============================================
-  // MODAL OVERLAY
-  // ============================================
-  modalOverlay: {
+  panel: {
     flex: 1,
-    backgroundColor: withOpacity(colors.black, 0.5),
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  // ============================================
-  // LOCATION OPTIONS MODAL
-  // ============================================
-  optionsModal: {
     backgroundColor: colors.card,
-    borderRadius: 20,
-    padding: 20,
-    width: width - 48,
-    maxWidth: 360,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    shadowColor: colors.black,
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 8,
   },
-  optionsModalHeader: {
+  panelContent: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: Platform.OS === 'ios' ? 8 : 12,
+    justifyContent: 'space-between',
+  },
+
+  // Panel handle (visual grab indicator)
+  panelHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.border,
+    alignSelf: 'center',
+    marginTop: 8,
+    marginBottom: 4,
+  },
+
+  // Address row
+  addressRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 6,
+    marginBottom: 8,
   },
-  optionsModalIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  optionsModalHeaderInfo: {
+  addressText: {
     flex: 1,
+    fontSize: 13,
+    color: colors.textSecondary,
+    lineHeight: 18,
   },
-  optionsModalTitle: {
-    fontSize: 18,
+
+  // State B: Fence name
+  fenceName: {
+    fontSize: 20,
     fontWeight: '700',
     color: colors.text,
+    marginBottom: 4,
   },
-  optionsModalSubtitle: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    marginTop: 2,
-  },
-  optionsModalDivider: {
-    height: 1,
-    backgroundColor: colors.border,
-    marginVertical: 16,
-  },
-  optionsSectionLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.textSecondary,
+
+  // Name input (State A)
+  nameInput: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: colors.text,
+    backgroundColor: colors.backgroundTertiary,
     marginBottom: 10,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
   },
-  radiusOptionsRow: {
+  nameInputError: {
+    borderColor: colors.error,
+    borderWidth: 2,
+  },
+
+  // Radius chips
+  radiusRow: {
     flexDirection: 'row',
     gap: 8,
+    marginBottom: 10,
   },
   radiusChip: {
     flex: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 8,
-    borderRadius: 10,
+    paddingVertical: 8,
+    borderRadius: 8,
     backgroundColor: colors.backgroundSecondary,
     alignItems: 'center',
     borderWidth: 1.5,
@@ -248,177 +253,48 @@ export const styles = StyleSheet.create({
     borderColor: colors.primary,
   },
   radiusChipText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
     color: colors.textSecondary,
   },
   radiusChipTextActive: {
     color: colors.primary,
   },
-  optionsActionsList: {
-    gap: 2,
-  },
-  optionsActionItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 4,
-    gap: 12,
-  },
-  optionsActionText: {
-    flex: 1,
-    fontSize: 15,
-    fontWeight: '500',
-    color: colors.text,
-  },
-  optionsActionHint: {
-    fontSize: 12,
-    color: colors.textSecondary,
-  },
-  colorPreview: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: colors.border,
-  },
-  optionsDeleteBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 14,
-    backgroundColor: withOpacity(colors.error, 0.1),
-    borderRadius: 12,
-  },
-  optionsDeleteText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: colors.error,
-  },
 
-  // ============================================
-  // NAME MODAL
-  // ============================================
-  nameModal: {
-    backgroundColor: colors.card,
-    borderRadius: 20,
-    padding: 24,
-    width: width - 48,
-    maxWidth: 340,
-  },
-  nameModalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    marginBottom: 4,
-  },
-  nameModalIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: withOpacity(colors.primary, 0.15),
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  nameModalTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: colors.text,
-  },
-  nameModalSubtitle: {
-    fontSize: 13,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  nameInput: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 16,
-    color: colors.text,
-    backgroundColor: colors.backgroundTertiary,
-  },
-  nameInputError: {
-    borderColor: colors.error,
-    borderWidth: 2,
-  },
-  nameInputErrorText: {
-    fontSize: 12,
-    color: colors.error,
-    marginTop: 6,
-    textAlign: 'center',
-  },
-  radiusSectionTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.text,
-    marginTop: 16,
-    marginBottom: 10,
-    textAlign: 'center',
-  },
-  radiusOptionsInline: {
+  // Add button (State A)
+  addButton: {
     flexDirection: 'row',
     justifyContent: 'center',
+    alignItems: 'center',
     gap: 8,
-    flexWrap: 'wrap',
-  },
-  radiusOptionSmall: {
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 16,
-    backgroundColor: colors.backgroundSecondary,
-    minWidth: 55,
-    alignItems: 'center',
-  },
-  radiusOptionSmallActive: {
-    backgroundColor: colors.primary,
-  },
-  radiusOptionSmallText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: colors.text,
-  },
-  radiusOptionSmallTextActive: {
-    color: colors.buttonPrimaryText,
-  },
-  nameModalActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 20,
-    gap: 12,
-  },
-  nameModalCancel: {
-    flex: 1,
-    paddingVertical: 14,
+    paddingVertical: 13,
     borderRadius: 12,
-    backgroundColor: colors.backgroundSecondary,
-    alignItems: 'center',
+    backgroundColor: colors.buttonPrimary,
   },
-  nameModalCancelText: {
-    fontSize: 15,
-    color: colors.textSecondary,
-    fontWeight: '600',
-  },
-  nameModalConfirm: {
-    flex: 1,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 14,
-    borderRadius: 12,
-    backgroundColor: colors.primary,
-  },
-  nameModalConfirmDisabled: {
+  addButtonDisabled: {
     opacity: 0.6,
   },
-  nameModalConfirmText: {
+  addButtonText: {
     fontSize: 15,
-    color: colors.buttonPrimaryText,
     fontWeight: '600',
+    color: colors.buttonPrimaryText,
+  },
+
+  // Delete button (State B)
+  deleteButton: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: withOpacity(colors.error, 0.3),
+    backgroundColor: 'transparent',
+  },
+  deleteButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.error,
   },
 });
