@@ -71,17 +71,59 @@ export async function startRecording(): Promise<true | 'denied' | string> {
       await new Promise(r => setTimeout(r, 200));
     }
 
-    // Configure audio mode for recording (interruptionModeIOS is critical for iOS)
+    // Reset audio session first, then configure for recording.
+    // The reset→wait→configure cycle ensures iOS AVAudioSession is in a clean state.
+    await Audio.setAudioModeAsync({
+      allowsRecordingIOS: false,
+      playsInSilentModeIOS: true,
+      interruptionModeIOS: InterruptionModeIOS.DoNotMix,
+    });
+    await new Promise(r => setTimeout(r, 100));
+
     await Audio.setAudioModeAsync({
       allowsRecordingIOS: true,
       playsInSilentModeIOS: true,
+      staysActiveInBackground: true,
       interruptionModeIOS: InterruptionModeIOS.DoNotMix,
       shouldDuckAndroid: true,
       interruptionModeAndroid: InterruptionModeAndroid.DoNotMix,
     });
 
-    // Create and start recording atomically (recommended over new Recording() + prepare + start)
-    const { recording } = await Audio.Recording.createAsync(RECORDING_OPTIONS);
+    // Create and start recording with retry (iOS AVAudioRecorder can fail transiently)
+    let recording: Audio.Recording | undefined;
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const result = await Audio.Recording.createAsync(RECORDING_OPTIONS);
+        recording = result.recording;
+        break;
+      } catch (e) {
+        lastError = e;
+        logger.warn('voice', `Recording attempt ${attempt} failed: ${String(e)}`);
+        if (attempt < 2) {
+          await new Promise(r => setTimeout(r, 300));
+          // Re-configure audio session before retry
+          await Audio.setAudioModeAsync({
+            allowsRecordingIOS: false,
+            playsInSilentModeIOS: true,
+            interruptionModeIOS: InterruptionModeIOS.DoNotMix,
+          });
+          await new Promise(r => setTimeout(r, 200));
+          await Audio.setAudioModeAsync({
+            allowsRecordingIOS: true,
+            playsInSilentModeIOS: true,
+            staysActiveInBackground: true,
+            interruptionModeIOS: InterruptionModeIOS.DoNotMix,
+            shouldDuckAndroid: true,
+            interruptionModeAndroid: InterruptionModeAndroid.DoNotMix,
+          });
+        }
+      }
+    }
+
+    if (!recording) {
+      throw lastError ?? new Error('Failed to create recording');
+    }
 
     currentRecording = recording;
     logger.info('voice', 'Whisper recording started');

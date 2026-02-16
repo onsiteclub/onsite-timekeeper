@@ -2,7 +2,7 @@
   "expo": {
     "name": "OnSite Timekeeper",
     "slug": "onsite-timekeeper",
-    "version": "1.4.4",
+    "version": "1.4.5",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "onsite-timekeeper",
@@ -12,7 +12,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.onsiteclub.timekeeper",
-      "buildNumber": "13",
+      "buildNumber": "14",
       "config": {
         "googleMapsApiKey": "AIzaSyBdITLu3Kr5OYPr8ZnhxIGVNFHIGEgvfKY"
       },
@@ -36,7 +36,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0B0D10"
       },
-      "versionCode": 10,
+      "versionCode": 11,
       "package": "com.onsiteclub.timekeeper",
       "allowBackup": false,
       "config": {
@@ -100,13 +100,6 @@
         {
           "organization": "onsite-club",
           "project": "react-native"
-        }
-      ],
-      [
-        "expo-speech-recognition",
-        {
-          "microphonePermission": "OnSite Timekeeper needs the microphone for voice commands.",
-          "speechRecognitionPermission": "OnSite Timekeeper uses speech recognition for voice commands."
         }
       ],
       "react-native-background-fetch",
