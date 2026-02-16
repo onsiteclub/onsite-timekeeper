@@ -13,9 +13,9 @@ export const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
 
-  // Map takes 75% of screen
+  // Map takes ~70% of screen (flex 2.3 : 1 ratio)
   mapContainer: {
-    flex: 3,
+    flex: 2.3,
   },
   map: {
     flex: 1,
