@@ -67,8 +67,8 @@ import { useSyncStore } from './syncStore';
 import { useDailyLogStore } from './dailyLogStore';
 import { useSettingsStore } from './settingsStore';
 
-// Radius bounds (transistorsoft minimum reliable radius is 200m)
-const MIN_RADIUS = 200;  // meters
+// Radius bounds (150m is minimum for reasonable geofence accuracy)
+const MIN_RADIUS = 150;  // meters
 const MAX_RADIUS = 1000;
 
 // ============================================

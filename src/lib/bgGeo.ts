@@ -280,7 +280,7 @@ export async function addGeofences(
     identifier: loc.id,
     latitude: loc.latitude,
     longitude: loc.longitude,
-    radius: Math.max(loc.radius, 200), // transistorsoft min 200m
+    radius: Math.max(loc.radius, 150), // min 150m for reasonable accuracy
     notifyOnEntry: true,
     notifyOnExit: true,
     extras: { name: loc.name },

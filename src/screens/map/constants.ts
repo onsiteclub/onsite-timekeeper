@@ -18,11 +18,11 @@ export const DEFAULT_REGION: Region = {
   longitudeDelta: 0.01,
 };
 
-// Default radius in meters (transistorsoft minimum reliable radius is 200m)
-export const DEFAULT_RADIUS = 200;
+// Default radius in meters
+export const DEFAULT_RADIUS = 150;
 
 // Available radius options
-export const RADIUS_OPTIONS = [200, 300, 500, 800];
+export const RADIUS_OPTIONS = [150, 200, 300, 500];
 
 // Debounce delay for autocomplete (ms)
 export const AUTOCOMPLETE_DELAY = 400;
