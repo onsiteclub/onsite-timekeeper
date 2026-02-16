@@ -328,7 +328,7 @@ export function VoiceCommandSheet({ visible, onClose }: VoiceCommandSheetProps) 
           } else if (screen === 'settings') {
             router.push('/(tabs)/settings');
           } else {
-            router.push('/(tabs)');
+            router.push('/(tabs)/reports');
           }
         }, 600);
       }

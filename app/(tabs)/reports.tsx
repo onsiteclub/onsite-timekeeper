@@ -1,9 +1,10 @@
 /**
- * Reports Screen - OnSite Timekeeper
+ * Home Screen - OnSite Timekeeper (formerly Reports)
  *
- * v1.3: Fixed layout + Weekly Bar Chart restored
- * - No main scroll, fits on screen
- * - WeeklyBarChart at bottom (scrollable horizontally)
+ * v2.0: Merged Home + Reports into single screen
+ * - Compact timer at top
+ * - Calendar with hours per day
+ * - Editar + Exportar Horas buttons
  */
 
 import React, { useMemo, useRef, useEffect, useState, useCallback } from 'react';
@@ -34,10 +35,11 @@ import { colors, withOpacity, shadows } from '../../src/constants/colors';
 // V3: ComputedSession now comes from hooks.ts (was removed from database)
 import { useHomeScreen, type ComputedSession } from '../../src/screens/home/hooks';
 import { styles } from '../../src/screens/home/styles';
-import { WEEKDAYS_SHORT, getDayKey, isSameDay } from '../../src/screens/home/helpers';
+import { WEEKDAYS_SHORT, getDayKey } from '../../src/screens/home/helpers';
 import { generateAndShareTimesheetPDF } from '../../src/lib/timesheetPdf';
 import { logger } from '../../src/lib/logger';
 import { Alert } from 'react-native';
+import { AnimatedRing } from '../../src/components/AnimatedRing';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CALENDAR_PADDING = 32;
@@ -65,177 +67,6 @@ interface AggregatedLocation {
 }
 
 // ============================================
-// WEEKLY BAR CHART COMPONENT
-// ============================================
-
-interface WeekData {
-  weekStart: Date;
-  days: { date: Date; minutes: number; dayName: string }[];
-  totalMinutes: number;
-}
-
-function WeeklyBarChart({
-  sessions,
-  currentDate
-}: {
-  sessions: ComputedSession[];
-  currentDate: Date;
-}) {
-  const scrollViewRef = useRef<ScrollView>(null);
-
-  // Generate weeks for the selected month
-  const weeksData = useMemo(() => {
-    const weeks: WeekData[] = [];
-
-    // Get first and last day of the month
-    const year = currentDate.getFullYear();
-    const month = currentDate.getMonth();
-    const firstDayOfMonth = new Date(year, month, 1);
-    const lastDayOfMonth = new Date(year, month + 1, 0);
-
-    // Find the Sunday that starts the first week containing this month
-    const firstWeekStart = new Date(firstDayOfMonth);
-    firstWeekStart.setDate(firstWeekStart.getDate() - firstWeekStart.getDay());
-
-    // Generate weeks until we pass the end of the month
-    let weekStart = new Date(firstWeekStart);
-
-    while (weekStart <= lastDayOfMonth) {
-      const days: WeekData['days'] = [];
-      let totalMinutes = 0;
-
-      for (let d = 0; d < 7; d++) {
-        const date = new Date(weekStart);
-        date.setDate(date.getDate() + d);
-
-        // Sum minutes for this day
-        const dayMinutes = sessions
-          .filter(s => s.exit_at && isSameDay(new Date(s.entry_at), date))
-          .reduce((sum, s) => {
-            const pause = s.pause_minutes || 0;
-            return sum + Math.max(0, s.duration_minutes - pause);
-          }, 0);
-
-        days.push({
-          date,
-          minutes: dayMinutes,
-          dayName: WEEKDAYS_SHORT[date.getDay()],
-        });
-
-        totalMinutes += dayMinutes;
-      }
-
-      weeks.push({ weekStart: new Date(weekStart), days, totalMinutes });
-
-      // Move to next week
-      weekStart.setDate(weekStart.getDate() + 7);
-    }
-
-    return weeks;
-  }, [sessions, currentDate]);
-
-  // Find max for scaling
-  const maxMinutes = Math.max(
-    ...weeksData.flatMap(w => w.days.map(d => d.minutes)),
-    60 // Minimum scale of 1 hour
-  );
-
-  const formatHours = (min: number) => {
-    if (min === 0) return '';
-    const h = Math.floor(min / 60);
-    const m = min % 60;
-    return h > 0 ? `${h}h${m > 0 ? m : ''}` : `${m}m`;
-  };
-
-  const formatWeekLabel = (date: Date) => {
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  };
-
-  // Auto-scroll to the week containing today (or last week if not in this month)
-  useEffect(() => {
-    if (scrollViewRef.current && weeksData.length > 0) {
-      const today = new Date();
-      let targetIndex = weeksData.length - 1; // default: last week
-
-      // Find which week contains today
-      for (let i = 0; i < weeksData.length; i++) {
-        if (weeksData[i].days.some(d => isSameDay(d.date, today))) {
-          targetIndex = i;
-          break;
-        }
-      }
-
-      const cardWidth = SCREEN_WIDTH - 64 + 12; // weekCard width + marginRight
-      const scrollTo = targetIndex * cardWidth;
-
-      setTimeout(() => {
-        scrollViewRef.current?.scrollTo({ x: scrollTo, animated: true });
-      }, 100);
-    }
-  }, [weeksData]); // Re-scroll when data or month changes
-
-  return (
-    <View style={chartStyles.container}>
-      <Text style={chartStyles.title}>Weekly Hours</Text>
-
-      <ScrollView
-        ref={scrollViewRef}
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={chartStyles.scrollContent}
-      >
-        {weeksData.map((week, weekIndex) => (
-          <View key={weekIndex} style={chartStyles.weekCard}>
-            <Text style={chartStyles.weekLabel}>
-              {formatWeekLabel(week.weekStart)}
-            </Text>
-            
-            <View style={chartStyles.barsRow}>
-              {week.days.map((day, dayIndex) => {
-                const barHeight = maxMinutes > 0 
-                  ? Math.max(4, (day.minutes / maxMinutes) * 100) 
-                  : 4;
-                const isTodayDay = isSameDay(day.date, new Date());
-                
-                return (
-                  <View key={dayIndex} style={chartStyles.barColumn}>
-                    <Text style={chartStyles.barValue}>{formatHours(day.minutes)}</Text>
-                    <View style={chartStyles.barBg}>
-                      <View 
-                        style={[
-                          chartStyles.bar,
-                          { height: `${barHeight}%` },
-                          isTodayDay && chartStyles.barToday,
-                          day.minutes === 0 && chartStyles.barEmpty,
-                        ]} 
-                      />
-                    </View>
-                    <Text style={[
-                      chartStyles.dayLabel,
-                      isTodayDay && chartStyles.dayLabelToday
-                    ]}>
-                      {day.dayName}
-                    </Text>
-                  </View>
-                );
-              })}
-            </View>
-            
-            <Text style={chartStyles.weekTotal}>
-              {formatHours(week.totalMinutes)}
-            </Text>
-          </View>
-        ))}
-      </ScrollView>
-
-      <View style={chartStyles.footer}>
-        <Text style={chartStyles.footerText}>Weekly Activity Log</Text>
-      </View>
-    </View>
-  );
-}
-
-// ============================================
 // MAIN COMPONENT
 // ============================================
 
@@ -249,7 +80,19 @@ export default function ReportsScreen() {
     currentMonth,
     monthCalendarDays,
     monthTotalMinutes,
-    monthSessions,
+
+    // Timer
+    currentSession,
+    activeLocation,
+    canRestart,
+    isGeofencingActive,
+    timer,
+    isPaused,
+    pauseTimer,
+    handlePause,
+    handleResume,
+    handleStop,
+    handleRestart,
 
     showDayModal,
     selectedDayForModal,
@@ -329,9 +172,6 @@ export default function ReportsScreen() {
     }, 300);
     return () => clearTimeout(timer);
   }, [viewDate]);
-
-  // Sessions for chart - always use month sessions
-  const allSessions = monthSessions || [];
 
   // ============================================
   // AM/PM STATE FOR MANUAL ENTRY MODAL
@@ -789,10 +629,68 @@ export default function ReportsScreen() {
       <StatusBar barStyle="dark-content" backgroundColor="#F3F4F6" />
 
       <View style={reportStyles.container}>
-        {/* HEADER */}
-        <View style={reportStyles.header}>
-          <Text style={reportStyles.headerTitle}>Reports</Text>
-        </View>
+      {/* COMPACT TIMER */}
+      <View style={compactTimerStyles.container}>
+        <AnimatedRing
+          state={currentSession ? (isPaused ? 'paused' : 'active') : 'idle'}
+          size={120}
+          strokeWidth={8}
+        >
+          {currentSession ? (
+            <View style={compactTimerStyles.content}>
+              <Text style={compactTimerStyles.statusText} numberOfLines={1}>
+                {isPaused ? 'Paused' : 'Active'} {currentSession.location_name ? `• ${currentSession.location_name.length > 15 ? currentSession.location_name.slice(0, 15) + '…' : currentSession.location_name}` : ''}
+              </Text>
+              <Text style={[
+                compactTimerStyles.timer,
+                isPaused && compactTimerStyles.timerPaused
+              ]}>
+                {timer}
+              </Text>
+              <Text style={compactTimerStyles.breakText}>
+                Break: {pauseTimer}
+              </Text>
+            </View>
+          ) : canRestart ? (
+            <View style={compactTimerStyles.content}>
+              <Text style={compactTimerStyles.statusText}>Ready</Text>
+              <Text style={compactTimerStyles.timerIdle}>00:00:00</Text>
+            </View>
+          ) : (
+            <View style={compactTimerStyles.content}>
+              <Ionicons name="location-outline" size={24} color={colors.textMuted} />
+              <Text style={compactTimerStyles.waitingText}>
+                {isGeofencingActive ? 'Waiting...' : 'No location'}
+              </Text>
+            </View>
+          )}
+        </AnimatedRing>
+
+        {/* Timer action buttons */}
+        {currentSession ? (
+          <View style={compactTimerStyles.actions}>
+            {isPaused ? (
+              <TouchableOpacity style={compactTimerStyles.resumeBtn} onPress={handleResume}>
+                <Ionicons name="play" size={16} color={colors.white} />
+                <Text style={compactTimerStyles.btnText}>RESUME</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity style={compactTimerStyles.pauseBtn} onPress={handlePause}>
+                <Ionicons name="pause" size={16} color={colors.white} />
+                <Text style={compactTimerStyles.btnText}>PAUSE</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity style={compactTimerStyles.stopBtn} onPress={handleStop}>
+              <Text style={compactTimerStyles.stopBtnText}>STOP</Text>
+            </TouchableOpacity>
+          </View>
+        ) : canRestart ? (
+          <TouchableOpacity style={compactTimerStyles.startBtn} onPress={handleRestart}>
+            <Ionicons name="play" size={16} color={colors.white} />
+            <Text style={compactTimerStyles.btnText}>START</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
 
       {/* CALENDAR CARD - Hidden in date range mode */}
       {!dateRangeMode && (
@@ -979,11 +877,27 @@ export default function ReportsScreen() {
               </View>
             </View>
 
-        {/* WEEKLY BAR CHART - Follows calendar */}
-        <View style={reportStyles.chartArea}>
-          <WeeklyBarChart sessions={allSessions} currentDate={currentMonth} />
-        </View>
       </ScrollView>
+
+      {/* ACTION BUTTONS */}
+      {!dateRangeMode && (
+        <View style={compactTimerStyles.actionButtonsRow}>
+          <TouchableOpacity
+            style={compactTimerStyles.editarBtn}
+            onPress={() => openDayModal(new Date())}
+          >
+            <Ionicons name="pencil-outline" size={18} color={colors.text} />
+            <Text style={compactTimerStyles.editarBtnText}>Editar</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={compactTimerStyles.exportarBtn}
+            onPress={() => setDateRangeMode(true)}
+          >
+            <Ionicons name="document-text-outline" size={18} color={colors.white} />
+            <Text style={compactTimerStyles.exportarBtnText}>Exportar Horas</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* DAY DETAIL MODAL */}
       <Modal
@@ -1600,12 +1514,6 @@ const reportStyles = StyleSheet.create({
   // Content Area Scroll - padding for scroll content
   contentAreaScroll: {
     paddingBottom: 100, // Extra padding for tab bar
-  },
-
-  // Chart Area - Follows calendar
-  chartArea: {
-    marginTop: 16,
-    paddingBottom: 16,
   },
 
   weekDay: {
@@ -2679,106 +2587,144 @@ const reportStyles = StyleSheet.create({
 });
 
 // ============================================
-// CHART STYLES - Compact
+// COMPACT TIMER STYLES
 // ============================================
 
-const chartStyles = StyleSheet.create({
+const compactTimerStyles = StyleSheet.create({
   container: {
-    paddingTop: 4,
-    paddingBottom: 4,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
   },
-  title: {
-    fontSize: 12,
+  content: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statusText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    marginBottom: 2,
+    textAlign: 'center',
+  },
+  timer: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: colors.text,
+    fontVariant: ['tabular-nums'],
+  },
+  timerPaused: {
+    opacity: 0.7,
+  },
+  timerIdle: {
+    fontSize: 22,
     fontWeight: '600',
     color: colors.text,
-    marginBottom: 4,
+    fontVariant: ['tabular-nums'],
   },
-  scrollContent: {
-    paddingRight: 16,
-  },
-  weekCard: {
-    width: SCREEN_WIDTH - 64,
-    marginRight: 12,
-    backgroundColor: colors.card,
-    borderRadius: 8,
-    padding: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  weekLabel: {
+  breakText: {
     fontSize: 10,
-    fontWeight: '600',
-    color: colors.textSecondary,
-    marginBottom: 4,
-  },
-  barsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
-    height: 80,
-  },
-  barColumn: {
-    flex: 1,
-    alignItems: 'center',
-    marginHorizontal: 1,
-  },
-  barValue: {
-    fontSize: 7,
-    color: colors.textSecondary,
-    marginBottom: 1,
-    height: 8,
-  },
-  barBg: {
-    width: '100%',
-    height: 60,
-    backgroundColor: colors.surfaceMuted,
-    borderRadius: 3,
-    justifyContent: 'flex-end',
-    overflow: 'hidden',
-  },
-  bar: {
-    width: '100%',
-    backgroundColor: colors.primary,
-    borderRadius: 3,
-    minHeight: 3,
-  },
-  barToday: {
-    backgroundColor: colors.accent,
-  },
-  barEmpty: {
-    backgroundColor: colors.border,
-  },
-  dayLabel: {
-    fontSize: 8,
+    fontWeight: '500',
     color: colors.textSecondary,
     marginTop: 2,
+  },
+  waitingText: {
+    fontSize: 11,
     fontWeight: '500',
-  },
-  dayLabelToday: {
-    color: colors.accent,
-    fontWeight: '700',
-  },
-  weekTotal: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: colors.primary,
+    color: colors.textMuted,
     marginTop: 4,
     textAlign: 'center',
   },
-  footer: {
-    marginTop: 12,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
+  actions: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    marginTop: 10,
   },
-  footerText: {
-    fontSize: 11,
-    fontWeight: '500',
-    color: colors.textSecondary,
-    fontStyle: 'italic',
-    letterSpacing: 0.5,
+  pauseBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    backgroundColor: colors.green,
+    borderRadius: 20,
+  },
+  resumeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    backgroundColor: colors.amber,
+    borderRadius: 20,
+  },
+  stopBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  stopBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  startBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    backgroundColor: colors.green,
+    borderRadius: 20,
+    marginTop: 10,
+  },
+  btnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.white,
+  },
+  // Action buttons row (Editar + Exportar)
+  actionButtonsRow: {
+    flexDirection: 'row',
+    gap: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+  },
+  editarBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 14,
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  editarBtnText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  exportarBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 14,
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+  },
+  exportarBtnText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.buttonPrimaryText,
   },
 });
