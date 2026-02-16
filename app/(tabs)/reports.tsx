@@ -761,11 +761,8 @@ export default function ReportsScreen() {
               <Text style={reportStyles.calendarTitle}>
                 {formatMonthYear(currentMonth)}
               </Text>
-              <Text style={reportStyles.calendarTotalLabel}>
-                Monthly Total
-              </Text>
               <Text style={reportStyles.calendarTotal}>
-                {formatDuration(monthTotalMinutes)}
+                Monthly Total: {formatDuration(monthTotalMinutes)}
               </Text>
             </TouchableOpacity>
 
@@ -1516,18 +1513,12 @@ const reportStyles = StyleSheet.create({
     color: colors.text,
     textAlign: 'center',
   },
-  calendarTotalLabel: {
-    fontSize: 11,
-    fontWeight: '500',
-    color: colors.textMuted,
-    textAlign: 'center',
-    marginTop: 2,
-  },
   calendarTotal: {
-    fontSize: 15,
-    fontWeight: '600',
+    fontSize: 13,
+    fontWeight: '500',
     color: colors.textSecondary,
     textAlign: 'center',
+    marginTop: 2,
   },
   viewToggle: {
     flexDirection: 'row',
@@ -2641,8 +2632,8 @@ const heroStyles = StyleSheet.create({
   card: {
     marginBottom: 8,
     borderRadius: 20,
-    paddingVertical: 20,
-    paddingHorizontal: 20,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
     alignItems: 'center',
     backgroundColor: colors.white,
     borderWidth: 1,
@@ -2668,7 +2659,7 @@ const heroStyles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 20,
     backgroundColor: withOpacity(colors.green, 0.08),
-    marginBottom: 14,
+    marginBottom: 10,
     maxWidth: '90%',
   },
   chipActive: {
@@ -2735,7 +2726,7 @@ const heroStyles = StyleSheet.create({
     height: 3,
     borderRadius: 2,
     backgroundColor: colors.borderLight,
-    marginVertical: 14,
+    marginVertical: 10,
     overflow: 'hidden',
   },
   progressFill: {
@@ -2816,7 +2807,9 @@ const heroStyles = StyleSheet.create({
 
   // Footer row for export button
   footerRow: {
-    paddingHorizontal: 16,
+    flexDirection: 'row',
+    paddingLeft: 16,
+    paddingRight: 80,  // space for floating mic button
     paddingVertical: 8,
   },
 });
