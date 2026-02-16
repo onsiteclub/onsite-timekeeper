@@ -226,7 +226,7 @@ export const SearchBox = memo(function SearchBox({
           // DISPLAY MODE: address text + search button
           <>
             <Ionicons name="location" size={18} color={colors.primary} style={styles.barIcon} />
-            <Text style={styles.barText} numberOfLines={1}>
+            <Text style={styles.barText} numberOfLines={2}>
               {displayText}
             </Text>
             {isGeocoding && (
@@ -303,7 +303,7 @@ export const SearchBox = memo(function SearchBox({
 // STYLES
 // ============================================
 
-const TRANSLUCENT_BG = 'rgba(255, 255, 255, 0.88)';
+const TRANSLUCENT_BG = 'rgba(255, 255, 255, 0.65)';
 
 const styles = StyleSheet.create({
   container: {
@@ -321,19 +321,21 @@ const styles = StyleSheet.create({
     backgroundColor: TRANSLUCENT_BG,
     borderRadius: 14,
     paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingVertical: 14,
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12,
+    shadowOpacity: 0.08,
     shadowRadius: 6,
-    elevation: 4,
+    elevation: 3,
   },
   barIcon: {
     marginRight: 10,
+    alignSelf: 'flex-start',
+    marginTop: 2,
   },
   barText: {
     flex: 1,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '500',
     color: colors.text,
     lineHeight: 18,

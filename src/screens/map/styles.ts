@@ -110,13 +110,13 @@ export const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     // Shift up so the needle TIP (not the bubble center) sits at map center
-    // Bubble 48 + border 6 + needle 10 = 64 total; half = 32
-    paddingBottom: 64,
+    // Bubble 36 + needle 10 = 46 total
+    paddingBottom: 46,
   },
   pinBubble: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: colors.amber,
     justifyContent: 'center',
     alignItems: 'center',
@@ -127,8 +127,8 @@ export const styles = StyleSheet.create({
     elevation: 6,
   },
   pinImage: {
-    width: 30,
-    height: 30,
+    width: 28,
+    height: 28,
     tintColor: '#FFFFFF',
   },
   pinNeedle: {
