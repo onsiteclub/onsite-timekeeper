@@ -947,7 +947,9 @@ export const useLocationStore = create<LocationState>((set, get) => ({
     await onManualExit(userId, locationId, location.name);
 
     // V3: Update state from active_tracking
-    set({ activeSession: getActiveTrackingState(), currentFenceId: null });
+    // Keep currentFenceId — user is still physically inside the fence
+    // It only clears on actual geofence EXIT event (handleGeofenceEvent)
+    set({ activeSession: getActiveTrackingState() });
 
     logger.info('geofence', `✅ Manual exit: ${location.name}`);
   },

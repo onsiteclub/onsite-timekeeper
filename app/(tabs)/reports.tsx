@@ -66,6 +66,15 @@ interface AggregatedLocation {
   sessions: ComputedSession[]; // Keep original sessions for editing
 }
 
+// Compact duration: "8h30" or "8h" or "45m" (no "min" suffix)
+function formatCompact(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h === 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h${m}`;
+}
+
 // ============================================
 // MAIN COMPONENT
 // ============================================
@@ -630,7 +639,7 @@ export default function ReportsScreen() {
 
       <View style={reportStyles.container}>
       {/* COMPACT TIMER */}
-      <View style={compactTimerStyles.container}>
+      <Card style={compactTimerStyles.card}>
         <AnimatedRing
           state={currentSession ? (isPaused ? 'paused' : 'active') : 'idle'}
           size={120}
@@ -690,7 +699,7 @@ export default function ReportsScreen() {
             <Text style={compactTimerStyles.btnText}>START</Text>
           </TouchableOpacity>
         ) : null}
-      </View>
+      </Card>
 
       {/* CALENDAR CARD - Hidden in date range mode */}
       {!dateRangeMode && (
@@ -723,17 +732,6 @@ export default function ReportsScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Export Date Range Button */}
-          <TouchableOpacity
-            style={reportStyles.exportRangeBtn}
-            activeOpacity={0.7}
-            onPress={() => {
-              setDateRangeMode(true);
-            }}
-          >
-            <Ionicons name="calendar-outline" size={18} color={colors.white} />
-            <Text style={reportStyles.exportRangeBtnText}>Select Dates to Export</Text>
-          </TouchableOpacity>
         </Card>
       )}
 
@@ -863,14 +861,17 @@ export default function ReportsScreen() {
                       ]}>
                         {date.getDate()}
                       </Text>
-                      <View style={reportStyles.monthDayDots}>
-                        {hasSessions && totalMinutes > 0 && (
-                          <View style={reportStyles.monthDayDot} />
-                        )}
-                        {hasWorkNoBreak && (
-                          <View style={reportStyles.monthDayNoBreakDot} />
-                        )}
-                      </View>
+                      {totalMinutes > 0 ? (
+                        <Text style={[
+                          reportStyles.monthDayHours,
+                          isTodayDate && reportStyles.monthDayHoursToday,
+                          (rangePosition === 'start' || rangePosition === 'end' || rangePosition === 'single') && { color: colors.white },
+                        ]}>
+                          {formatCompact(totalMinutes)}
+                        </Text>
+                      ) : (
+                        <Text style={reportStyles.monthDayHoursEmpty}>-</Text>
+                      )}
                     </TouchableOpacity>
                   );
                 })}
@@ -879,22 +880,16 @@ export default function ReportsScreen() {
 
       </ScrollView>
 
-      {/* ACTION BUTTONS */}
+      {/* EXPORT BUTTON - Footer */}
       {!dateRangeMode && (
-        <View style={compactTimerStyles.actionButtonsRow}>
+        <View style={compactTimerStyles.footerRow}>
           <TouchableOpacity
-            style={compactTimerStyles.editarBtn}
-            onPress={() => openDayModal(new Date())}
-          >
-            <Ionicons name="pencil-outline" size={18} color={colors.text} />
-            <Text style={compactTimerStyles.editarBtnText}>Editar</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={compactTimerStyles.exportarBtn}
+            style={reportStyles.exportRangeBtn}
+            activeOpacity={0.7}
             onPress={() => setDateRangeMode(true)}
           >
-            <Ionicons name="document-text-outline" size={18} color={colors.white} />
-            <Text style={compactTimerStyles.exportarBtnText}>Exportar Horas</Text>
+            <Ionicons name="calendar-outline" size={18} color={colors.white} />
+            <Text style={reportStyles.exportRangeBtnText}>Select Dates to Export</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -1628,18 +1623,19 @@ const reportStyles = StyleSheet.create({
     flexWrap: 'wrap',
     justifyContent: 'flex-start',
     columnGap: CALENDAR_GAP,
+    rowGap: 3,
     marginBottom: 0,
   },
   monthCell: {
     width: DAY_SIZE,
-    height: DAY_SIZE + 16, // Rectangular shape (taller for better visibility)
-    marginBottom: 8,
+    height: DAY_SIZE + 14,
   },
   monthDay: {
-    justifyContent: 'center',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    borderRadius: 6,
+    borderRadius: 8,
     backgroundColor: colors.surfaceMuted,
+    paddingVertical: 4,
   },
   monthDayWeekend: {
     backgroundColor: withOpacity(colors.textMuted, 0.35),
@@ -1652,41 +1648,39 @@ const reportStyles = StyleSheet.create({
     backgroundColor: withOpacity(colors.primary, 0.15),
   },
   monthDayNum: {
-    fontSize: 11,
-    fontWeight: '500',
+    fontSize: 13,
+    fontWeight: '600',
     color: colors.text,
   },
   monthDayNumToday: {
     color: colors.accent,
     fontWeight: '700',
   },
-  monthDayDots: {
-    flexDirection: 'row',
-    gap: 2,
-    marginTop: 1,
+  monthDayHours: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: colors.primary,
+    fontVariant: ['tabular-nums'],
   },
-  monthDayDot: {
-    width: 3,
-    height: 3,
-    borderRadius: 1.5,
-    backgroundColor: colors.accent,
+  monthDayHoursToday: {
+    color: colors.accent,
   },
-  monthDayNoBreakDot: {
-    width: 3,
-    height: 3,
-    borderRadius: 1.5,
-    backgroundColor: colors.error || '#EF4444',
+  monthDayHoursEmpty: {
+    fontSize: 10,
+    fontWeight: '400',
+    color: colors.textMuted,
   },
 
   // Ghost days (from adjacent months) - faded, non-interactive
   monthDayGhost: {
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     alignItems: 'center',
-    borderRadius: 6,
+    borderRadius: 8,
     backgroundColor: 'transparent',
+    paddingVertical: 4,
   },
   monthDayNumGhost: {
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: '400',
     color: withOpacity(colors.textMuted, 0.4),
   },
@@ -2591,10 +2585,12 @@ const reportStyles = StyleSheet.create({
 // ============================================
 
 const compactTimerStyles = StyleSheet.create({
-  container: {
+  card: {
     alignItems: 'center',
     paddingVertical: 12,
     paddingHorizontal: 16,
+    marginHorizontal: 16,
+    marginBottom: 8,
   },
   content: {
     alignItems: 'center',
@@ -2688,43 +2684,9 @@ const compactTimerStyles = StyleSheet.create({
     fontWeight: '600',
     color: colors.white,
   },
-  // Action buttons row (Editar + Exportar)
-  actionButtonsRow: {
-    flexDirection: 'row',
-    gap: 12,
-    paddingVertical: 10,
+  // Footer row for export button
+  footerRow: {
     paddingHorizontal: 16,
-  },
-  editarBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 14,
-    backgroundColor: colors.surfaceMuted,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  editarBtnText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: colors.text,
-  },
-  exportarBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 14,
-    backgroundColor: colors.primary,
-    borderRadius: 12,
-  },
-  exportarBtnText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: colors.buttonPrimaryText,
+    paddingVertical: 8,
   },
 });
