@@ -332,6 +332,7 @@ const styles = StyleSheet.create({
     marginRight: 10,
     alignSelf: 'flex-start',
     marginTop: 2,
+    backgroundColor: 'transparent',
   },
   barText: {
     flex: 1,
@@ -339,19 +340,23 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: colors.text,
     lineHeight: 18,
+    backgroundColor: 'transparent',
   },
   barInput: {
     flex: 1,
     fontSize: 15,
     color: colors.text,
     paddingVertical: 0,
+    backgroundColor: 'transparent',
   },
   barLoader: {
     marginRight: 8,
+    backgroundColor: 'transparent',
   },
   searchButton: {
     marginLeft: 8,
     padding: 4,
+    backgroundColor: 'transparent',
   },
 
   // Results dropdown
