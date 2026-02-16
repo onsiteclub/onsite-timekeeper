@@ -2629,7 +2629,6 @@ const reportStyles = StyleSheet.create({
 const heroStyles = StyleSheet.create({
   // Card states
   card: {
-    marginHorizontal: 16,
     marginBottom: 8,
     borderRadius: 20,
     paddingVertical: 20,
