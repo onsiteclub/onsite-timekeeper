@@ -256,34 +256,6 @@ export const styles = StyleSheet.create({
     borderWidth: 2,
   },
 
-  // Radius chips
-  radiusRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 10,
-  },
-  radiusChip: {
-    flex: 1,
-    paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: colors.backgroundSecondary,
-    alignItems: 'center',
-    borderWidth: 1.5,
-    borderColor: 'transparent',
-  },
-  radiusChipActive: {
-    backgroundColor: withOpacity(colors.primary, 0.15),
-    borderColor: colors.primary,
-  },
-  radiusChipText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: colors.textSecondary,
-  },
-  radiusChipTextActive: {
-    color: colors.primary,
-  },
-
   // Add button (State A)
   addButton: {
     flexDirection: 'row',

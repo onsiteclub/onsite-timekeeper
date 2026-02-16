@@ -25,7 +25,7 @@ import { colors, withOpacity } from '../../src/constants/colors';
 import { useMapScreen } from '../../src/screens/map/hooks';
 import { SearchBox } from '../../src/screens/map/SearchBox';
 import { styles } from '../../src/screens/map/styles';
-import { RADIUS_OPTIONS } from '../../src/screens/map/constants';
+import { RadiusSlider } from '../../src/screens/map/RadiusSlider';
 import { MapPermissionBanner } from '../../src/components/PermissionBanner';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -167,26 +167,8 @@ export default function MapScreen() {
                 />
               </Animated.View>
 
-              {/* Radius chips */}
-              <View style={styles.radiusRow}>
-                {RADIUS_OPTIONS.map((r) => (
-                  <TouchableOpacity
-                    key={r}
-                    style={[
-                      styles.radiusChip,
-                      selectedRadius === r && styles.radiusChipActive,
-                    ]}
-                    onPress={() => setSelectedRadius(r)}
-                  >
-                    <Text style={[
-                      styles.radiusChipText,
-                      selectedRadius === r && styles.radiusChipTextActive,
-                    ]}>
-                      {r}m
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
+              {/* Radius slider */}
+              <RadiusSlider value={selectedRadius} onValueChange={setSelectedRadius} />
             </View>
 
             {/* Add button */}
@@ -211,26 +193,8 @@ export default function MapScreen() {
                 {fence!.name}
               </Text>
 
-              {/* Radius chips (editable, saves immediately) */}
-              <View style={styles.radiusRow}>
-                {RADIUS_OPTIONS.map((r) => (
-                  <TouchableOpacity
-                    key={r}
-                    style={[
-                      styles.radiusChip,
-                      fence!.radius === r && styles.radiusChipActive,
-                    ]}
-                    onPress={() => handleChangeRadius(r)}
-                  >
-                    <Text style={[
-                      styles.radiusChipText,
-                      fence!.radius === r && styles.radiusChipTextActive,
-                    ]}>
-                      {r}m
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
+              {/* Radius slider (saves immediately on change) */}
+              <RadiusSlider value={fence!.radius} onValueChange={handleChangeRadius} />
             </View>
 
             {/* Delete button */}
