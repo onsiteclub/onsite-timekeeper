@@ -189,7 +189,7 @@ export const styles = StyleSheet.create({
   // ============================================
   panel: {
     flex: 1,
-    backgroundColor: colors.card,
+    backgroundColor: 'rgba(255, 255, 255, 0.65)',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     shadowColor: colors.black,
