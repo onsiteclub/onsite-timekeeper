@@ -70,7 +70,7 @@ export default function TabsLayout() {
         <Tabs.Screen
           name="map"
           options={{
-            title: 'Locations',
+            title: 'Jobsites',
             tabBarIcon: ({ color, size }) => (
               <Ionicons name="map" size={size} color={color} />
             ),
@@ -79,7 +79,7 @@ export default function TabsLayout() {
         <Tabs.Screen
           name="team"
           options={{
-            title: 'Team',
+            title: 'Crew',
             tabBarIcon: ({ color, size }) => (
               <Ionicons name="people" size={size} color={color} />
             ),
