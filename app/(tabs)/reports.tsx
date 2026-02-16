@@ -761,6 +761,9 @@ export default function ReportsScreen() {
               <Text style={reportStyles.calendarTitle}>
                 {formatMonthYear(currentMonth)}
               </Text>
+              <Text style={reportStyles.calendarTotalLabel}>
+                Total no mês
+              </Text>
               <Text style={reportStyles.calendarTotal}>
                 {formatDuration(monthTotalMinutes)}
               </Text>
@@ -1508,15 +1511,22 @@ const reportStyles = StyleSheet.create({
     alignItems: 'center',
   },
   calendarTitle: {
-    fontSize: 13,   // Increased from 11
-    fontWeight: '600',  // Increased from 500
-    color: colors.textSecondary,
-    textAlign: 'center',
-  },
-  calendarTotal: {
-    fontSize: 24,   // Increased from 18
+    fontSize: 22,
     fontWeight: '700',
     color: colors.text,
+    textAlign: 'center',
+  },
+  calendarTotalLabel: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: colors.textMuted,
+    textAlign: 'center',
+    marginTop: 2,
+  },
+  calendarTotal: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.textSecondary,
     textAlign: 'center',
   },
   viewToggle: {
@@ -2639,11 +2649,9 @@ const heroStyles = StyleSheet.create({
     borderColor: colors.border,
   },
   cardActive: {
-    backgroundColor: '#F0FDFA',  // teal-50
     borderColor: withOpacity(colors.green, 0.25),
   },
   cardPaused: {
-    backgroundColor: '#FFFBEB',  // amber-50
     borderColor: withOpacity(colors.amber, 0.25),
   },
   cardLocked: {
