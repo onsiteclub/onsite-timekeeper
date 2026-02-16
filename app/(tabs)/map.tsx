@@ -23,6 +23,8 @@ import {
   StyleSheet,
   Easing,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import MapView, { Marker, Circle, PROVIDER_GOOGLE } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
@@ -294,18 +296,22 @@ export default function MapScreen() {
         animationType="fade"
         onRequestClose={cancelAndClearPin}
       >
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={cancelAndClearPin}
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          <TouchableOpacity activeOpacity={1} onPress={() => {}}>
-            <Animated.View
-              style={[
-                styles.nameModal,
-                { transform: [{ translateX: shakeAnimation }] }
-              ]}
-            >
+          <TouchableOpacity
+            style={styles.modalOverlay}
+            activeOpacity={1}
+            onPress={cancelAndClearPin}
+          >
+            <TouchableOpacity activeOpacity={1} onPress={() => {}}>
+              <Animated.View
+                style={[
+                  styles.nameModal,
+                  { transform: [{ translateX: shakeAnimation }] }
+                ]}
+              >
               <Text style={styles.nameModalTitle}>📍 New Location</Text>
               <Text style={styles.nameModalSubtitle}>
                 Give this place a name
@@ -368,9 +374,10 @@ export default function MapScreen() {
                   </Text>
                 </TouchableOpacity>
               </View>
-            </Animated.View>
+              </Animated.View>
+            </TouchableOpacity>
           </TouchableOpacity>
-        </TouchableOpacity>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* LOCATION OPTIONS MODAL */}

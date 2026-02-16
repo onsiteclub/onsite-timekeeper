@@ -15,6 +15,7 @@ import { logger } from '../logger';
 
 // Recording settings optimized for speech
 const RECORDING_OPTIONS: Audio.RecordingOptions = {
+  isMeteringEnabled: true,
   android: {
     extension: '.m4a',
     outputFormat: Audio.AndroidOutputFormat.MPEG_4,
@@ -25,15 +26,19 @@ const RECORDING_OPTIONS: Audio.RecordingOptions = {
   },
   ios: {
     extension: '.m4a',
-    outputFormat: Audio.IOSOutputFormat.MPEG4AAC,
-    audioQuality: Audio.IOSAudioQuality.MEDIUM,
-    sampleRate: 16000,
+    // DO NOT set outputFormat — iOS infers correctly from extension.
+    // Setting outputFormat: MPEG4AAC + sampleRate != 44100 → "recorder not prepared"
+    audioQuality: Audio.IOSAudioQuality.MAX,
+    sampleRate: 44100,
     numberOfChannels: 1,
-    bitRate: 64000,
+    bitRate: 128000,
+    linearPCMBitDepth: 16,
+    linearPCMIsBigEndian: false,
+    linearPCMIsFloat: false,
   },
   web: {
     mimeType: 'audio/webm',
-    bitsPerSecond: 64000,
+    bitsPerSecond: 128000,
   },
 };
 
@@ -89,13 +94,7 @@ export async function startRecording(): Promise<true | 'denied' | string> {
       interruptionModeAndroid: InterruptionModeAndroid.DoNotMix,
     });
 
-    // PASSO 1: Teste com HIGH_QUALITY preset para validar causa raiz (iOS recording options)
-    // Se funcionar → causa raiz = RECORDING_OPTIONS customizadas (sampleRate 16kHz + MPEG4AAC)
-    // Se falhar → causa raiz = conflito AVAudioSession com outro módulo nativo
-    const opts = Platform.OS === 'ios'
-      ? Audio.RecordingOptionsPresets.HIGH_QUALITY
-      : RECORDING_OPTIONS;
-    const { recording } = await Audio.Recording.createAsync(opts);
+    const { recording } = await Audio.Recording.createAsync(RECORDING_OPTIONS);
 
     currentRecording = recording;
     logger.info('voice', 'Whisper recording started');

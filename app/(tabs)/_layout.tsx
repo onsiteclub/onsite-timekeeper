@@ -104,10 +104,12 @@ export default function TabsLayout() {
         tabBarHeight={tabBarHeight}
       />
 
-      <VoiceCommandSheet
-        visible={showVoiceSheet}
-        onClose={() => setShowVoiceSheet(false)}
-      />
+      {showVoiceSheet && (
+        <VoiceCommandSheet
+          visible={showVoiceSheet}
+          onClose={() => setShowVoiceSheet(false)}
+        />
+      )}
     </GestureHandlerRootView>
   );
 }
