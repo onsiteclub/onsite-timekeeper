@@ -63,8 +63,9 @@ export async function configure(): Promise<void> {
 
   try {
     const config = {
-      // DEBUG: emits sounds on SDK events (movement, GPS, geofence) — hear if SDK is alive with screen off
-      debug: true,
+      // DEBUG: set true to emit sounds on ALL SDK events (movement, GPS, geofence, heartbeat)
+      // SDK doesn't support selective sounds (geofence-only) — it's all or nothing
+      debug: false,
       locationAuthorizationRequest: 'Always',
       desiredAccuracy: BackgroundGeolocation.DesiredAccuracy.High,
       distanceFilter: 50,
@@ -84,8 +85,9 @@ export async function configure(): Promise<void> {
       },
       autoSync: false,
       autoSyncThreshold: 0,
-      logLevel: (BackgroundGeolocation as any).LOG_LEVEL_VERBOSE,
-      logMaxDays: 3,
+      // Frozen: set to LOG_LEVEL_VERBOSE (5) to re-enable full SDK logging
+      logLevel: (BackgroundGeolocation as any).LOG_LEVEL_ERROR,
+      logMaxDays: 1,
     };
 
     // ready() only applies config on FIRST launch — subsequent launches use cached state.

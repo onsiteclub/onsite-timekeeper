@@ -164,7 +164,11 @@ export function VoiceCommandSheet({ visible, onClose }: VoiceCommandSheetProps) 
         addMessage('ai', '🎙️ Microphone permission is disabled. Tap "Open Settings" below to enable it.');
         setShowMicPermissionBanner(true);
       } else {
-        addMessage('ai', 'Could not start recording.');
+        // Show the actual error for diagnosis (started contains "error:...")
+        const errorDetail = typeof started === 'string' && started.startsWith('error:')
+          ? started.slice(6)
+          : 'unknown';
+        addMessage('ai', `Could not start recording.\n\n${errorDetail}`);
       }
     } catch (error) {
       logger.error('voice', 'Failed to start Whisper recording', { error: String(error) });

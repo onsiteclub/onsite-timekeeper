@@ -43,7 +43,7 @@ let currentRecording: Audio.Recording | null = null;
  * Request microphone permission and start recording audio.
  * Returns true if recording started successfully.
  */
-export async function startRecording(): Promise<boolean | 'denied'> {
+export async function startRecording(): Promise<true | 'denied' | string> {
   try {
     // Check if permission is permanently denied (user must go to settings)
     const current = await Audio.getPermissionsAsync();
@@ -87,9 +87,11 @@ export async function startRecording(): Promise<boolean | 'denied'> {
     logger.info('voice', 'Whisper recording started');
     return true;
   } catch (error) {
-    logger.error('voice', 'Failed to start recording', { error: String(error) });
+    const msg = String(error);
+    logger.error('voice', `Failed to start recording: ${msg}`, { error: msg });
     currentRecording = null;
-    return false;
+    // Return error message so UI can display it for diagnosis
+    return `error:${msg}`;
   }
 }
 
