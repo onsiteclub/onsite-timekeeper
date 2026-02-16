@@ -920,21 +920,19 @@ export default function ReportsScreen() {
               </View>
             </View>
 
-      </ScrollView>
+            {/* Export button inside calendar scroll */}
+            {!dateRangeMode && (
+              <TouchableOpacity
+                style={reportStyles.exportInlineBtn}
+                activeOpacity={0.7}
+                onPress={() => setDateRangeMode(true)}
+              >
+                <Ionicons name="download-outline" size={16} color={colors.primary} />
+                <Text style={reportStyles.exportInlineBtnText}>Select Dates to Export</Text>
+              </TouchableOpacity>
+            )}
 
-      {/* EXPORT BUTTON - Footer */}
-      {!dateRangeMode && (
-        <View style={heroStyles.footerRow}>
-          <TouchableOpacity
-            style={reportStyles.exportRangeBtn}
-            activeOpacity={0.7}
-            onPress={() => setDateRangeMode(true)}
-          >
-            <Ionicons name="calendar-outline" size={18} color={colors.white} />
-            <Text style={reportStyles.exportRangeBtnText}>Select Dates to Export</Text>
-          </TouchableOpacity>
-        </View>
-      )}
+      </ScrollView>
 
       {/* DAY DETAIL MODAL */}
       <Modal
@@ -2058,6 +2056,26 @@ const reportStyles = StyleSheet.create({
     fontWeight: '600',
     color: colors.white,
   },
+  exportInlineBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+    gap: 6,
+    marginTop: 12,
+    marginBottom: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.white,
+  },
+  exportInlineBtnText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: colors.primary,
+  },
 
   // Date Range Mode Header (with month navigation)
   dateRangeHeader: {
@@ -2638,6 +2656,12 @@ const heroStyles = StyleSheet.create({
     backgroundColor: colors.white,
     borderWidth: 1,
     borderColor: colors.border,
+    // Elevated shadow for visual separation
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 6,
   },
   cardActive: {
     borderColor: withOpacity(colors.green, 0.25),
@@ -2805,11 +2829,4 @@ const heroStyles = StyleSheet.create({
     color: colors.iconMuted,
   },
 
-  // Footer row for export button
-  footerRow: {
-    flexDirection: 'row',
-    paddingLeft: 16,
-    paddingRight: 80,  // space for floating mic button
-    paddingVertical: 8,
-  },
 });
