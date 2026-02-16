@@ -89,41 +89,13 @@ export async function startRecording(): Promise<true | 'denied' | string> {
       interruptionModeAndroid: InterruptionModeAndroid.DoNotMix,
     });
 
-    // Create and start recording with retry (iOS AVAudioRecorder can fail transiently)
-    let recording: Audio.Recording | undefined;
-    let lastError: unknown;
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      try {
-        const result = await Audio.Recording.createAsync(RECORDING_OPTIONS);
-        recording = result.recording;
-        break;
-      } catch (e) {
-        lastError = e;
-        logger.warn('voice', `Recording attempt ${attempt} failed: ${String(e)}`);
-        if (attempt < 2) {
-          await new Promise(r => setTimeout(r, 300));
-          // Re-configure audio session before retry
-          await Audio.setAudioModeAsync({
-            allowsRecordingIOS: false,
-            playsInSilentModeIOS: true,
-            interruptionModeIOS: InterruptionModeIOS.DoNotMix,
-          });
-          await new Promise(r => setTimeout(r, 200));
-          await Audio.setAudioModeAsync({
-            allowsRecordingIOS: true,
-            playsInSilentModeIOS: true,
-            staysActiveInBackground: true,
-            interruptionModeIOS: InterruptionModeIOS.DoNotMix,
-            shouldDuckAndroid: true,
-            interruptionModeAndroid: InterruptionModeAndroid.DoNotMix,
-          });
-        }
-      }
-    }
-
-    if (!recording) {
-      throw lastError ?? new Error('Failed to create recording');
-    }
+    // PASSO 1: Teste com HIGH_QUALITY preset para validar causa raiz (iOS recording options)
+    // Se funcionar → causa raiz = RECORDING_OPTIONS customizadas (sampleRate 16kHz + MPEG4AAC)
+    // Se falhar → causa raiz = conflito AVAudioSession com outro módulo nativo
+    const opts = Platform.OS === 'ios'
+      ? Audio.RecordingOptionsPresets.HIGH_QUALITY
+      : RECORDING_OPTIONS;
+    const { recording } = await Audio.Recording.createAsync(opts);
 
     currentRecording = recording;
     logger.info('voice', 'Whisper recording started');
