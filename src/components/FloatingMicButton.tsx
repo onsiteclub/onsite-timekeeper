@@ -31,8 +31,8 @@ interface FloatingMicButtonProps {
 
 export function FloatingMicButton({ onPress, tabBarHeight, isRecording }: FloatingMicButtonProps) {
   // Position shared values (bottom-right default)
-  const translateX = useSharedValue(SCREEN_WIDTH - BUTTON_SIZE - MARGIN);
-  const translateY = useSharedValue(SCREEN_HEIGHT - tabBarHeight - BUTTON_SIZE - MARGIN);
+  const translateX = useSharedValue(SCREEN_WIDTH - TOTAL_SIZE - MARGIN + HALO_PADDING);
+  const translateY = useSharedValue(SCREEN_HEIGHT - tabBarHeight - TOTAL_SIZE - MARGIN + HALO_PADDING);
 
   // Context for gesture start position
   const startX = useSharedValue(0);
@@ -56,17 +56,17 @@ export function FloatingMicButton({ onPress, tabBarHeight, isRecording }: Floati
     .onEnd(() => {
       // Snap to nearest horizontal edge
       const midX = SCREEN_WIDTH / 2;
-      const currentCenterX = translateX.value + BUTTON_SIZE / 2;
+      const currentCenterX = translateX.value + TOTAL_SIZE / 2;
 
       if (currentCenterX < midX) {
-        translateX.value = withSpring(MARGIN);
+        translateX.value = withSpring(MARGIN - HALO_PADDING);
       } else {
-        translateX.value = withSpring(SCREEN_WIDTH - BUTTON_SIZE - MARGIN);
+        translateX.value = withSpring(SCREEN_WIDTH - TOTAL_SIZE - MARGIN + HALO_PADDING);
       }
 
       // Clamp Y within screen bounds
       const minY = MARGIN + 50; // below status bar
-      const maxY = SCREEN_HEIGHT - tabBarHeight - BUTTON_SIZE - MARGIN;
+      const maxY = SCREEN_HEIGHT - tabBarHeight - TOTAL_SIZE - MARGIN + HALO_PADDING;
       if (translateY.value < minY) {
         translateY.value = withSpring(minY);
       } else if (translateY.value > maxY) {
@@ -93,22 +93,36 @@ export function FloatingMicButton({ onPress, tabBarHeight, isRecording }: Floati
 
   return (
     <GestureDetector gesture={composedGesture}>
-      <Animated.View style={[fabStyles.button, animatedStyle, isRecording && fabStyles.recording]}>
-        <Ionicons
-          name={isRecording ? 'mic' : 'mic-outline'}
-          size={26}
-          color={colors.white}
-        />
+      <Animated.View style={[fabStyles.halo, animatedStyle]}>
+        <Animated.View style={[fabStyles.button, isRecording && fabStyles.recording]}>
+          <Ionicons
+            name={isRecording ? 'mic' : 'mic-outline'}
+            size={26}
+            color={colors.white}
+          />
+        </Animated.View>
       </Animated.View>
     </GestureDetector>
   );
 }
 
+const HALO_PADDING = 8;
+const TOTAL_SIZE = BUTTON_SIZE + HALO_PADDING * 2;
+
 const fabStyles = StyleSheet.create({
-  button: {
+  halo: {
     position: 'absolute',
     top: 0,
     left: 0,
+    width: TOTAL_SIZE,
+    height: TOTAL_SIZE,
+    borderRadius: TOTAL_SIZE / 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 9999,
+  },
+  button: {
     width: BUTTON_SIZE,
     height: BUTTON_SIZE,
     borderRadius: BUTTON_SIZE / 2,
@@ -120,7 +134,6 @@ const fabStyles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 6,
     elevation: 8,
-    zIndex: 9999,
   },
   recording: {
     backgroundColor: colors.error,
