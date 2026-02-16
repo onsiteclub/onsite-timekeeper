@@ -203,14 +203,12 @@ export function useMapScreen() {
   const handleRegionChange = useCallback((newRegion: Region) => {
     setMapCenter({ lat: newRegion.latitude, lng: newRegion.longitude });
 
-    // Debounced reverse geocode only in State A (adding mode)
-    if (locations.length === 0) {
-      if (geocodeTimer.current) clearTimeout(geocodeTimer.current);
-      geocodeTimer.current = setTimeout(() => {
-        reverseGeocode(newRegion.latitude, newRegion.longitude);
-      }, GEOCODE_DEBOUNCE);
-    }
-  }, [locations.length, reverseGeocode]);
+    // Debounced reverse geocode — always update address as user pans
+    if (geocodeTimer.current) clearTimeout(geocodeTimer.current);
+    geocodeTimer.current = setTimeout(() => {
+      reverseGeocode(newRegion.latitude, newRegion.longitude);
+    }, GEOCODE_DEBOUNCE);
+  }, [reverseGeocode]);
 
   const handleSelectSearchResult = useCallback((result: SearchResult) => {
     animateToLocation(result.latitude, result.longitude, 'close');
