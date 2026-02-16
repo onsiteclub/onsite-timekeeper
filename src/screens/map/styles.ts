@@ -100,15 +100,18 @@ export const styles = StyleSheet.create({
     elevation: 4,
   },
 
-  // Branded pin (State A — fixed at map center)
-  pinContainer: {
+  // Branded pin — full overlay centered, needle tip at exact center
+  pinWrapper: {
     position: 'absolute',
-    top: '50%',
-    left: '50%',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
     alignItems: 'center',
-    // Offset so the needle tip sits exactly at center
-    marginLeft: -24,
-    marginTop: -56,
+    // Shift up so the needle TIP (not the bubble center) sits at map center
+    // Bubble 48 + border 6 + needle 10 = 64 total; half = 32
+    paddingBottom: 64,
   },
   pinBubble: {
     width: 48,

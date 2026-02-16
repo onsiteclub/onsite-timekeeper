@@ -102,15 +102,13 @@ export default function MapScreen() {
           )}
         </MapView>
 
-        {/* BRANDED PIN - Fixed at map center in State A */}
-        {isAddingMode && (
-          <View style={styles.pinContainer} pointerEvents="none">
-            <View style={styles.pinBubble}>
-              <Image source={appIcon} style={styles.pinImage} />
-            </View>
-            <View style={styles.pinNeedle} />
+        {/* BRANDED PIN - Always fixed at map center */}
+        <View style={styles.pinWrapper} pointerEvents="none">
+          <View style={styles.pinBubble}>
+            <Image source={appIcon} style={styles.pinImage} />
           </View>
-        )}
+          <View style={styles.pinNeedle} />
+        </View>
 
         {/* SEARCH BOX — shows address in display mode, search on tap */}
         <SearchBox
