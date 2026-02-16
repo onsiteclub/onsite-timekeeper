@@ -927,7 +927,7 @@ export default function ReportsScreen() {
                 activeOpacity={0.7}
                 onPress={() => setDateRangeMode(true)}
               >
-                <Ionicons name="download-outline" size={16} color={colors.primary} />
+                <Ionicons name="calendar-outline" size={18} color={colors.white} />
                 <Text style={reportStyles.exportInlineBtnText}>Select Dates to Export</Text>
               </TouchableOpacity>
             )}
@@ -2061,20 +2061,18 @@ const reportStyles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     alignSelf: 'center',
-    gap: 6,
-    marginTop: 12,
-    marginBottom: 4,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.white,
+    gap: 8,
+    marginTop: 16,
+    marginBottom: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+    borderRadius: 14,
+    backgroundColor: colors.primary,
   },
   exportInlineBtnText: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: colors.primary,
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.white,
   },
 
   // Date Range Mode Header (with month navigation)
