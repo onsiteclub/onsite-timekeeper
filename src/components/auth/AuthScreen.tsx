@@ -48,9 +48,24 @@ export default function AuthScreen({ onSuccess }: AuthScreenProps) {
       });
 
       if (error) {
-        // RPC might not exist yet - this is expected
-        console.log('[AuthScreen] Email check skipped (RPC not available)');
-        return false;
+        // RPC might not exist — fallback: try to sign in with a dummy password
+        // If we get "Invalid login credentials" it means the account EXISTS (wrong password)
+        // If we get "user not found" or similar, account doesn't exist
+        console.log('[AuthScreen] RPC not available, using signIn probe fallback');
+        try {
+          const { error: signInError } = await supabase.auth.signInWithPassword({
+            email: emailToCheck.toLowerCase(),
+            password: '__probe_only__',
+          });
+          // "Invalid login credentials" = account exists (password was wrong, as expected)
+          if (signInError?.message?.includes('Invalid login credentials')) {
+            return true;
+          }
+          // Any other error or no error (unlikely) = treat as not found
+          return false;
+        } catch {
+          return false;
+        }
       }
 
       console.log('[AuthScreen] Email exists:', data);
