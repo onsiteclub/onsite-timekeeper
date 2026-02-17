@@ -1,0 +1,45 @@
+============================================
+PROMINENT DISCLOSURE — Especificacao para implementar
+Tela obrigatoria para Google Play (background location)
+============================================
+
+QUANDO MOSTRAR:
+- Antes de chamar requestBackgroundPermission() pela primeira vez
+- Apenas se o usuario ainda nao deu permissao de background location
+- Aparece uma unica vez (salvar flag no AsyncStorage)
+
+ONDE IMPLEMENTAR:
+- Quando o usuario tenta criar o primeiro geofence no Map tab
+- OU quando ativa o tracking automatico pela primeira vez
+
+TEXTO DA TELA:
+
+Titulo: "Background Location Access"
+
+Corpo:
+"OnSite Timekeeper collects location data to automatically detect when you
+arrive at and leave your work site, even when the app is closed or running
+in the background.
+
+This is required for automatic time tracking. Your location is only used
+for geofencing and is never shared with advertisers or third parties."
+
+Botao primario: "Allow" → prosseguir para pedir permissao do sistema
+Botao secundario: "Not now" → cancelar, nao pedir permissao
+
+REQUISITOS DO GOOGLE:
+1. Deve aparecer ANTES do dialog do sistema operacional
+2. Deve ter botao de aceitar E de recusar
+3. Deve mencionar "even when the app is closed or not in use"
+4. Deve ser tela propria do app (nao pode ser alert nativo)
+
+VIDEO DEMONSTRATIVO:
+Apos implementar, gravar video de ~30 segundos mostrando:
+1. Abrir o app
+2. Ir para Map tab
+3. Tentar criar geofence
+4. Tela de disclosure aparecendo
+5. Usuario aceitando
+6. Dialog do sistema pedindo permissao
+7. Geofence configurado e funcionando
+Upload no Play Console > App Content > Sensitive permissions

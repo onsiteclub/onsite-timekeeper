@@ -1,0 +1,118 @@
+TERMS OF SERVICE — OnSite Timekeeper
+Last updated: February 17, 2026
+Effective date: February 17, 2026
+
+Please read these Terms of Service ("Terms") carefully before using the OnSite
+Timekeeper mobile application ("App") operated by OnSite Club ("we", "our", "us").
+
+1. ACCEPTANCE OF TERMS
+
+By downloading, installing, or using the App, you agree to be bound by these Terms.
+If you do not agree, do not use the App.
+
+2. DESCRIPTION OF SERVICE
+
+OnSite Timekeeper is a time-tracking application that allows users to:
+- Manually log daily work hours
+- Automatically detect work site arrival/departure using geofencing
+- Use voice commands to manage work records
+- Generate and export timesheet reports
+
+3. ACCOUNT REGISTRATION
+
+3.1 You must create an account to use the App.
+3.2 You are responsible for maintaining the confidentiality of your credentials.
+3.3 You must provide accurate information during registration.
+3.4 You must be at least 16 years old to use the App.
+
+4. ACCEPTABLE USE
+
+You agree NOT to:
+- Use the App for any unlawful purpose
+- Attempt to gain unauthorized access to our systems
+- Reverse engineer, decompile, or disassemble the App
+- Use the App to track another person's location without their consent
+- Share your account credentials with unauthorized parties
+- Submit false or misleading work hour records for fraudulent purposes
+
+5. LOCATION SERVICES
+
+5.1 The App uses device location services for geofencing functionality.
+5.2 You consent to the collection of location data as described in our Privacy Policy.
+5.3 You may disable location services at any time through your device settings.
+5.4 Disabling location will prevent geofencing features from working but will not
+    affect manual time entry.
+
+6. VOICE COMMANDS
+
+6.1 The App offers optional voice command functionality.
+6.2 Audio is processed by third-party services (OpenAI) for transcription and
+    interpretation.
+6.3 Audio recordings are not stored permanently.
+6.4 You are responsible for the content of your voice commands.
+
+7. DATA AND CONTENT
+
+7.1 You retain ownership of all work hour data you enter.
+7.2 You grant us a limited license to process your data for the purpose of
+    providing the service.
+7.3 We do not claim ownership of your data.
+7.4 You may export or delete your data at any time.
+
+8. PRIVACY
+
+Your use of the App is also governed by our Privacy Policy, available at:
+https://timekeeperweb.onsiteclub.ca/privacy
+
+9. DISCLAIMER OF WARRANTIES
+
+THE APP IS PROVIDED "AS IS" AND "AS AVAILABLE" WITHOUT WARRANTIES OF ANY KIND,
+WHETHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, OR NON-INFRINGEMENT.
+
+We do not guarantee that:
+- The App will be uninterrupted or error-free
+- Geofencing will detect all entries/exits with 100% accuracy
+- Time records are suitable as legal proof of attendance without additional
+  verification
+- Voice command transcription will be 100% accurate
+
+10. LIMITATION OF LIABILITY
+
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, ONSITE CLUB SHALL NOT BE LIABLE FOR:
+- Any indirect, incidental, special, or consequential damages
+- Lost wages, profits, or data arising from use of the App
+- Inaccuracies in time tracking, geofencing, or voice transcription
+- Decisions made by employers or clients based on App-generated reports
+
+Our total liability shall not exceed the amount you paid us in the 12 months
+preceding the claim (if any).
+
+11. INDEMNIFICATION
+
+You agree to indemnify and hold harmless OnSite Club from any claims, damages,
+or expenses arising from your use of the App or violation of these Terms.
+
+12. TERMINATION
+
+12.1 You may stop using the App and delete your account at any time.
+12.2 We may suspend or terminate your access if you violate these Terms.
+12.3 Upon termination, your data will be retained for 30 days, then permanently
+     deleted, unless you request immediate deletion.
+
+13. CHANGES TO TERMS
+
+We may modify these Terms at any time. We will notify you of material changes
+through the App or by email. Continued use after changes constitutes acceptance.
+
+14. GOVERNING LAW
+
+These Terms are governed by the laws of the Province of Ontario, Canada, without
+regard to conflict of law principles. Any disputes shall be resolved in the courts
+of Ontario, Canada.
+
+15. CONTACT
+
+Questions about these Terms? Contact us:
+- Email: support@onsiteclub.ca
+- Website: https://timekeeperweb.onsiteclub.ca

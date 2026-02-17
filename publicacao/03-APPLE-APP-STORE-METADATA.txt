@@ -1,0 +1,71 @@
+============================================
+APPLE APP STORE — METADATA
+Cole esses textos no App Store Connect
+============================================
+
+--- NOME DO APP ---
+OnSite Timekeeper
+
+--- SUBTITULO (max 30 caracteres) ---
+Work Hours & Job Site Tracker
+
+--- CATEGORIA ---
+Primary: Business
+Secondary: Productivity
+
+--- KEYWORDS (max 100 caracteres) ---
+timesheet,time tracker,geofence,work hours,clock in,construction,job site,ponto,horas
+
+--- URL DE SUPORTE ---
+https://timekeeperweb.onsiteclub.ca
+
+--- URL DE PRIVACY POLICY ---
+https://timekeeperweb.onsiteclub.ca/privacy
+
+--- WHAT'S NEW (v1.6.2) ---
+- Simplified logs screen for easier navigation
+- Performance improvements and bug fixes
+
+--- DESCRICAO (max 4000 caracteres) ---
+
+OnSite Timekeeper is the easiest way to track your work hours on construction sites and job locations.
+
+SIMPLE TIME TRACKING
+• Log your daily hours with just a few taps
+• Set entry and exit times manually
+• Track break time separately
+• View your work history on a clean calendar
+• Export professional PDF timesheets
+
+AUTOMATIC GEOFENCING
+• Create geofence zones around your job sites
+• The app automatically detects when you arrive and leave
+• No more forgetting to clock in or out
+• Works in the background — even when your phone is locked
+• Battery-efficient region monitoring (not constant GPS tracking)
+
+VOICE COMMANDS
+• Tap the microphone button to speak commands
+• "Log 8 hours today" — done in seconds
+• "Start timer" / "Stop timer" — hands-free control
+• Works in English and Portuguese
+• AI-powered natural language understanding
+
+REPORTS & EXPORT
+• Monthly calendar view with daily summaries
+• Detailed breakdown per day (entry, exit, breaks, total)
+• Export to PDF for payroll or invoicing
+• Share reports via email or messaging apps
+
+MULTIPLE JOB SITES
+• Track hours across different locations
+• Color-coded sites for easy identification
+• Map view to manage all your geofences
+
+PRIVACY FIRST
+• Your data stays on your device (offline-first)
+• Syncs securely when online
+• GPS data used only for geofencing — never sold or shared
+• Delete your data anytime
+
+Built for construction workers, contractors, freelancers, and anyone who needs reliable proof of their work hours.

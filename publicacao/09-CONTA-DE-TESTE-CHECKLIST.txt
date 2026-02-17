@@ -1,0 +1,62 @@
+============================================
+CONTA DE TESTE — CHECKLIST
+Fazer ANTES de submeter para as stores
+============================================
+
+CREDENCIAIS:
+  Email: test@onsiteclub.ca
+  Senha: Teste123!
+
+=== PASSO A PASSO ===
+
+1. [ ] VERIFICAR SUPABASE AUTH SETTINGS
+   - Ir em: Supabase Dashboard > Authentication > Providers > Email
+   - Verificar se "Confirm email" esta ON ou OFF
+   - Se ON: o email do teste PRECISA estar confirmado (ver passo 2)
+   - Se OFF: qualquer conta funciona sem confirmar (menos seguro)
+
+2. [ ] CONFIRMAR EMAIL DA CONTA DE TESTE
+   - Ir em: Supabase Dashboard > Authentication > Users
+   - Procurar: test@onsiteclub.ca
+   - Se NAO existe: criar via signup no app, depois confirmar manualmente
+   - Se existe: verificar coluna "Email Confirmed"
+   - Para confirmar manualmente via SQL Editor:
+     UPDATE auth.users SET email_confirmed_at = now() WHERE email = 'test@onsiteclub.ca';
+
+3. [ ] ADICIONAR DADOS DE TESTE
+   - Logar com a conta de teste no app
+   - Criar pelo menos 1 location/geofence no Map tab
+   - Criar pelo menos 3 registros de horas em dias diferentes
+   - Garantir que o Reports tab mostra dados no calendario
+
+4. [ ] TESTAR LOGIN 1 DIA ANTES DE SUBMETER
+   - Deslogar completamente
+   - Logar de novo com test@onsiteclub.ca / Teste123!
+   - Confirmar que entra direto no app (sem pedir confirmacao de email)
+   - Confirmar que os dados aparecem
+
+5. [ ] TESTAR COM PERMISSOES NEGADAS
+   - Negar permissao de localizacao → app deve funcionar (modo manual)
+   - Negar permissao de microfone → botao de mic deve mostrar aviso
+   - Negar permissao de camera → QR scanner deve mostrar aviso
+
+6. [ ] TESTAR CLEAN INSTALL
+   - Deletar o app do device
+   - Instalar de novo (build de producao)
+   - Logar com conta de teste
+   - Verificar que tudo funciona
+
+=== PROBLEMAS COMUNS ===
+
+"Invalid login credentials"
+→ Senha errada ou conta nao existe. Recriar a conta.
+
+"Email not confirmed"
+→ Email confirmation esta ON e a conta nao foi confirmada.
+→ Confirmar manualmente no Supabase Dashboard.
+
+"Network request failed"
+→ Sem internet ou Supabase fora do ar. Testar com wifi.
+
+Tela em branco apos login
+→ Bug no carregamento. Testar clean install.

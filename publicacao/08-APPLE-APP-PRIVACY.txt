@@ -1,0 +1,45 @@
+============================================
+APPLE — APP PRIVACY DECLARATIONS
+Cole no App Store Connect > App Privacy
+============================================
+
+=== DATA LINKED TO YOU ===
+
+| Data Type        | Usage             |
+|------------------|-------------------|
+| Email Address    | App Functionality |
+| Precise Location | App Functionality |
+| Coarse Location  | App Functionality |
+
+=== DATA NOT LINKED TO YOU ===
+
+| Data Type        | Usage             |
+|------------------|-------------------|
+| Crash Data       | App Functionality |
+| Performance Data | App Functionality |
+
+=== DATA USED TO TRACK YOU ===
+None (marcar "No")
+
+=== DETALHES ADICIONAIS ===
+
+Location:
+- Collected for geofencing (automatic work time tracking)
+- NOT used for tracking or advertising
+- User can disable at any time
+- Linked to user identity for audit trail purposes
+
+Email:
+- Used for authentication only
+- NOT used for marketing or third-party sharing
+
+Crash Data:
+- Sent to Sentry for crash reporting
+- No PII included
+- Not linked to user identity
+
+Audio:
+- NAO DECLARAR como "collected" porque nao e armazenado
+- Audio e processado em tempo real e deletado imediatamente
+- Se Apple questionar: "Audio is processed in real-time for voice command
+  transcription and immediately deleted. No audio data is stored."

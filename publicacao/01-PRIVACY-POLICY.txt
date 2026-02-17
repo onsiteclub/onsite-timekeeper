@@ -1,0 +1,157 @@
+PRIVACY POLICY — OnSite Timekeeper
+Last updated: February 17, 2026
+Effective date: February 17, 2026
+
+OnSite Club ("we", "our", "us") operates the OnSite Timekeeper mobile application
+(the "App"). This Privacy Policy describes how we collect, use, store, and protect
+your information.
+
+By using the App, you agree to the collection and use of information as described
+in this policy.
+
+1. INFORMATION WE COLLECT
+
+1.1 Account Information
+When you create an account, we collect your email address and password (encrypted).
+This is required for authentication and data synchronization.
+
+1.2 Location Data
+The App collects precise GPS coordinates for the following purposes:
+- Geofencing: Detecting when you arrive at or leave a registered work site
+- Map display: Showing your position on the in-app map
+- Audit trail: Recording entry/exit coordinates as proof of attendance
+
+Location data is collected in the background when you have active geofences
+configured. You can disable background location at any time in your device settings.
+
+1.3 Audio Data
+When you use the voice command feature, the App temporarily records audio through
+your device microphone. This audio is:
+- Sent to our secure backend server for processing
+- Forwarded to OpenAI's Whisper API for speech-to-text transcription
+- Deleted immediately after transcription — audio is NEVER stored permanently
+- The resulting text transcript is processed by OpenAI's GPT-4o model to interpret
+  your command, then discarded
+
+You must explicitly tap the microphone button to start recording. Recording never
+happens automatically or without your action.
+
+1.4 Work Hours Data
+The App stores your daily work hours, including:
+- Entry and exit times
+- Break duration
+- Associated job site name and location
+- Source (manual entry, geofence, or voice command)
+
+1.5 Crash Reports and Diagnostics
+We use Sentry (https://sentry.io) for crash reporting. When the App encounters an
+error, the following may be sent to Sentry:
+- Error messages and stack traces
+- Device type, operating system version, and app version
+- Anonymized usage context (no email addresses or precise coordinates)
+
+This data helps us identify and fix bugs. You cannot opt out of crash reporting at
+this time, but no personally identifiable information is included.
+
+1.6 Device Information
+We may collect basic device information (device model, OS version, app version) for
+compatibility and debugging purposes.
+
+2. HOW WE USE YOUR INFORMATION
+
+We use collected information exclusively for:
+- Providing the time-tracking and geofencing service
+- Processing voice commands
+- Generating timesheets and reports
+- Synchronizing your data across devices
+- Diagnosing and fixing technical issues
+- Improving the App's functionality
+
+We do NOT use your information for:
+- Advertising or marketing to third parties
+- Selling or renting to data brokers
+- Profiling or behavioral tracking
+- Any purpose unrelated to the App's core functionality
+
+3. THIRD-PARTY SERVICES
+
+We use the following third-party services:
+
+3.1 Supabase (https://supabase.com)
+- Purpose: Authentication, database, and cloud synchronization
+- Data shared: Account info, work hours, location data, audit trail
+- Supabase acts as our data processor, not a third-party recipient
+- Data is encrypted in transit (TLS) and at rest
+
+3.2 OpenAI (https://openai.com)
+- Purpose: Voice command transcription (Whisper) and interpretation (GPT-4o)
+- Data shared: Audio recordings (temporary), text transcripts (temporary)
+- Audio and transcripts are not stored by OpenAI after processing
+- OpenAI's data usage policy: https://openai.com/policies/api-data-usage-policies
+
+3.3 Sentry (https://sentry.io)
+- Purpose: Crash reporting and error tracking
+- Data shared: Anonymized error reports, device metadata
+- No PII (email, precise coordinates) is sent to Sentry
+
+3.4 Google Maps (https://cloud.google.com/maps-platform)
+- Purpose: Map display and geocoding
+- Data shared: Map tile requests, geocoding queries
+- Subject to Google's Privacy Policy
+
+4. DATA STORAGE AND SECURITY
+
+4.1 Local Storage
+Your data is stored primarily on your device using encrypted SQLite databases.
+The App works offline and only syncs when an internet connection is available.
+
+4.2 Cloud Storage
+When online, data is synchronized to our Supabase backend, which uses:
+- Row-Level Security (RLS) to ensure users can only access their own data
+- TLS encryption for all data in transit
+- AES encryption for data at rest
+- Hosted on secure cloud infrastructure
+
+4.3 Data Retention
+- Work hours data: Retained until you delete it or delete your account
+- Location audit data: Retained until you delete your account
+- Audio recordings: Deleted immediately after transcription (not retained)
+- Crash reports: Retained per Sentry's default retention policy (90 days)
+
+5. YOUR RIGHTS
+
+You have the right to:
+- Access: View all your data within the App
+- Correction: Edit your work hours and location data
+- Deletion: Delete individual records or your entire account
+- Portability: Export your data as PDF reports
+- Withdraw consent: Disable location or microphone permissions at any time
+
+To exercise these rights, contact us at privacy@onsiteclub.ca or use the in-app
+data management features.
+
+For users in the European Economic Area (EEA), you also have rights under the
+General Data Protection Regulation (GDPR), including the right to lodge a complaint
+with your local data protection authority.
+
+For users in California, you have rights under the California Consumer Privacy Act
+(CCPA), including the right to know what data we collect and to request deletion.
+
+6. CHILDREN'S PRIVACY
+
+The App is not intended for children under 16. We do not knowingly collect
+information from children under 16. If you believe a child has provided us with
+personal information, please contact us at privacy@onsiteclub.ca.
+
+7. CHANGES TO THIS POLICY
+
+We may update this Privacy Policy from time to time. We will notify you of changes
+by updating the "Last updated" date at the top of this policy. Continued use of
+the App after changes constitutes acceptance of the updated policy.
+
+8. CONTACT US
+
+If you have questions about this Privacy Policy, contact us:
+- Email: privacy@onsiteclub.ca
+- Website: https://timekeeperweb.onsiteclub.ca
+- Developer: OnSite Club

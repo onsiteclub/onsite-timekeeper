@@ -1,0 +1,100 @@
+============================================
+APPLE — APP REVIEW NOTES
+Cole no App Store Connect > App Review Information > Notes
+============================================
+
+BACKGROUND LOCATION JUSTIFICATION:
+
+OnSite Timekeeper is a workforce time-tracking app for construction workers.
+It uses background location EXCLUSIVELY for geofencing — detecting when the
+user physically arrives at or leaves a registered work site.
+
+How it works:
+1. User creates a work site (geofence) on the Map tab with a name and radius
+2. When the user enters or exits that geofence, the app automatically logs
+   entry/exit time to their daily timesheet
+3. This eliminates the need for manual clock-in/clock-out
+4. Background location is ONLY active when the user has at least one active
+   geofence configured
+5. No continuous GPS tracking — we use region monitoring (geofencing), which
+   is battery-efficient and only triggers on boundary crossings
+
+Why "Always" permission is required:
+- Construction workers arrive at job sites with the app closed/backgrounded
+- The geofence entry event MUST fire even when the app is not in foreground
+- Without "Always", the app cannot detect arrival at the work site
+- This is the core value proposition for the user
+
+Data handling:
+- GPS coordinates are stored locally (SQLite) and synced to our backend
+  (Supabase) for audit trail purposes only
+- Coordinates are never shared with third parties
+- User can delete all location data at any time
+
+VOICE COMMANDS / MICROPHONE USAGE:
+
+The app includes a voice assistant accessible via a floating microphone button.
+When the user taps the button, audio is recorded and sent to our Supabase
+Edge Function backend, which forwards it to OpenAI Whisper API for transcription.
+
+The transcript is then processed by OpenAI GPT-4o to interpret the command
+(e.g., "log 8 hours today", "start timer", "send weekly report").
+
+IMPORTANT:
+- Audio is NEVER stored permanently — it is deleted immediately after transcription
+- Only the text transcript is kept (temporarily, for command execution)
+- The user must explicitly tap the microphone button to start recording
+- A clear visual indicator (red pulsing button) shows when recording is active
+- The user can stop recording at any time
+- Microphone permission is requested only when the user first taps the mic button
+
+CAMERA USAGE:
+
+The app uses the camera exclusively for scanning QR codes in the Team Sharing
+feature. Workers generate a QR code, and managers scan it to link accounts.
+The camera is accessed only when the user taps "Scan QR Code" in the sharing screen.
+
+TEST ACCOUNT:
+
+Username: test@onsiteclub.ca
+Password: Teste123!
+
+HOW TO TEST:
+
+1. LOGIN
+   - Open the app → Login screen appears
+   - Use: test@onsiteclub.ca / Teste123!
+   - You'll be taken to the Home screen
+
+2. MANUAL TIME ENTRY (Free feature)
+   - On Home tab, tap "Entry" time field → set time
+   - Tap "Exit" time field → set time
+   - Select a location from the horizontal cards
+   - Tap "Save" → Entry appears in the calendar
+   - Go to Reports tab to see the calendar with your entry
+
+3. GEOFENCING (Background location feature)
+   - Go to Map tab
+   - Tap "+" to create a new geofence
+   - Name it "Test Site", set radius to 200m
+   - Place it on your current location
+   - Walk 200+ meters away → app detects exit and logs time
+   - Walk back → app detects entry
+   - NOTE: Geofencing requires physical device with GPS
+
+4. VOICE COMMANDS (Microphone feature)
+   - Tap the green floating microphone button (bottom-right)
+   - A chat sheet slides up
+   - Say "Log 8 hours today" or "Start timer"
+   - The app transcribes your voice and executes the command
+   - You can also type commands in the text field
+
+5. QR CODE SCANNING (Camera feature)
+   - Go to Settings tab
+   - Tap "Team Sharing" or "Share Access"
+   - Tap "Scan QR Code" → Camera opens for QR scanning
+
+6. REPORTS
+   - Go to Reports tab
+   - Tap any day with entries to see details
+   - Use export to generate PDF timesheet

@@ -1,0 +1,77 @@
+============================================
+GOOGLE PLAY — PERMISSOES E FORMULARIOS
+Cole nos formularios do Google Play Console
+============================================
+
+=== 1. BACKGROUND LOCATION (Play Console > App Content > Sensitive permissions) ===
+
+Tipo: Geofencing
+
+Justificativa (colar no formulario):
+OnSite Timekeeper is a workforce time-tracking app for construction workers.
+It uses background location exclusively for geofencing — automatically detecting
+when users arrive at or leave registered work sites. Background location access
+is essential because workers arrive at job sites with the app closed or in the
+background. Without background location, the app cannot detect arrival/departure
+events, which is the core functionality. We use region monitoring (geofencing),
+not continuous GPS tracking. Location data is never shared with third parties
+or used for advertising.
+
+=== 2. REQUEST_IGNORE_BATTERY_OPTIMIZATIONS (Play Console > Restricted permissions) ===
+
+Justificativa (colar no formulario):
+OnSite Timekeeper requires exemption from battery optimization because its core
+feature — geofence-based automatic time tracking — depends on receiving location
+events when the app is in the background. Without this exemption, the Android OS
+may kill the geofence monitoring service, causing missed clock-in/clock-out events
+for construction workers.
+
+=== 3. DATA SAFETY FORM (Play Console > App Content > Data safety) ===
+
+Declarar os seguintes dados:
+
+DADOS COLETADOS:
+
+| Tipo de dado          | Coletado? | Compartilhado? | Obrigatorio? | Pode deletar? |
+|-----------------------|-----------|----------------|--------------|---------------|
+| Precise location      | Sim       | Nao            | Sim          | Sim           |
+| Approximate location  | Sim       | Nao            | Sim          | Sim           |
+| Audio (voice)         | Sim       | Sim (OpenAI)   | Nao          | Sim           |
+| Crash logs            | Sim       | Sim (Sentry)   | Sim          | Nao           |
+| App interactions      | Sim       | Nao            | Sim          | Nao           |
+| Email address         | Sim       | Nao            | Sim          | Sim           |
+| Name                  | Nao       | -              | -            | -             |
+| Files/docs            | Nao       | -              | -            | -             |
+
+NOTAS:
+- Localizacao e enviada ao backend (Supabase) mas NAO e "compartilhada com
+  terceiros" no sentido do Google — e nosso proprio backend
+- Audio e deletado imediatamente apos transcricao, nunca armazenado
+- Encryption in transit: Sim (HTTPS)
+- Encryption at rest: Sim (Supabase managed)
+- Deletion mechanism: Deletar conta → deleta todos os dados
+
+=== 4. PROMINENT DISCLOSURE (tela in-app obrigatoria) ===
+
+Texto que deve aparecer ANTES de pedir permissao de background location:
+
+"OnSite Timekeeper collects location data to automatically detect when you
+arrive at and leave your work site, even when the app is closed or running
+in the background."
+
+[Allow]  [Not now]
+
+NOTA: Esta tela precisa ser implementada no codigo do app.
+Ver arquivo 07-PROMINENT-DISCLOSURE-SPEC.txt
+
+=== 5. CONTA DE TESTE (Play Console > App Content > App access) ===
+
+Marcar: "All or some functionality is restricted"
+
+Username: test@onsiteclub.ca
+Password: Teste123!
+
+Instrucoes adicionais:
+"The app requires login. Use the provided test credentials. To test geofencing,
+go to the Map tab, create a geofence around your location, and walk in/out of
+the area. Geofencing requires a physical device with GPS."

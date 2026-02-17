@@ -1,0 +1,42 @@
+============================================
+GOOGLE PLAY STORE — METADATA
+Cole esses textos no Google Play Console
+============================================
+
+--- TITULO (max 30 caracteres) ---
+OnSite Timekeeper
+
+--- DESCRICAO CURTA (max 80 caracteres) ---
+Track work hours automatically with geofencing. Voice commands & PDF reports.
+
+--- CATEGORIA ---
+Business
+
+--- DESCRICAO LONGA (max 4000 caracteres) ---
+
+OnSite Timekeeper is the simplest way to track your work hours on construction sites and job locations.
+
+★ MANUAL TIME ENTRY
+Log your daily entry and exit times with just a few taps. Track breaks, select your job site, and save. It's as simple as writing on a notepad — but smarter.
+
+★ AUTOMATIC GEOFENCING
+Create a virtual boundary around your work site. When you arrive, the app automatically starts tracking. When you leave, it logs your exit time. No more forgetting to clock in.
+
+★ VOICE COMMANDS
+Tap the microphone and say what you need: "Log 8 hours today", "Start timer", "Send my weekly report". The AI assistant understands natural language in English and Portuguese.
+
+★ CALENDAR & REPORTS
+See all your work days on a clean monthly calendar. Tap any day to see the full breakdown. Export professional PDF timesheets for payroll or invoicing.
+
+★ MULTIPLE JOB SITES
+Managing different locations? Create color-coded geofences for each site. The app knows which site you're at and logs accordingly.
+
+★ OFFLINE FIRST
+Your data is stored locally on your device. It syncs securely to the cloud when you're online. You're never blocked by poor connectivity on a job site.
+
+★ PRIVACY FOCUSED
+GPS data is used exclusively for geofencing and is never sold or shared with advertisers. You can delete all your data at any time.
+
+Perfect for: construction workers, contractors, freelancers, field technicians, maintenance crews, and anyone who needs proof of their work hours.
+
+Questions? Contact us at support@onsiteclub.ca

@@ -1,0 +1,65 @@
+============================================
+CHECKLIST FINAL — ANTES DE SUBMETER
+============================================
+
+=== BLOQUEADORES (sem isso = rejeicao garantida) ===
+
+- [ ] Publicar Privacy Policy real na URL do site
+      Texto: arquivo 01-PRIVACY-POLICY.txt
+      URL: timekeeperweb.onsiteclub.ca/privacy
+
+- [ ] Publicar Terms of Service real na URL do site
+      Texto: arquivo 02-TERMS-OF-SERVICE.txt
+      URL: timekeeperweb.onsiteclub.ca/terms
+
+- [ ] Conta de teste funcionando (email confirmado no Supabase)
+      Checklist: arquivo 09-CONTA-DE-TESTE-CHECKLIST.txt
+
+- [ ] App Review Notes colados no App Store Connect (Apple)
+      Texto: arquivo 05-APPLE-REVIEW-NOTES.txt
+
+- [ ] Data Safety Form preenchido no Play Console (Google)
+      Dados: arquivo 06-GOOGLE-PLAY-PERMISSIONS.txt
+
+- [ ] Prominent Disclosure implementada no app (Google)
+      Spec: arquivo 07-PROMINENT-DISCLOSURE-SPEC.txt
+
+- [ ] Video demonstrativo gravado e enviado no Play Console (Google)
+      Instrucoes: arquivo 07-PROMINENT-DISCLOSURE-SPEC.txt
+
+=== PRIORIDADE ALTA ===
+
+- [ ] Metadata Apple colada no App Store Connect
+      Texto: arquivo 03-APPLE-APP-STORE-METADATA.txt
+
+- [ ] Metadata Google colada no Play Console
+      Texto: arquivo 04-GOOGLE-PLAY-METADATA.txt
+
+- [ ] App Privacy preenchida no App Store Connect
+      Dados: arquivo 08-APPLE-APP-PRIVACY.txt
+
+- [ ] Permissoes justificadas no Play Console
+      Textos: arquivo 06-GOOGLE-PLAY-PERMISSIONS.txt
+
+- [ ] Screenshots preparadas para ambas as stores
+      iOS: 6.7" (iPhone 15 Pro Max) e 5.5" (iPhone 8 Plus)
+      Android: phone screenshots
+
+=== NOTA: ICONES ===
+Icones estao OK — customizados (pin amarelo com checkmark).
+NAO vai reprovar por icone padrao.
+
+=== NOTA: VERSOES ===
+iOS: 1.6.2 (build 17) — OK
+Android: versionCode 14 — incrementar se ja subiu alguma vez com 14+
+
+=== ORDEM DE EXECUCAO RECOMENDADA ===
+
+1. Confirmar conta de teste no Supabase (5 min)
+2. Publicar Privacy Policy e Terms no site (15 min)
+3. Implementar Prominent Disclosure no app (2-4h) — UNICO item que precisa codigo
+4. Gravar video demo (20 min)
+5. Preencher formularios Apple (30 min)
+6. Preencher formularios Google (30 min)
+7. Testar clean install + conta de teste (30 min)
+8. Submeter
