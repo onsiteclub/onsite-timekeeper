@@ -25,7 +25,6 @@ import {
   Keyboard,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Picker } from '@react-native-picker/picker';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -317,7 +316,7 @@ export default function ReportsScreen() {
     const exitDate = session.exit_at ? new Date(session.exit_at) : new Date();
 
     setManualDate(entryDate);
-    setManualLocationId(session.location_id);
+    setManualLocationId(session.location_id || locations[0]?.id || '');
 
     const entry12 = toDisplay12(entryDate.getHours());
     const exit12 = toDisplay12(exitDate.getHours());
@@ -1061,7 +1060,7 @@ export default function ReportsScreen() {
               {isEditingInline ? (
                 /* ===== EDIT MODE ===== */
                 <View style={reportStyles.ucCard}>
-                  {/* Location Picker */}
+                  {/* Location (auto-set from registered location) */}
                   <View style={reportStyles.ucLocationRow}>
                     <Ionicons name="location" size={18} color={colors.primary} />
                     {locations.length === 0 ? (
@@ -1076,16 +1075,9 @@ export default function ReportsScreen() {
                       </TouchableOpacity>
                     ) : (
                       <View style={reportStyles.ucPickerWrap}>
-                        <Picker
-                          selectedValue={manualLocationId}
-                          onValueChange={setManualLocationId}
-                          style={reportStyles.picker}
-                          dropdownIconColor={colors.textSecondary}
-                        >
-                          {locations.map((loc: any) => (
-                            <Picker.Item key={loc.id} label={loc.name} value={loc.id} />
-                          ))}
-                        </Picker>
+                        <Text style={{ fontSize: 15, color: colors.text, paddingVertical: 8, paddingHorizontal: 4 }}>
+                          {locations.find((l: any) => l.id === manualLocationId)?.name || locations[0]?.name || 'Unknown'}
+                        </Text>
                       </View>
                     )}
                   </View>

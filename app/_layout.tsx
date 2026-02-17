@@ -36,6 +36,7 @@ import {
   onUserLogout,
 } from '../src/lib/bootstrap';
 import { BatteryOptimizationModal } from '../src/components/BatteryOptimizationModal';
+import { LocationDisclosureModal } from '../src/components/LocationDisclosureModal';
 import { isIgnoringBatteryOptimizations } from '../src/lib/bgGeo';
 
 
@@ -61,6 +62,9 @@ export default function RootLayout() {
 
   // Battery optimization modal (Android only)
   const [showBatteryModal, setShowBatteryModal] = useState(false);
+
+  // Location disclosure modal (Google Play requirement)
+  const needsLocationDisclosure = useLocationStore(s => s.needsLocationDisclosure);
 
   // ============================================
   // STORE INITIALIZATION
@@ -330,6 +334,11 @@ export default function RootLayout() {
           }}
         />
       </Stack>
+      <LocationDisclosureModal
+        visible={needsLocationDisclosure}
+        onAccept={() => useLocationStore.getState().completeLocationDisclosure()}
+        onDecline={() => useLocationStore.getState().skipLocationDisclosure()}
+      />
       {Platform.OS === 'android' && (
         <BatteryOptimizationModal
           visible={showBatteryModal}

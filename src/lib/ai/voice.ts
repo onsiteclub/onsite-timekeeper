@@ -168,10 +168,12 @@ async function executeVoiceAction(
       const lastExit = action.changes.last_exit || existing?.last_exit || undefined;
       const breakMin = action.changes.break_minutes ?? existing?.break_minutes ?? 0;
 
-      // Calculate total_minutes: use AI value, or recalculate from times, or keep existing
-      let totalMinutes = action.changes.total_minutes || 0;
+      // Calculate total_minutes — ALWAYS recalculate from times when available
+      // AI sometimes returns a string description instead of a number (e.g. "existing total recalculated...")
+      let totalMinutes = 0;
 
-      if (!totalMinutes && firstEntry && lastExit) {
+      // Try to recalculate from entry/exit times (most reliable)
+      if (firstEntry && lastExit) {
         const [sh, sm] = firstEntry.split(':').map(Number);
         const [eh, em] = lastExit.split(':').map(Number);
         if (!isNaN(sh) && !isNaN(sm) && !isNaN(eh) && !isNaN(em)) {
@@ -180,6 +182,18 @@ async function executeVoiceAction(
         }
       }
 
+      // Fallback: use AI value ONLY if it's a valid number
+      if (!totalMinutes && action.changes.total_minutes != null) {
+        const aiValue = Number(action.changes.total_minutes);
+        if (!isNaN(aiValue) && aiValue > 0) {
+          totalMinutes = Math.round(aiValue);
+        } else {
+          console.log(`[VOICE] update_record: AI returned invalid total_minutes: "${action.changes.total_minutes}" — recalculating`);
+          logger.warn('voice', `update_record: AI returned non-numeric total_minutes`, { value: String(action.changes.total_minutes) });
+        }
+      }
+
+      // Last fallback: keep existing value
       if (!totalMinutes) {
         totalMinutes = existing?.total_minutes || 0;
       }
@@ -189,14 +203,25 @@ async function executeVoiceAction(
         hadExisting: !!existing,
       });
 
+      // Resolve location: existing record > first available location
+      let locationName = existing?.location_name || undefined;
+      let locationId = existing?.location_id || undefined;
+      if (!locationName) {
+        const locations = useLocationStore.getState().locations;
+        if (locations.length > 0) {
+          locationName = locations[0].name;
+          locationId = locations[0].id;
+        }
+      }
+
       // Use upsertDailyHours — creates record if it doesn't exist, updates if it does
       const result = upsertDailyHours({
         userId,
         date: action.date,
         totalMinutes,
         breakMinutes: breakMin,
-        locationName: existing?.location_name || undefined,
-        locationId: existing?.location_id || undefined,
+        locationName,
+        locationId,
         verified: true,
         source: 'manual',
         firstEntry,

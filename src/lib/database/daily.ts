@@ -211,6 +211,17 @@ export function upsertDailyHours(params: UpsertDailyHoursParams): DailyHoursEntr
   } = params;
 
   try {
+    // Defense: ensure numeric fields are actually numbers (AI can return strings)
+    const safeTotalMinutes = typeof totalMinutes === 'number' && !isNaN(totalMinutes) ? Math.round(totalMinutes) : 0;
+    const safeBreakMinutes = typeof breakMinutes === 'number' && !isNaN(breakMinutes) ? Math.round(breakMinutes) : 0;
+
+    if (safeTotalMinutes !== totalMinutes || safeBreakMinutes !== breakMinutes) {
+      logger.warn('database', '[daily_hours] UPSERT: sanitized non-numeric values', {
+        totalMinutes: String(totalMinutes), safeTotalMinutes,
+        breakMinutes: String(breakMinutes), safeBreakMinutes,
+      });
+    }
+
     // Check for existing record (including soft-deleted)
     const existing = getDailyHours(userId, date);
     const timestamp = now();
@@ -233,8 +244,8 @@ export function upsertDailyHours(params: UpsertDailyHoursParams): DailyHoursEntr
           synced_at = NULL
         WHERE user_id = ? AND date = ?`,
         [
-          totalMinutes,
-          breakMinutes,
+          safeTotalMinutes,
+          safeBreakMinutes,
           locationName || null,
           locationId || null,
           verified ? 1 : 0,
@@ -250,7 +261,7 @@ export function upsertDailyHours(params: UpsertDailyHoursParams): DailyHoursEntr
       );
 
       logger.info('database', `[daily_hours] UPDATED ${date}`, {
-        totalMinutes,
+        totalMinutes: safeTotalMinutes,
         source,
         type,
         verified,
@@ -281,8 +292,8 @@ export function upsertDailyHours(params: UpsertDailyHoursParams): DailyHoursEntr
             synced_at = NULL
           WHERE user_id = ? AND date = ?`,
           [
-            totalMinutes,
-            breakMinutes,
+            safeTotalMinutes,
+            safeBreakMinutes,
             locationName || null,
             locationId || null,
             verified ? 1 : 0,
@@ -298,7 +309,7 @@ export function upsertDailyHours(params: UpsertDailyHoursParams): DailyHoursEntr
         );
 
         logger.info('database', `[daily_hours] RESURRECTED (was soft-deleted) ${date}`, {
-          totalMinutes,
+          totalMinutes: safeTotalMinutes,
           source,
           type,
         });
@@ -316,8 +327,8 @@ export function upsertDailyHours(params: UpsertDailyHoursParams): DailyHoursEntr
             id,
             userId,
             date,
-            totalMinutes,
-            breakMinutes,
+            safeTotalMinutes,
+            safeBreakMinutes,
             locationName || null,
             locationId || null,
             verified ? 1 : 0,
@@ -332,7 +343,7 @@ export function upsertDailyHours(params: UpsertDailyHoursParams): DailyHoursEntr
         );
 
         logger.info('database', `[daily_hours] CREATED ${date}`, {
-          totalMinutes,
+          totalMinutes: safeTotalMinutes,
           source,
           type,
           verified,

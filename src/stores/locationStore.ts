@@ -16,6 +16,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { logger } from '../lib/logger';
 import {
   requestAllPermissions,
+  requestForegroundPermission,
+  requestBackgroundPermission,
+  checkPermissions,
   getCurrentLocation,
   type LocationResult,
 } from '../lib/location';
@@ -76,6 +79,7 @@ const MAX_RADIUS = 1000;
 // ============================================
 
 const MONITORING_STATE_KEY = '@onsite:monitoringEnabled';
+const LOCATION_DISCLOSURE_KEY = '@onsite:locationDisclosureShown';
 // v4: OS geofencing is the sole decision maker for enter/exit. No Guardian AI, no reconcile, no GPS-based exit.
 
 // ============================================
@@ -123,7 +127,8 @@ export interface LocationState {
   permissionStatus: 'unknown' | 'granted' | 'denied' | 'restricted';
   lastGeofenceEvent: GeofenceEvent | null;
   currentFenceId: string | null; // Track which fence user is physically inside
-  
+  needsLocationDisclosure: boolean; // True when disclosure modal should be shown
+
   // Timer configs (from settings)
   entryTimeout: number;
   exitTimeout: number;
@@ -147,7 +152,9 @@ export interface LocationState {
   unskipLocationToday: (locationId: string) => Promise<void>;
   refreshCurrentLocation: () => Promise<LocationCoords | null>;
   setTimerConfigs: (entry: number, exit: number, pause: number) => void;
-  
+  completeLocationDisclosure: () => Promise<void>;
+  skipLocationDisclosure: () => void;
+
   // Debug
   getDebugState: () => object;
 }
@@ -202,6 +209,7 @@ export const useLocationStore = create<LocationState>((set, get) => ({
   permissionStatus: 'unknown',
   lastGeofenceEvent: null,
   currentFenceId: null, // NEW
+  needsLocationDisclosure: false,
   entryTimeout: 120,
   exitTimeout: 60,
   pauseTimeout: 30,
@@ -214,9 +222,34 @@ export const useLocationStore = create<LocationState>((set, get) => ({
     set({ isLoading: true });
 
     try {
-      // Check permissions
-      const permissions = await requestAllPermissions();
-      
+      // Check if background permission already granted (skip disclosure)
+      const existing = await checkPermissions();
+
+      let permissions: { foreground: boolean; background: boolean };
+
+      if (existing.background) {
+        // Already have background → no disclosure needed
+        permissions = existing;
+      } else {
+        // Check if disclosure was shown before
+        const disclosureShown = await AsyncStorage.getItem(LOCATION_DISCLOSURE_KEY);
+
+        if (disclosureShown) {
+          // Disclosure was shown before → request normally
+          permissions = await requestAllPermissions();
+        } else {
+          // First time — request foreground only, defer background to after disclosure
+          const foreground = await requestForegroundPermission();
+          permissions = { foreground, background: false };
+
+          if (foreground) {
+            // Signal UI to show disclosure modal
+            set({ needsLocationDisclosure: true });
+            logger.info('geofence', 'Location disclosure needed — deferring background permission');
+          }
+        }
+      }
+
       if (!permissions.foreground) {
         logger.warn('geofence', 'Location permission denied');
         set({ permissionStatus: 'denied', isLoading: false });
@@ -304,6 +337,41 @@ export const useLocationStore = create<LocationState>((set, get) => ({
     } finally {
       set({ isLoading: false });
     }
+  },
+
+  // ============================================
+  // LOCATION DISCLOSURE (Google Play requirement)
+  // ============================================
+
+  completeLocationDisclosure: async () => {
+    try {
+      await AsyncStorage.setItem(LOCATION_DISCLOSURE_KEY, 'true');
+      set({ needsLocationDisclosure: false });
+
+      // Now request background permission
+      const granted = await requestBackgroundPermission();
+      set({ permissionStatus: granted ? 'granted' : 'restricted' });
+
+      // If granted, try to start monitoring
+      if (granted) {
+        const { locations } = get();
+        const shouldMonitor = await loadMonitoringState();
+        if (shouldMonitor && locations.length > 0) {
+          logger.info('geofence', '🚀 Starting monitoring after disclosure acceptance');
+          await get().startMonitoring();
+        }
+      }
+
+      logger.info('geofence', `Location disclosure completed — background: ${granted ? 'granted' : 'denied'}`);
+    } catch (error) {
+      logger.error('geofence', 'Error completing location disclosure', { error: String(error) });
+    }
+  },
+
+  skipLocationDisclosure: () => {
+    AsyncStorage.setItem(LOCATION_DISCLOSURE_KEY, 'true').catch(() => {});
+    set({ needsLocationDisclosure: false });
+    logger.info('geofence', 'Location disclosure skipped by user');
   },
 
   // ============================================

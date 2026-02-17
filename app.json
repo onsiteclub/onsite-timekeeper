@@ -2,7 +2,7 @@
   "expo": {
     "name": "OnSite Timekeeper",
     "slug": "onsite-timekeeper",
-    "version": "1.6.2",
+    "version": "1.6.3",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "onsite-timekeeper",
@@ -20,8 +20,8 @@
         "NSLocationWhenInUseUsageDescription": "OnSite Timekeeper needs your location to show where you are on the map.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "OnSite Timekeeper needs background location access to automatically detect when you arrive at or leave work.",
         "NSLocationAlwaysUsageDescription": "OnSite Timekeeper needs background location access to automatically track your work hours.",
-        "NSPhotoLibraryUsageDescription": "OnSite Timekeeper may need access to your photo library to attach images.",
-        "NSMicrophoneUsageDescription": "OnSite Timekeeper needs the microphone for voice commands.",
+        "NSCameraUsageDescription": "OnSite Timekeeper uses the camera to scan QR codes for team sharing.",
+        "NSMicrophoneUsageDescription": "OnSite Timekeeper uses the microphone to record voice commands. Your audio is sent to a secure server for speech-to-text transcription and is not stored after processing.",
         "NSMotionUsageDescription": "OnSite Timekeeper uses motion data to improve location accuracy for automatic work hour tracking.",
         "UIBackgroundModes": [
           "location",
@@ -109,9 +109,9 @@
           "license": "eyJhbGciOiJFZERTQSIsImtpZCI6ImVkMjU1MTktbWFpbi12MSJ9.eyJvcyI6ImFuZHJvaWQiLCJhcHBfaWQiOiJjb20ub25zaXRlY2x1Yi50aW1la2VlcGVyIiwib3JkZXJfbnVtYmVyIjoxNTQ4OSwicmVuZXdhbF91cmwiOiJodHRwczovL3Nob3AudHJhbnNpc3RvcnNvZnQuY29tL2NhcnQvMTY1MDc4NjE1MDU6MT9ub3RlPTEwMzAyIiwiY3VzdG9tZXJfaWQiOjkzNzcsInByb2R1Y3QiOiJyZWFjdC1uYXRpdmUtYmFja2dyb3VuZC1nZW9sb2NhdGlvbiIsImtleV92ZXJzaW9uIjoxLCJhbGxvd2VkX3N1ZmZpeGVzIjpbIi5kZXYiLCIuZGV2ZWxvcG1lbnQiLCIuc3RhZ2luZyIsIi5zdGFnZSIsIi5xYSIsIi51YXQiLCIudGVzdCIsIi5kZWJ1ZyJdLCJtYXhfYnVpbGRfc3RhbXAiOjIwMjcwMzE1LCJncmFjZV9idWlsZHMiOjAsImVudGl0bGVtZW50cyI6WyJjb3JlIl0sImlhdCI6MTc3MTEyNzkwN30.DMaR-9jymNddxHcUVMxpnMeOtoMgRKzmmQ6p6wV8Zkl_Fu1GN-qDEICbI7y4C31NgbIAs9FAUgGsRUclNsDPDQ",
           "backgroundPermissionRationale": {
             "title": "Allow OnSite Timekeeper to access your location in the background?",
-            "message": "OnSite Timekeeper needs background location to automatically detect when you arrive at or leave work.",
-            "positiveAction": "Change to Always Allow",
-            "negativeAction": "Cancel"
+            "message": "OnSite Timekeeper uses background location to automatically detect when you arrive at or leave your work site, even when the app is closed. This is required for automatic time tracking. Your location is never shared with third parties.",
+            "positiveAction": "Allow",
+            "negativeAction": "Deny"
           }
         }
       ]
