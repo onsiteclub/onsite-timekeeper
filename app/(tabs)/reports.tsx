@@ -19,7 +19,6 @@ import {
   StyleSheet,
   TextInput,
   Animated,
-  PanResponder,
   Platform,
   InputAccessoryView,
   Keyboard,
@@ -539,40 +538,10 @@ export default function ReportsScreen() {
   // ============================================
   // SWIPE GESTURE FOR MONTH NAVIGATION
   // ============================================
-  // Use refs to avoid stale closures in PanResponder
-  const goToNextMonthRef = useRef(goToNextMonth);
-  const goToPreviousMonthRef = useRef(goToPreviousMonth);
-
-  // Keep refs updated when functions change
-  useEffect(() => {
-    goToNextMonthRef.current = goToNextMonth;
-    goToPreviousMonthRef.current = goToPreviousMonth;
-  }, [goToNextMonth, goToPreviousMonth]);
-
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => false,
-      onMoveShouldSetPanResponder: (_, gestureState) => {
-        // Only claim responder for clear horizontal swipes (dx > dy + threshold)
-        // Higher threshold avoids stealing taps from child TouchableOpacity on iOS
-        const { dx, dy } = gestureState;
-        return Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 30;
-      },
-      onShouldBlockNativeResponder: () => false,
-      onPanResponderRelease: (_, gestureState) => {
-        const { dx } = gestureState;
-        const SWIPE_THRESHOLD = 50;
-
-        if (dx < -SWIPE_THRESHOLD) {
-          // Swipe left → next month
-          goToNextMonthRef.current();
-        } else if (dx > SWIPE_THRESHOLD) {
-          // Swipe right → previous month
-          goToPreviousMonthRef.current();
-        }
-      },
-    })
-  ).current;
+  // Simple touch tracking — does NOT use PanResponder (which conflicts with ScrollView on iOS,
+  // causing recurring touch deadlocks where the entire screen stops responding to taps)
+  const swipeStartX = useRef(0);
+  const swipeStartY = useRef(0);
 
   // Export to PDF - Professional Timesheet
   const handleExportPDF = async () => {
@@ -837,8 +806,21 @@ export default function ReportsScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-          {/* MONTH VIEW - with swipe gesture */}
-          <View {...panResponder.panHandlers}>
+          {/* MONTH VIEW - with swipe gesture (touch-based, no PanResponder) */}
+          <View
+            onTouchStart={(e) => {
+              swipeStartX.current = e.nativeEvent.pageX;
+              swipeStartY.current = e.nativeEvent.pageY;
+            }}
+            onTouchEnd={(e) => {
+              const dx = e.nativeEvent.pageX - swipeStartX.current;
+              const dy = e.nativeEvent.pageY - swipeStartY.current;
+              if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 50) {
+                if (dx < 0) goToNextMonth();
+                else goToPreviousMonth();
+              }
+            }}
+          >
               {/* Weekday headers */}
               <View style={reportStyles.monthHeader}>
                 {WEEKDAYS_SHORT.map((d: string, i: number) => (

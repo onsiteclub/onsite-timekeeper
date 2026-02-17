@@ -65,6 +65,13 @@ RULES for corrections:
 - ALWAYS recalculate total_minutes when changing start/end/break
 - total_minutes = (last_exit - first_entry) in minutes - break_minutes
 - CRITICAL: total_minutes and break_minutes MUST ALWAYS be INTEGER NUMBERS (e.g. 540, 30). NEVER return text, descriptions, or formulas. If you cannot calculate, use 0.
+- CRITICAL TIME RULE: ALL times (first_entry, last_exit) MUST be in 24-hour format (HH:MM). Convert 12h to 24h correctly:
+  - "7 da manha" / "7 AM" = "07:00"
+  - "7 da noite" / "7 PM" = "19:00" (NOT 18:00)
+  - "5 da tarde" / "5 PM" = "17:00"
+  - "meio-dia" / "noon" = "12:00"
+  - "meia-noite" / "midnight" = "00:00"
+  - Portuguese: "da manha" = AM, "da tarde"/"da noite" = PM. Add 12 to PM hours (except 12 PM stays 12).
 - Mark is_voice_edit = 1 and is_manual_edit = 1 (voice = highest priority)
 - CRITICAL DATE RULE: The user message includes a DATE_REFERENCE_TABLE with pre-calculated dates. ALWAYS use this table to resolve date references. Do NOT calculate dates yourself.
 - "today"/"hoje" → look up "today" in DATE_REFERENCE_TABLE
