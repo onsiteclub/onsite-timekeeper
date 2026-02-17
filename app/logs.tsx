@@ -3,6 +3,7 @@
  *
  * Displays in-memory runtime logs for debugging.
  * Accessible from Settings > About > System Logs.
+ * Keeps last 500 entries (capped by logger.ts).
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -12,7 +13,7 @@ import {
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  Share,
+  Alert,
   Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -27,7 +28,7 @@ import {
   exportLogsAsText,
   type LogEntry,
 } from '../src/lib/logger';
-import { getSDKStatus, getSDKLog, emailSDKLog } from '../src/lib/bgGeo';
+import { getSDKLog } from '../src/lib/bgGeo';
 
 // ============================================
 // CONSTANTS
@@ -102,21 +103,6 @@ const LogRow = React.memo(({ item }: { item: LogEntry }) => {
 // MAIN COMPONENT
 // ============================================
 
-const AUTH_STATUS_LABELS: Record<number, string> = {
-  0: 'Not Determined',
-  1: 'Restricted',
-  2: 'Denied',
-  3: 'Always',
-  4: 'WhenInUse',
-  [-1]: 'Error',
-};
-
-const TRACKING_MODE_LABELS: Record<number, string> = {
-  0: 'Geofences Only',
-  1: 'Location + Geofences',
-  [-1]: 'Error',
-};
-
 export default function LogsScreen() {
   const router = useRouter();
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -124,57 +110,13 @@ export default function LogsScreen() {
   const [levelFilter, setLevelFilter] = useState<string | null>(null);
   const flatListRef = useRef<FlatList>(null);
 
-  // SDK status
-  const [sdkStatus, setSdkStatus] = useState<{
-    enabled: boolean; trackingMode: number; authorization: number;
-    gps: boolean; network: boolean; geofences: number;
-  } | null>(null);
-  const [sdkLog, setSdkLog] = useState<string | null>(null);
-  const [sdkLogLoading, setSdkLogLoading] = useState(false);
-
   // Load logs + subscribe to new ones
   useEffect(() => {
     setLogs(getStoredLogs().reverse());
     const unsubscribe = addLogListener(() => {
       setLogs(getStoredLogs().reverse());
     });
-    // Load SDK status
-    if (Platform.OS !== 'web') {
-      getSDKStatus().then(setSdkStatus).catch(() => {});
-    }
     return unsubscribe;
-  }, []);
-
-  const handleLoadSDKLog = useCallback(async () => {
-    setSdkLogLoading(true);
-    try {
-      const log = await getSDKLog();
-      setSdkLog(log);
-    } catch {
-      setSdkLog('Failed to load SDK log');
-    } finally {
-      setSdkLogLoading(false);
-    }
-  }, []);
-
-  const handleShareSDKLog = useCallback(async () => {
-    if (!sdkLog) return;
-    try {
-      const filePath = `${FileSystem.cacheDirectory}sdk-log-${Date.now()}.txt`;
-      await FileSystem.writeAsStringAsync(filePath, sdkLog);
-      await Sharing.shareAsync(filePath, { mimeType: 'text/plain', dialogTitle: 'SDK Native Log' });
-    } catch {
-      // Fallback to Share API
-      await Share.share({ message: sdkLog.slice(-5000), title: 'SDK Native Log (truncated)' });
-    }
-  }, [sdkLog]);
-
-  const handleEmailSDKLog = useCallback(async () => {
-    try {
-      await emailSDKLog('cris@onsiteclub.com');
-    } catch {
-      // emailLog opens native email client — may fail if no email app configured
-    }
   }, []);
 
   const filteredLogs = logs.filter(log => {
@@ -183,18 +125,28 @@ export default function LogsScreen() {
     return true;
   });
 
-  const handleExport = useCallback(async () => {
-    const text = exportLogsAsText();
-    if (Platform.OS === 'web') {
-      // Web: copy to clipboard
-      try {
-        await navigator.clipboard.writeText(text);
-      } catch {
-        // fallback
+  // Send: app logs + SDK native log combined into one file
+  const handleSend = useCallback(async () => {
+    try {
+      let combined = '=== OnSite App Logs ===\n\n';
+      combined += exportLogsAsText();
+
+      if (Platform.OS !== 'web') {
+        try {
+          const sdkLog = await getSDKLog();
+          combined += '\n\n=== Transistorsoft SDK Native Log ===\n\n';
+          combined += sdkLog;
+        } catch {
+          combined += '\n\n=== SDK Log: unavailable ===\n';
+        }
       }
-      return;
+
+      const filePath = `${FileSystem.cacheDirectory}onsite-logs-${Date.now()}.txt`;
+      await FileSystem.writeAsStringAsync(filePath, combined);
+      await Sharing.shareAsync(filePath, { mimeType: 'text/plain', dialogTitle: 'OnSite Logs' });
+    } catch {
+      Alert.alert('Error', 'Could not share logs');
     }
-    await Share.share({ message: text, title: 'OnSite Logs' });
   }, []);
 
   const handleClear = useCallback(() => {
@@ -221,8 +173,8 @@ export default function LogsScreen() {
         </TouchableOpacity>
         <Text style={styles.headerTitle}>System Logs</Text>
         <View style={styles.headerActions}>
-          <TouchableOpacity onPress={handleExport} style={styles.headerButton}>
-            <Ionicons name="share-outline" size={20} color={colors.text} />
+          <TouchableOpacity onPress={handleSend} style={styles.headerButton}>
+            <Ionicons name="paper-plane-outline" size={20} color={colors.primary} />
           </TouchableOpacity>
           <TouchableOpacity onPress={handleClear} style={styles.headerButton}>
             <Ionicons name="trash-outline" size={20} color={colors.error} />
@@ -254,90 +206,6 @@ export default function LogsScreen() {
           </TouchableOpacity>
         )}
       </View>
-
-      {/* SDK Status Card (native only) */}
-      {Platform.OS !== 'web' && sdkStatus && (
-        <View style={styles.sdkCard}>
-          <View style={styles.sdkCardHeader}>
-            <Ionicons name="hardware-chip-outline" size={16} color={colors.primary} />
-            <Text style={styles.sdkCardTitle}>Transistorsoft SDK</Text>
-            <View style={[styles.sdkStatusDot, { backgroundColor: sdkStatus.enabled ? '#22C55E' : '#EF4444' }]} />
-            <Text style={[styles.sdkStatusText, { color: sdkStatus.enabled ? '#22C55E' : '#EF4444' }]}>
-              {sdkStatus.enabled ? 'Running' : 'Stopped'}
-            </Text>
-          </View>
-          <View style={styles.sdkGrid}>
-            <View style={styles.sdkGridItem}>
-              <Text style={styles.sdkLabel}>Auth</Text>
-              <Text style={[styles.sdkValue, {
-                color: sdkStatus.authorization === 3 ? '#22C55E' : '#EF4444'
-              }]}>
-                {AUTH_STATUS_LABELS[sdkStatus.authorization] || `Unknown(${sdkStatus.authorization})`}
-              </Text>
-            </View>
-            <View style={styles.sdkGridItem}>
-              <Text style={styles.sdkLabel}>Mode</Text>
-              <Text style={styles.sdkValue}>
-                {TRACKING_MODE_LABELS[sdkStatus.trackingMode] || `${sdkStatus.trackingMode}`}
-              </Text>
-            </View>
-            <View style={styles.sdkGridItem}>
-              <Text style={styles.sdkLabel}>GPS</Text>
-              <Text style={[styles.sdkValue, { color: sdkStatus.gps ? '#22C55E' : '#EF4444' }]}>
-                {sdkStatus.gps ? 'ON' : 'OFF'}
-              </Text>
-            </View>
-            <View style={styles.sdkGridItem}>
-              <Text style={styles.sdkLabel}>Fences</Text>
-              <Text style={styles.sdkValue}>{sdkStatus.geofences}</Text>
-            </View>
-          </View>
-          <View style={styles.sdkActions}>
-            <TouchableOpacity
-              style={styles.sdkButton}
-              onPress={handleLoadSDKLog}
-              disabled={sdkLogLoading}
-            >
-              <Ionicons name="document-text-outline" size={14} color={colors.primary} />
-              <Text style={styles.sdkButtonText}>
-                {sdkLogLoading ? 'Loading...' : sdkLog ? 'Refresh Log' : 'SDK Log'}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.sdkButton}
-              onPress={handleEmailSDKLog}
-            >
-              <Ionicons name="mail-outline" size={14} color={colors.primary} />
-              <Text style={styles.sdkButtonText}>Email Log</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.sdkButton}
-              onPress={() => getSDKStatus().then(setSdkStatus).catch(() => {})}
-            >
-              <Ionicons name="refresh-outline" size={14} color={colors.primary} />
-              <Text style={styles.sdkButtonText}>Refresh</Text>
-            </TouchableOpacity>
-          </View>
-          {sdkLog && (
-            <View style={styles.sdkLogContainer}>
-              <View style={styles.sdkLogHeader}>
-                <Text style={styles.sdkLogTitle}>Native SDK Log (persists in background)</Text>
-                <TouchableOpacity onPress={handleShareSDKLog}>
-                  <Ionicons name="share-outline" size={16} color={colors.primary} />
-                </TouchableOpacity>
-              </View>
-              <Text style={styles.sdkLogText} selectable>
-                {sdkLog.slice(-3000)}
-              </Text>
-              {sdkLog.length > 3000 && (
-                <Text style={styles.sdkLogTruncated}>
-                  ... showing last 3000 chars (share for full log)
-                </Text>
-              )}
-            </View>
-          )}
-        </View>
-      )}
 
       {/* Category filter chips */}
       <FlatList
@@ -522,110 +390,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface2,
     padding: 8,
     borderRadius: 6,
-  },
-
-  // SDK Status Card
-  sdkCard: {
-    margin: 12,
-    padding: 12,
-    backgroundColor: colors.surface,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  sdkCardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 10,
-  },
-  sdkCardTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: colors.text,
-    flex: 1,
-  },
-  sdkStatusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  sdkStatusText: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  sdkGrid: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 10,
-  },
-  sdkGridItem: {
-    flex: 1,
-    backgroundColor: colors.surface2,
-    padding: 8,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  sdkLabel: {
-    fontSize: 10,
-    color: colors.textSecondary,
-    fontWeight: '500',
-    textTransform: 'uppercase',
-    marginBottom: 2,
-  },
-  sdkValue: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  sdkActions: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  sdkButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-    paddingVertical: 8,
-    backgroundColor: colors.surface2,
-    borderRadius: 8,
-  },
-  sdkButtonText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.primary,
-  },
-  sdkLogContainer: {
-    marginTop: 10,
-    backgroundColor: '#0D1117',
-    borderRadius: 8,
-    padding: 10,
-    maxHeight: 300,
-  },
-  sdkLogHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 6,
-  },
-  sdkLogTitle: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#8B949E',
-  },
-  sdkLogText: {
-    fontSize: 10,
-    lineHeight: 14,
-    color: '#C9D1D9',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-  },
-  sdkLogTruncated: {
-    fontSize: 10,
-    color: '#8B949E',
-    fontStyle: 'italic',
-    marginTop: 4,
   },
 
   // Empty state
