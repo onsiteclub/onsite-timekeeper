@@ -281,6 +281,16 @@ Deno.serve(async (req: Request) => {
   try {
     // ─── AUTH ───
     const authHeader = req.headers.get("Authorization");
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
+
+    console.log("[ai-voice] ENV check:", {
+      hasUrl: !!supabaseUrl,
+      hasAnonKey: !!supabaseAnonKey,
+      hasAuthHeader: !!authHeader,
+      authHeaderPrefix: authHeader?.substring(0, 20) + "...",
+    });
+
     if (!authHeader) {
       return new Response(
         JSON.stringify({ error: "Missing authorization" }),
@@ -288,9 +298,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+    const supabase = createClient(supabaseUrl!, supabaseAnonKey!, {
       global: { headers: { Authorization: authHeader } },
     });
 
@@ -298,9 +306,16 @@ Deno.serve(async (req: Request) => {
       data: { user },
       error: authError,
     } = await supabase.auth.getUser();
+
+    console.log("[ai-voice] Auth result:", {
+      hasUser: !!user,
+      userId: user?.id?.substring(0, 8),
+      authError: authError?.message || "none",
+    });
+
     if (authError || !user) {
       return new Response(
-        JSON.stringify({ error: "Unauthorized" }),
+        JSON.stringify({ error: "Unauthorized", detail: authError?.message || "no user" }),
         { status: 401, headers: { "Content-Type": "application/json" } }
       );
     }
