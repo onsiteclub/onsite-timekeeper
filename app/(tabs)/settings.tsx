@@ -276,16 +276,6 @@ export default function SettingsScreen() {
       {/* ============================================ */}
       <AccordionSection title="Timers" icon="timer-outline">
         <SelectRow
-          label="Entry timeout"
-          value={settings.entryTimeoutMinutes}
-          options={TIMER_OPTIONS.entryTimeout}
-          onChange={(v) => settings.updateSetting('entryTimeoutMinutes', v)}
-          hint="Time before auto-start when entering a location"
-        />
-
-        <View style={styles.divider} />
-
-        <SelectRow
           label="Exit adjustment"
           value={settings.exitAdjustmentMinutes}
           options={TIMER_OPTIONS.exitAdjustment}

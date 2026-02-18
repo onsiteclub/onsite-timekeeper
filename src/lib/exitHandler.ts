@@ -15,6 +15,7 @@ import { showArrivalNotification, showEndOfDayNotification, showSessionGuardNoti
 import { useAuthStore } from '../stores/authStore';
 import { upsertDailyHours, getDailyHours, formatTimeHHMM } from './database/daily';
 import { switchToActiveMode, switchToIdleMode } from './bgGeo';
+import { useSettingsStore } from '../stores/settingsStore';
 
 // ============================================
 // CONSTANTS
@@ -375,12 +376,21 @@ async function confirmExit(
   clearActiveTracking();
   switchToIdleMode().catch(() => {}); // Best-effort, non-blocking
 
-  // 4. Update daily_hours
+  // 4. Apply exit adjustment (subtract configured minutes from recorded time)
+  const adjustMin = useSettingsStore.getState().exitAdjustmentMinutes;
+  const adjustedDuration = Math.max(0, durationMinutes - adjustMin);
+  const adjustedExitTime = new Date(exitTime.getTime() - adjustMin * 60000);
+
+  if (adjustMin > 0) {
+    logger.info('session', `[4.5] Exit adjustment: -${adjustMin}min | duration ${durationMinutes}→${adjustedDuration}min | exit ${formatTimeHHMM(exitTime)}→${formatTimeHHMM(adjustedExitTime)}`);
+  }
+
+  // 5. Update daily_hours
   const today = getToday();
   const existingDaily = getDailyHours(userId, today);
-  const totalMinutes = (existingDaily?.total_minutes || 0) + durationMinutes;
+  const totalMinutes = (existingDaily?.total_minutes || 0) + adjustedDuration;
   const existingBreak = existingDaily?.break_minutes || 0;
-  const exitTimeStr = formatTimeHHMM(exitTime);
+  const exitTimeStr = formatTimeHHMM(adjustedExitTime);
 
   upsertDailyHours({
     userId,

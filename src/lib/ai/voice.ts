@@ -133,7 +133,7 @@ export async function processVoiceCommand(
         body: responseBody || 'no body',
       });
       console.log(`[VOICE] Edge function error: HTTP ${statusCode}, body: ${responseBody}, msg: ${error.message}`);
-      return { responseText: 'Problema de conexao. Tenta de novo.', actionExecuted: 'error' };
+      return { responseText: 'Connection issue. Try again. / Problema de conexao. Tenta de novo.', actionExecuted: 'error' };
     }
 
     const action = data as VoiceAction;
@@ -158,7 +158,7 @@ export async function processVoiceCommand(
     };
   } catch (error) {
     logger.error('voice', 'Voice command failed', { error: String(error) });
-    return { responseText: 'Algo deu errado. Tenta de novo.', actionExecuted: 'error' };
+    return { responseText: 'Something went wrong. Try again. / Algo deu errado. Tenta de novo.', actionExecuted: 'error' };
   }
 }
 
