@@ -68,7 +68,8 @@
       "WebFetch(domain:timekeeperweb.onsiteclub.ca)",
       "Bash(wc:*)",
       "Bash(npx supabase:*)",
-      "Bash(echo:*)"
+      "Bash(echo:*)",
+      "WebFetch(domain:onsiteclub.ca)"
     ]
   }
 }
