@@ -102,6 +102,9 @@ export async function processVoiceCommand(
       ai_corrected: 0,
     }));
 
+    // Ensure auth session is fresh before calling Edge Function
+    await supabase.auth.getSession();
+
     // Call Edge Function
     const { data, error } = await supabase.functions.invoke('ai-voice', {
       body: {

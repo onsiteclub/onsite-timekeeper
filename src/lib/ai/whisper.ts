@@ -145,6 +145,10 @@ export async function stopAndTranscribe(): Promise<string | null> {
     // Determine MIME type
     const mimeType = Platform.OS === 'android' ? 'audio/mp4' : 'audio/mp4';
 
+    // Ensure auth session is fresh before calling Edge Function
+    // (autoRefreshToken can lag behind, causing 401s)
+    await supabase.auth.getSession();
+
     // Send to Whisper Edge Function (JWT verified inside the function)
     const { data, error } = await supabase.functions.invoke('ai-whisper', {
       body: {
