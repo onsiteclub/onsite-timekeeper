@@ -12,7 +12,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.onsiteclub.timekeeper",
-      "buildNumber": "18",
+      "buildNumber": "19",
       "config": {
         "googleMapsApiKey": "AIzaSyBdITLu3Kr5OYPr8ZnhxIGVNFHIGEgvfKY"
       },
