@@ -113,7 +113,23 @@ export async function processVoiceCommand(
     });
 
     if (error) {
-      logger.error('voice', 'Edge function error', { error: error.message });
+      // Extract HTTP status and response body for debugging
+      let statusCode = 'unknown';
+      let responseBody = '';
+      try {
+        if (error.context instanceof Response) {
+          statusCode = String(error.context.status);
+          responseBody = await error.context.text();
+        }
+      } catch {
+        // ignore
+      }
+      logger.error('voice', `Edge function error (HTTP ${statusCode})`, {
+        error: error.message,
+        status: statusCode,
+        body: responseBody || 'no body',
+      });
+      console.log(`[VOICE] Edge function error: HTTP ${statusCode}, body: ${responseBody}, msg: ${error.message}`);
       return { responseText: 'Problema de conexao. Tenta de novo.', actionExecuted: 'error' };
     }
 
