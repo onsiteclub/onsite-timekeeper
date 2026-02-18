@@ -535,13 +535,7 @@ export default function ReportsScreen() {
     setRangeSessions([]);
   };
 
-  // ============================================
-  // SWIPE GESTURE FOR MONTH NAVIGATION
-  // ============================================
-  // Simple touch tracking — does NOT use PanResponder (which conflicts with ScrollView on iOS,
-  // causing recurring touch deadlocks where the entire screen stops responding to taps)
-  const swipeStartX = useRef(0);
-  const swipeStartY = useRef(0);
+  // Month navigation: arrows only (swipe removed — caused recurring touch deadlocks with GestureHandlerRootView)
 
   // Export to PDF - Professional Timesheet
   const handleExportPDF = async () => {
@@ -806,21 +800,8 @@ export default function ReportsScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-          {/* MONTH VIEW - with swipe gesture (touch-based, no PanResponder) */}
-          <View
-            onTouchStart={(e) => {
-              swipeStartX.current = e.nativeEvent.pageX;
-              swipeStartY.current = e.nativeEvent.pageY;
-            }}
-            onTouchEnd={(e) => {
-              const dx = e.nativeEvent.pageX - swipeStartX.current;
-              const dy = e.nativeEvent.pageY - swipeStartY.current;
-              if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 50) {
-                if (dx < 0) goToNextMonth();
-                else goToPreviousMonth();
-              }
-            }}
-          >
+          {/* MONTH VIEW - arrow navigation only (swipe removed: caused touch deadlock with GestureHandlerRootView) */}
+          <View>
               {/* Weekday headers */}
               <View style={reportStyles.monthHeader}>
                 {WEEKDAYS_SHORT.map((d: string, i: number) => (
