@@ -50,6 +50,7 @@ export default function RootLayout() {
   const isAuthenticated = useAuthStore(s => s.isAuthenticated());
   const authLoading = useAuthStore(s => s.isLoading);
   const user = useAuthStore(s => s.user);
+  const profileComplete = useAuthStore(s => s.profileComplete);
   const initAuth = useAuthStore(s => s.initialize);
   
   // Refs for singleton control
@@ -179,8 +180,9 @@ export default function RootLayout() {
         await initAuth();
         logger.info('boot', '✅ Auth store V2 initialized');
 
-        // 6. If authenticated, init stores + user session
+        // 6. If authenticated, check profile + init stores + user session
         if (useAuthStore.getState().isAuthenticated()) {
+          await useAuthStore.getState().checkProfile();
           await initializeStores();
 
           const currentUser = useAuthStore.getState().user;
@@ -238,8 +240,10 @@ export default function RootLayout() {
       return;
     }
     
-    logger.info('boot', '🔑 Login detected - initializing stores...');
-    
+    logger.info('boot', '🔑 Login detected - checking profile + initializing stores...');
+
+    useAuthStore.getState().checkProfile().then(() => {}).catch(() => {});
+
     initializeStores().then(async () => {
       // Get user fresh from store after init completes
       const currentUser = useAuthStore.getState().user;
@@ -299,13 +303,15 @@ export default function RootLayout() {
     const timer = setTimeout(() => {
       if (!isAuthenticated && !inAuthGroup) {
         router.replace('/(auth)/login');
-      } else if (isAuthenticated && inAuthGroup) {
+      } else if (isAuthenticated && !profileComplete && segments[1] !== 'complete-profile') {
+        router.replace('/(auth)/complete-profile');
+      } else if (isAuthenticated && profileComplete && inAuthGroup) {
         router.replace('/(tabs)');
       }
     }, 0);
 
     return () => clearTimeout(timer);
-  }, [isReady, authLoading, isAuthenticated, segments, navigationState?.key]);
+  }, [isReady, authLoading, isAuthenticated, profileComplete, segments, navigationState?.key]);
 
   // ============================================
   // RENDER

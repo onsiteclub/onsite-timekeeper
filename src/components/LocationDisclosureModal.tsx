@@ -60,7 +60,7 @@ export function LocationDisclosureModal({ visible, onAccept, onDecline }: Props)
           <TouchableOpacity
             style={styles.privacyLink}
             onPress={() =>
-              Linking.openURL('https://timekeeperweb.onsiteclub.ca/privacy')
+              Linking.openURL('https://www.onsiteclub.ca/legal/timekeeper-privacy')
             }
             activeOpacity={0.6}
           >

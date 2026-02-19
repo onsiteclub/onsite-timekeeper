@@ -167,7 +167,7 @@ function SwitchRow({ label, value, onChange, hint }: SwitchRowProps) {
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { user, signOut, deleteAccount, isLoading } = useAuthStore();
+  const { user, signOut, deleteAccount, isLoading, getUserName } = useAuthStore();
   const settings = useSettingsStore();
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteInput, setDeleteInput] = useState('');
@@ -253,6 +253,8 @@ export default function SettingsScreen() {
 
   // Get user initials for avatar
   const getUserInitials = () => {
+    const name = getUserName();
+    if (name) return name[0].toUpperCase();
     const email = user?.email || '';
     return email ? email[0].toUpperCase() : '?';
   };
@@ -268,7 +270,7 @@ export default function SettingsScreen() {
             </Text>
           </View>
         </View>
-        <Text style={styles.userName}>{user?.email || 'Guest'}</Text>
+        <Text style={styles.userName}>{getUserName() || user?.email || 'Guest'}</Text>
       </View>
 
       {/* ============================================ */}
@@ -384,7 +386,7 @@ export default function SettingsScreen() {
 
         <TouchableOpacity
           style={styles.linkRow}
-          onPress={() => Linking.openURL('https://onsiteclub.ca/legal/timekeeper/privacy.html')}
+          onPress={() => Linking.openURL('https://www.onsiteclub.ca/legal/timekeeper-privacy')}
         >
           <Text style={styles.linkText}>Privacy Policy (Web)</Text>
           <Ionicons name="open-outline" size={18} color={colors.textSecondary} />
@@ -394,7 +396,7 @@ export default function SettingsScreen() {
 
         <TouchableOpacity
           style={styles.linkRow}
-          onPress={() => Linking.openURL('https://onsiteclub.ca/legal/timekeeper/terms.html')}
+          onPress={() => Linking.openURL('https://www.onsiteclub.ca/legal/timekeeper-terms')}
         >
           <Text style={styles.linkText}>Terms of Service (Web)</Text>
           <Ionicons name="open-outline" size={18} color={colors.textSecondary} />

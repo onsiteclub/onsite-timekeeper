@@ -26,6 +26,8 @@ export interface AuthState {
   isLoading: boolean;
   isInitialized: boolean;
   error: string | null;
+  profileComplete: boolean;
+  cachedFullName: string | null;
 
   // Actions
   initialize: () => Promise<void>;
@@ -34,6 +36,8 @@ export interface AuthState {
   signOut: () => Promise<void>;
   deleteAccount: () => Promise<{ success: boolean; error?: string }>;
   refreshSession: () => Promise<void>;
+  checkProfile: () => Promise<void>;
+  updateProfile: (firstName: string, lastName: string) => Promise<{ success: boolean; error?: string }>;
 
   // Helpers
   getUserId: () => string | null;
@@ -53,6 +57,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   isLoading: true,
   isInitialized: false,
   error: null,
+  profileComplete: false,
+  cachedFullName: null,
 
   // ============================================
   // INITIALIZE
@@ -254,11 +260,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       await clearBackgroundUserId();
 
-      set({ 
-        session: null, 
-        user: null, 
+      set({
+        session: null,
+        user: null,
         isLoading: false,
         error: null,
+        profileComplete: false,
+        cachedFullName: null,
       });
 
       logger.info('auth', '👋 Signed out');
@@ -354,6 +362,96 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   // ============================================
+  // PROFILE
+  // ============================================
+  checkProfile: async () => {
+    const user = get().user;
+    if (!user || !isSupabaseConfigured()) {
+      set({ profileComplete: false });
+      return;
+    }
+
+    try {
+      // First check user_metadata (fastest, no network)
+      const metadata = user.user_metadata;
+      if (metadata?.full_name) {
+        set({ profileComplete: true, cachedFullName: metadata.full_name });
+        return;
+      }
+
+      // Fallback: check profiles table in Supabase
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('full_name')
+        .eq('id', user.id)
+        .single();
+
+      if (!error && data?.full_name) {
+        set({ profileComplete: true, cachedFullName: data.full_name });
+        logger.info('auth', `Profile found: ${data.full_name}`);
+      } else {
+        set({ profileComplete: false, cachedFullName: null });
+        logger.info('auth', 'Profile incomplete — name missing');
+      }
+    } catch (error) {
+      logger.error('auth', 'checkProfile failed', { error: String(error) });
+      // On error, allow access (don't block the app)
+      set({ profileComplete: true });
+    }
+  },
+
+  updateProfile: async (firstName, lastName) => {
+    const user = get().user;
+    if (!user || !isSupabaseConfigured()) {
+      return { success: false, error: 'Not authenticated' };
+    }
+
+    const fullName = `${firstName} ${lastName}`;
+
+    try {
+      // 1. Update profiles table
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .upsert({
+          id: user.id,
+          email: user.email,
+          full_name: fullName,
+        }, { onConflict: 'id' });
+
+      if (profileError) {
+        logger.error('auth', 'Profile upsert failed', { error: profileError.message });
+        return { success: false, error: profileError.message };
+      }
+
+      // 2. Update user_metadata
+      const { error: metaError } = await supabase.auth.updateUser({
+        data: {
+          first_name: firstName,
+          last_name: lastName,
+          full_name: fullName,
+        },
+      });
+
+      if (metaError) {
+        logger.warn('auth', 'user_metadata update failed (profile saved)', { error: metaError.message });
+      }
+
+      // 3. Refresh local user object
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        set({ session, user: session.user });
+      }
+
+      set({ profileComplete: true, cachedFullName: fullName });
+      logger.info('auth', `Profile updated: ${fullName}`);
+      return { success: true };
+    } catch (error) {
+      logger.error('auth', 'updateProfile failed', { error: String(error) });
+      return { success: false, error: String(error) };
+    }
+  },
+
+  // ============================================
   // HELPERS (BACKWARD COMPATIBLE)
   // ============================================
   getUserId: () => {
@@ -365,21 +463,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   getUserName: () => {
-    // Try to get name from user metadata, fallback to email prefix
-    const user = get().user;
+    // Priority: cachedFullName (from profiles table) > user_metadata > email prefix
+    const { user, cachedFullName } = get();
     if (!user) return null;
-    
-    // Check user_metadata for name
+
+    if (cachedFullName) return cachedFullName;
+
     const metadata = user.user_metadata;
-    if (metadata?.name) return metadata.name;
     if (metadata?.full_name) return metadata.full_name;
+    if (metadata?.name) return metadata.name;
     if (metadata?.display_name) return metadata.display_name;
-    
-    // Fallback to email prefix
-    if (user.email) {
-      return user.email.split('@')[0];
-    }
-    
+
+    if (user.email) return user.email.split('@')[0];
     return null;
   },
 

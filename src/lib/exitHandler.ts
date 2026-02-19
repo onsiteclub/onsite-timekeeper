@@ -8,7 +8,7 @@
  */
 
 import { logger } from './logger';
-import { db, getToday } from './database/core';
+import { db, getToday, toLocalDateString } from './database/core';
 import { useSyncStore } from '../stores/syncStore';
 import { useDailyLogStore } from '../stores/dailyLogStore';
 import { showArrivalNotification, showEndOfDayNotification, showSessionGuardNotification, showSimpleNotification } from './notifications';
@@ -339,6 +339,83 @@ export async function onGeofenceExit(
 }
 
 // ============================================
+// MIDNIGHT SPLIT HELPER
+// ============================================
+
+interface DaySegment {
+  date: string;
+  minutes: number;
+  breakMinutes: number;
+  firstEntry: string;
+  lastExit: string;
+}
+
+/**
+ * Split a session across midnight boundaries into per-day segments.
+ * Same-day sessions return a single segment (identical to previous behavior).
+ * Overnight sessions get one segment per calendar day with proportional break.
+ */
+function splitSessionAtMidnights(
+  entryTime: Date,
+  exitTime: Date,
+  totalWorkMinutes: number,
+  totalBreakMinutes: number,
+): DaySegment[] {
+  const entryDate = toLocalDateString(entryTime);
+  const exitDate = toLocalDateString(exitTime);
+
+  // Same day — no split needed
+  if (entryDate === exitDate) {
+    return [{
+      date: entryDate,
+      minutes: totalWorkMinutes,
+      breakMinutes: totalBreakMinutes,
+      firstEntry: formatTimeHHMM(entryTime),
+      lastExit: formatTimeHHMM(exitTime),
+    }];
+  }
+
+  // Build segments for each calendar day
+  const segments: DaySegment[] = [];
+  const totalRawMs = exitTime.getTime() - entryTime.getTime();
+  let cursor = new Date(entryTime);
+  let minutesAssigned = 0;
+  let breakAssigned = 0;
+
+  while (toLocalDateString(cursor) !== exitDate) {
+    const segDate = toLocalDateString(cursor);
+    const nextMidnight = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + 1, 0, 0, 0, 0);
+    const segMs = nextMidnight.getTime() - cursor.getTime();
+    const ratio = totalRawMs > 0 ? segMs / totalRawMs : 0;
+    const segMinutes = Math.round(totalWorkMinutes * ratio);
+    const segBreak = Math.round(totalBreakMinutes * ratio);
+
+    segments.push({
+      date: segDate,
+      minutes: segMinutes,
+      breakMinutes: segBreak,
+      firstEntry: formatTimeHHMM(cursor),
+      lastExit: '23:59',
+    });
+
+    minutesAssigned += segMinutes;
+    breakAssigned += segBreak;
+    cursor = nextMidnight;
+  }
+
+  // Final segment: midnight of exit day → exit time (absorbs rounding remainder)
+  segments.push({
+    date: exitDate,
+    minutes: Math.max(0, totalWorkMinutes - minutesAssigned),
+    breakMinutes: Math.max(0, totalBreakMinutes - breakAssigned),
+    firstEntry: '00:00',
+    lastExit: formatTimeHHMM(exitTime),
+  });
+
+  return segments;
+}
+
+// ============================================
 // CONFIRM EXIT (after cooldown)
 // ============================================
 
@@ -385,48 +462,56 @@ async function confirmExit(
     logger.info('session', `[4.5] Exit adjustment: -${adjustMin}min | duration ${durationMinutes}→${adjustedDuration}min | exit ${formatTimeHHMM(exitTime)}→${formatTimeHHMM(adjustedExitTime)}`);
   }
 
-  // 5. Update daily_hours
-  const today = getToday();
-  const existingDaily = getDailyHours(userId, today);
-  const totalMinutes = (existingDaily?.total_minutes || 0) + adjustedDuration;
-  const existingBreak = existingDaily?.break_minutes || 0;
-  const exitTimeStr = formatTimeHHMM(adjustedExitTime);
+  // 5. Update daily_hours (midnight-crossing aware)
+  const segments = splitSessionAtMidnights(entryTime, adjustedExitTime, adjustedDuration, breakMinutes);
+  logger.info('session', `[5/6] Session spans ${segments.length} day(s): ${segments.map(s => s.date).join(', ')}`);
 
-  upsertDailyHours({
-    userId,
-    date: today,
-    totalMinutes,
-    breakMinutes: existingBreak + breakMinutes,
-    locationName,
-    locationId,
-    verified: true,
-    source: 'gps',
-    firstEntry: existingDaily?.first_entry || formatTimeHHMM(entryTime),
-    lastExit: exitTimeStr,
-  });
+  let grandTotalMinutes = 0;
 
-  logger.info('session', `[5/6] daily_hours updated: total=${totalMinutes}min, break=${existingBreak + breakMinutes}min, last_exit=${exitTimeStr}`);
+  for (const seg of segments) {
+    const existingDaily = getDailyHours(userId, seg.date);
+    const totalMinutes = (existingDaily?.total_minutes || 0) + seg.minutes;
+    const existingBreak = existingDaily?.break_minutes || 0;
 
-  // 5. Notification with total hours
-  const hours = Math.floor(totalMinutes / 60);
-  const mins = totalMinutes % 60;
+    upsertDailyHours({
+      userId,
+      date: seg.date,
+      totalMinutes,
+      breakMinutes: existingBreak + seg.breakMinutes,
+      locationName,
+      locationId,
+      verified: true,
+      source: 'gps',
+      firstEntry: existingDaily?.first_entry || seg.firstEntry,
+      lastExit: seg.lastExit,
+    });
+
+    logger.info('session', `[5/6] daily_hours ${seg.date}: +${seg.minutes}min (total=${totalMinutes}), break=+${seg.breakMinutes}min, entry=${seg.firstEntry}, exit=${seg.lastExit}`);
+    grandTotalMinutes = totalMinutes;
+  }
+
+  // 5b. Notification with exit-day total
+  const hours = Math.floor(grandTotalMinutes / 60);
+  const mins = grandTotalMinutes % 60;
   await showEndOfDayNotification(hours, mins, locationName);
 
   // 6. Refresh UI
   useDailyLogStore.getState().reloadToday();
   useDailyLogStore.getState().resetTracking();
-  logger.info('session', `[6/6] UI updated: timer reset, daily reloaded | total=${totalMinutes}min`);
+  logger.info('session', `[6/6] UI updated: timer reset, daily reloaded | exitDayTotal=${grandTotalMinutes}min`);
 
   // 7. Sync (non-blocking)
   useSyncStore.getState().syncNow().catch(e =>
     logger.warn('sync', 'Exit sync failed (will retry)', { error: String(e) })
   );
 
-  // 8. AI Secretário: cleanup today's record (async, non-blocking)
+  // 8. AI Secretário: cleanup affected day(s) (async, non-blocking)
   import('./ai/secretary').then(({ cleanupDay }) => {
-    cleanupDay(userId, today).catch(err => {
-      logger.warn('secretary', 'Cleanup failed, original data preserved', { error: String(err) });
-    });
+    for (const seg of segments) {
+      cleanupDay(userId, seg.date).catch(err => {
+        logger.warn('secretary', `Cleanup failed for ${seg.date}, original data preserved`, { error: String(err) });
+      });
+    }
   }).catch(() => {
     // Module not available, skip
   });

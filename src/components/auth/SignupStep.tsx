@@ -89,11 +89,11 @@ export default function SignupStep({
   }, [email, firstName, lastName, password, onSignUp, setIsLoading]);
 
   const openTerms = () => {
-    Linking.openURL('https://onsiteclub.ca/legal/timekeeper/terms.html');
+    Linking.openURL('https://www.onsiteclub.ca/legal/timekeeper-terms');
   };
 
   const openPrivacy = () => {
-    Linking.openURL('https://onsiteclub.ca/legal/timekeeper/privacy.html');
+    Linking.openURL('https://www.onsiteclub.ca/legal/timekeeper-privacy');
   };
 
   // Show confirmation message after signup
