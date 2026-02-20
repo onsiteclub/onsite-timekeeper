@@ -303,7 +303,7 @@ export default function RootLayout() {
     const timer = setTimeout(() => {
       if (!isAuthenticated && !inAuthGroup) {
         router.replace('/(auth)/login');
-      } else if (isAuthenticated && !profileComplete && segments[1] !== 'complete-profile') {
+      } else if (isAuthenticated && !profileComplete && (segments as string[])[1] !== 'complete-profile') {
         router.replace('/(auth)/complete-profile');
       } else if (isAuthenticated && profileComplete && inAuthGroup) {
         router.replace('/(tabs)');
