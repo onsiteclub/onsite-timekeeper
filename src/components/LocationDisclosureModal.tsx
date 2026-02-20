@@ -42,12 +42,12 @@ export function LocationDisclosureModal({ visible, onAccept, onDecline }: Props)
           </View>
 
           {/* Title */}
-          <Text style={styles.title}>Background Location</Text>
+          <Text style={styles.title}>Background Location Access</Text>
 
           {/* Body */}
           <Text style={styles.body}>
-            OnSite Timekeeper collects location data to automatically detect
-            when you arrive at or leave a work site,{' '}
+            This app collects location data to enable automatic work site
+            arrival and departure detection,{' '}
             <Text style={styles.bold}>
               even when the app is closed or not in use.
             </Text>
@@ -75,7 +75,7 @@ export function LocationDisclosureModal({ visible, onAccept, onDecline }: Props)
             activeOpacity={0.8}
           >
             <Ionicons name="location" size={20} color={colors.white} />
-            <Text style={styles.primaryButtonText}>Enable Location Access</Text>
+            <Text style={styles.primaryButtonText}>Allow</Text>
           </TouchableOpacity>
 
           {/* Secondary button */}

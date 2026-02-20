@@ -26,7 +26,45 @@ events when the app is in the background. Without this exemption, the Android OS
 may kill the geofence monitoring service, causing missed clock-in/clock-out events
 for construction workers.
 
-=== 3. DATA SAFETY FORM (Play Console > App Content > Data safety) ===
+=== 3. FOREGROUND SERVICE — LOCATION (Play Console > App Content > Sensitive permissions) ===
+
+Obrigatorio desde maio 2024 para targetSdkVersion 35+.
+Formulario SEPARADO do background location.
+
+Justificativa (colar no formulario):
+OnSite Timekeeper uses a foreground service with location type to maintain
+reliable geofence monitoring while the user is actively tracked at a work site.
+When a worker arrives at a registered job site, the app switches to active
+tracking mode to ensure accurate entry/exit detection. The foreground service
+displays a persistent notification ("Tracking work hours") so the user is always
+aware that location monitoring is active. Without the foreground service, Android
+may terminate the geofence monitoring process, causing missed clock-out events
+and inaccurate work hour records.
+
+Video: regravar o mesmo video do background location mostrando:
+1. Prominent disclosure modal
+2. Permissao do OS concedida
+3. Notificacao persistente aparecendo ("OnSite Timekeeper - Tracking work hours")
+4. Geofence entry/exit sendo detectado
+
+=== 4. RECORD_AUDIO (Play Console > App Content > Sensitive permissions) ===
+
+Justificativa (colar no formulario):
+OnSite Timekeeper offers an optional voice command feature that allows
+construction workers to log work hours hands-free by speaking. The microphone
+is activated only when the user explicitly taps a microphone button. Audio is
+sent to a secure server (OpenAI Whisper) for speech-to-text transcription and
+is immediately deleted after processing — no audio is stored on our servers or
+on the device. The microphone is never activated in the background or without
+user action.
+
+Video (se solicitado):
+1. Abrir o app na Home tab
+2. Tocar no botao de microfone
+3. Falar um comando ("I worked 8 hours today")
+4. Mostrar o resultado sendo aplicado
+
+=== 5. DATA SAFETY FORM (Play Console > App Content > Data safety) ===
 
 Declarar os seguintes dados:
 
@@ -51,20 +89,22 @@ NOTAS:
 - Encryption at rest: Sim (Supabase managed)
 - Deletion mechanism: Deletar conta → deleta todos os dados
 
-=== 4. PROMINENT DISCLOSURE (tela in-app obrigatoria) ===
+=== 6. PROMINENT DISCLOSURE (tela in-app — JA IMPLEMENTADA) ===
 
-Texto que deve aparecer ANTES de pedir permissao de background location:
+Texto atual no app (LocationDisclosureModal.tsx):
 
-"OnSite Timekeeper collects location data to automatically detect when you
-arrive at and leave your work site, even when the app is closed or running
-in the background."
+"This app collects location data to enable automatic work site arrival and
+departure detection, even when the app is closed or not in use.
+
+This is used exclusively for geofence-based time tracking. Your location is
+never shared with advertisers or third parties."
 
 [Allow]  [Not now]
 
-NOTA: Esta tela precisa ser implementada no codigo do app.
-Ver arquivo 07-PROMINENT-DISCLOSURE-SPEC.txt
+STATUS: Implementado em src/components/LocationDisclosureModal.tsx
+Aparece automaticamente antes de requestBackgroundPermission().
 
-=== 5. CONTA DE TESTE (Play Console > App Content > App access) ===
+=== 7. CONTA DE TESTE (Play Console > App Content > App access) ===
 
 Marcar: "All or some functionality is restricted"
 
