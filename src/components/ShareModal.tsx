@@ -36,60 +36,38 @@ export function ShareModal({
   sessions,
   title = 'Hours Saved!'
 }: ShareModalProps) {
-  // Compute summary from sessions
+  // Single session summary (1 location per day)
   const summary = useMemo(() => {
     if (!sessions || sessions.length === 0) {
       return { locationName: '', date: '', entryTime: '', exitTime: '', totalHours: '0h' };
     }
 
-    const locationNames = new Set<string>();
-    let totalMinutes = 0;
-    let firstEntry: Date | null = null;
-    let lastExit: Date | null = null;
+    const session = sessions[0];
 
-    for (const s of sessions) {
-      locationNames.add(s.location_name || 'Unknown');
-      const pause = s.pause_minutes || 0;
-      totalMinutes += Math.max(0, s.duration_minutes - pause);
-
-      const entryDate = new Date(s.entry_at);
-      if (!firstEntry || entryDate < firstEntry) {
-        firstEntry = entryDate;
-      }
-
-      if (s.exit_at) {
-        const exitDate = new Date(s.exit_at);
-        if (!lastExit || exitDate > lastExit) {
-          lastExit = exitDate;
-        }
-      }
-    }
-
-    const formatTime = (date: Date | null): string => {
-      if (!date) return '--:--';
-      let hours = date.getHours();
-      const minutes = date.getMinutes();
+    const formatTime = (isoDate: string | null): string => {
+      if (!isoDate) return '--:--';
+      const d = new Date(isoDate);
+      let hours = d.getHours();
+      const minutes = d.getMinutes();
       const ampm = hours >= 12 ? 'PM' : 'AM';
       hours = hours % 12;
       hours = hours ? hours : 12;
       return `${hours}:${minutes.toString().padStart(2, '0')} ${ampm}`;
     };
 
-    const formatDateLabel = (date: Date): string => {
-      return date.toLocaleDateString('en-US', {
+    const entryDate = new Date(session.entry_at);
+
+    return {
+      locationName: session.location_name || 'Unknown',
+      date: entryDate.toLocaleDateString('en-US', {
         weekday: 'short',
         day: '2-digit',
         month: 'short',
         year: 'numeric',
-      });
-    };
-
-    return {
-      locationName: Array.from(locationNames).join(', '),
-      date: firstEntry ? formatDateLabel(firstEntry) : '',
-      entryTime: formatTime(firstEntry),
-      exitTime: formatTime(lastExit),
-      totalHours: formatDuration(totalMinutes),
+      }),
+      entryTime: formatTime(session.entry_at),
+      exitTime: formatTime(session.exit_at),
+      totalHours: formatDuration(Math.max(0, session.duration_minutes)),
     };
   }, [sessions]);
 

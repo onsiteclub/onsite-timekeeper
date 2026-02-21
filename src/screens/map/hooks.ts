@@ -223,19 +223,8 @@ export function useMapScreen() {
     }
   }, [currentLocation, animateToLocation, refreshCurrentLocation]);
 
-  const handleAddFence = useCallback(async () => {
-    if (!fenceName.trim()) {
-      shakeInput();
-      return;
-    }
+  const doAddFence = useCallback(async () => {
     if (!mapCenter) return;
-
-    // 1-fence guard
-    if (locations.length > 0) {
-      logger.warn('ui', 'Blocked: 1-fence limit');
-      return;
-    }
-
     setIsAdding(true);
     try {
       await addLocation(
@@ -260,19 +249,55 @@ export function useMapScreen() {
     } finally {
       setIsAdding(false);
     }
-  }, [fenceName, mapCenter, selectedRadius, locations.length, addLocation, shakeInput, reverseGeocode]);
+  }, [fenceName, mapCenter, selectedRadius, addLocation, reverseGeocode]);
+
+  const handleAddFence = useCallback(async () => {
+    if (!fenceName.trim()) {
+      shakeInput();
+      return;
+    }
+    if (!mapCenter) return;
+
+    // 1-fence limit: offer to replace existing
+    if (locations.length > 0) {
+      const existing = locations[0];
+      Alert.alert(
+        'Replace Jobsite?',
+        `You already have "${existing.name}" saved.\n\nReplace it with "${fenceName.trim()}"?`,
+        [
+          { text: 'Keep Current', style: 'cancel' },
+          {
+            text: 'Replace',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                await removeLocation(existing.id);
+                logger.info('ui', `Fence replaced: "${existing.name}" → "${fenceName.trim()}"`);
+                await doAddFence();
+              } catch (error: any) {
+                Alert.alert('Error', error.message || 'Could not replace jobsite');
+              }
+            },
+          },
+        ]
+      );
+      return;
+    }
+
+    await doAddFence();
+  }, [fenceName, mapCenter, locations, shakeInput, removeLocation, doAddFence]);
 
   const handleDeleteFence = useCallback(() => {
     const f = locations[0];
     if (!f) return;
 
     Alert.alert(
-      'Remove Jobsite',
-      `Remove "${f.name}"?`,
+      'Delete Jobsite?',
+      `"${f.name}" will be permanently removed.\n\nYour logged hours will NOT be deleted.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Remove',
+          text: 'Delete',
           style: 'destructive',
           onPress: async () => {
             try {

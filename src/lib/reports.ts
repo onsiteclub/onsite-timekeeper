@@ -46,15 +46,12 @@ const SEPARATOR_DOUBLE = '══════════════════
 // ============================================
 
 /**
- * Format date: "04 - jan- 26"
+ * Format date: "Fri, Feb 23"
  */
 function formatDate(isoDate: string): string {
   try {
     const date = new Date(isoDate);
-    const day = date.getDate().toString().padStart(2, '0');
-    const month = date.toLocaleDateString('en-US', { month: 'short' }).toLowerCase();
-    const year = date.getFullYear().toString().slice(-2);
-    return `${day} - ${month}- ${year}`;
+    return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
   } catch {
     return isoDate;
   }
@@ -346,79 +343,32 @@ export function generateReport(
       lines.push(`${absenceIcon} ${absenceReason}`);
     }
 
-    // Group work sessions by location and sum hours
-    const byLocation = new Map<string, {
-      locationName: string;
-      totalMinutes: number;
-      totalPause: number;
-      sessionCount: number;
-      isEdited: boolean;
-      firstEntry: string;
-      lastExit: string;
-    }>();
-
+    // 1 location per day → iterate work sessions directly
     for (const session of workSessions) {
       const locationName = session.location_name || 'Unknown';
       const pauseMin = session.pause_minutes || 0;
-      const netDuration = Math.max(0, session.duration_minutes - pauseMin);
+      // duration_minutes is already NET (break subtracted at save time)
+      const netDuration = Math.max(0, session.duration_minutes);
       const isEdited = session.manually_edited === 1 || session.type === 'manual';
-      
-      if (!byLocation.has(locationName)) {
-        byLocation.set(locationName, {
-          locationName,
-          totalMinutes: 0,
-          totalPause: 0,
-          sessionCount: 0,
-          isEdited: false,
-          firstEntry: session.entry_at,
-          lastExit: session.exit_at || session.entry_at,
-        });
-      }
 
-      const loc = byLocation.get(locationName)!;
-      loc.totalMinutes += netDuration;
-      loc.totalPause += pauseMin;
-      loc.sessionCount += 1;
-      loc.isEdited = loc.isEdited || isEdited;
-      
-      // Track first entry and last exit for time range
-      if (session.entry_at < loc.firstEntry) {
-        loc.firstEntry = session.entry_at;
-      }
-      if (session.exit_at && session.exit_at > loc.lastExit) {
-        loc.lastExit = session.exit_at;
-      }
-    }
-
-    // Output grouped locations
-    for (const [locationName, data] of byLocation) {
-      // 📍 Location
       lines.push(`📍 ${locationName}`);
 
-      // Time range
-      const entryTime = formatTimeAMPM(data.firstEntry);
-      const exitTime = formatTimeAMPM(data.lastExit);
-      
-      if (data.isEdited) {
+      const entryTime = formatTimeAMPM(session.entry_at);
+      const exitTime = formatTimeAMPM(session.exit_at || session.entry_at);
+
+      if (isEdited) {
         lines.push(`*Edited 》${entryTime} → ${exitTime}`);
       } else {
         lines.push(`*GPS    》${entryTime} → ${exitTime}`);
       }
 
-      // Show session count if multiple entries
-      if (data.sessionCount > 1) {
-        lines.push(`(${data.sessionCount} check-ins)`);
+      if (pauseMin > 0) {
+        lines.push(`Break: ${pauseMin}min`);
       }
 
-      // Break (if any total pause)
-      if (data.totalPause > 0) {
-        lines.push(`Break: ${data.totalPause}min`);
-      }
+      lines.push(`▸ ${formatDuration(netDuration)}`);
 
-      // Duration subtotal for this location
-      lines.push(`▸ ${formatDuration(data.totalMinutes)}`);
-
-      totalMinutes += data.totalMinutes;
+      totalMinutes += netDuration;
     }
   }
 
@@ -505,9 +455,9 @@ export function generateSummary(sessions: ComputedSession[]): string {
     return 'No sessions selected.';
   }
 
+  // duration_minutes is already NET (break subtracted at save time)
   const totalMinutes = sessions.reduce((acc, s) => {
-    const pause = s.pause_minutes || 0;
-    return acc + Math.max(0, s.duration_minutes - pause);
+    return acc + Math.max(0, s.duration_minutes);
   }, 0);
 
   return `${sessions.length} session(s) • ${formatDuration(totalMinutes)}`;
@@ -530,9 +480,9 @@ export function getReportMetadata(
   const timestamp = new Date().toISOString();
   const refCode = generateRefCode(sessions, timestamp);
   
+  // duration_minutes is already NET (break subtracted at save time)
   const totalMinutes = sessions.reduce((acc, s) => {
-    const pause = s.pause_minutes || 0;
-    return acc + Math.max(0, s.duration_minutes - pause);
+    return acc + Math.max(0, s.duration_minutes);
   }, 0);
 
   return {
@@ -580,7 +530,8 @@ export function groupSessionsByLocation(sessions: ComputedSession[]): GroupedRep
     }
 
     const pauseMinutes = session.pause_minutes || 0;
-    const netDuration = Math.max(0, session.duration_minutes - pauseMinutes);
+    // duration_minutes is already NET (break subtracted at save time)
+    const netDuration = Math.max(0, session.duration_minutes);
 
     groups[locationName].sessions.push({
       date: session.entry_at.split('T')[0],

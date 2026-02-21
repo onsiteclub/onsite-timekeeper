@@ -34,8 +34,7 @@ export interface TimesheetOptions {
 
 interface DayRow {
   date: Date;
-  dateFormatted: string;
-  dayName: string;
+  dateFormatted: string; // "Fri, Feb 23"
   locationName: string;
   startTime: string;
   endTime: string;
@@ -43,7 +42,6 @@ interface DayRow {
   totalMinutes: number;
   isVerified: boolean; // GPS verified
   isManual: boolean;
-  sessionsCount: number;
 }
 
 // ============================================
@@ -59,16 +57,22 @@ function formatTime12h(date: Date): string {
   return `${hours}:${minutes.toString().padStart(2, '0')} ${ampm}`;
 }
 
+// "Feb 23" — short date without weekday (for period headers)
 function formatDateShort(date: Date): string {
-  return date.toLocaleDateString('en-US', {
-    month: '2-digit',
-    day: '2-digit',
-    year: '2-digit',
-  });
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-function getDayName(date: Date): string {
-  return date.toLocaleDateString('en-US', { weekday: 'short' });
+// "Fri, Feb 23" — full date with weekday (for table rows)
+function formatDateFull(date: Date): string {
+  return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+// "Feb 23 - Mar 7, 2026" — period range
+function formatPeriod(start: Date, end: Date): string {
+  const startStr = formatDateShort(start);
+  const endOpts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric', year: 'numeric' };
+  const endStr = end.toLocaleDateString('en-US', endOpts);
+  return `${startStr} - ${endStr}`;
 }
 
 function formatHoursHM(minutes: number): string {
@@ -84,70 +88,28 @@ function formatHoursHM(minutes: number): string {
 // ============================================
 
 function aggregateSessionsByDay(sessions: ComputedSession[]): DayRow[] {
-  // Group sessions by date
-  const byDate = new Map<string, ComputedSession[]>();
+  // 1 location per day → each session maps directly to a DayRow
+  return sessions
+    .filter(s => s.exit_at)
+    .map(s => {
+      const entryDate = new Date(s.entry_at);
+      const exitDate = new Date(s.exit_at!);
+      const date = new Date(toLocalDateString(entryDate) + 'T12:00:00'); // Noon to avoid TZ issues
+      const isManual = s.type === 'manual' || s.manually_edited === 1;
 
-  for (const session of sessions) {
-    if (!session.exit_at) continue; // Skip incomplete sessions
-
-    const entryDate = new Date(session.entry_at);
-    const dateKey = toLocalDateString(entryDate);
-
-    if (!byDate.has(dateKey)) {
-      byDate.set(dateKey, []);
-    }
-    byDate.get(dateKey)!.push(session);
-  }
-
-  // Convert to DayRow array
-  const rows: DayRow[] = [];
-
-  for (const [dateKey, daySessions] of byDate.entries()) {
-    // Sort sessions by entry time
-    const sorted = [...daySessions].sort((a, b) =>
-      new Date(a.entry_at).getTime() - new Date(b.entry_at).getTime()
-    );
-
-    const date = new Date(dateKey + 'T12:00:00'); // Noon to avoid timezone issues
-    const firstEntry = new Date(sorted[0].entry_at);
-    const lastExit = new Date(sorted[sorted.length - 1].exit_at!);
-
-    // Aggregate totals
-    let totalMinutes = 0;
-    let totalBreak = 0;
-    let isVerified = true; // True if ALL sessions are GPS
-    let hasManual = false;
-    const locationNames = new Set<string>();
-
-    for (const s of sorted) {
-      const pause = s.pause_minutes || 0;
-      totalMinutes += Math.max(0, s.duration_minutes - pause);
-      totalBreak += pause;
-      locationNames.add(s.location_name || 'Unknown');
-
-      if (s.type === 'manual' || s.manually_edited === 1) {
-        hasManual = true;
-        isVerified = false;
-      }
-    }
-
-    rows.push({
-      date,
-      dateFormatted: formatDateShort(date),
-      dayName: getDayName(date),
-      locationName: Array.from(locationNames).join(', '),
-      startTime: formatTime12h(firstEntry),
-      endTime: formatTime12h(lastExit),
-      breakMinutes: totalBreak,
-      totalMinutes,
-      isVerified: isVerified && !hasManual,
-      isManual: hasManual,
-      sessionsCount: sorted.length,
-    });
-  }
-
-  // Sort by date
-  return rows.sort((a, b) => a.date.getTime() - b.date.getTime());
+      return {
+        date,
+        dateFormatted: formatDateFull(date),
+        locationName: s.location_name || 'Unknown',
+        startTime: formatTime12h(entryDate),
+        endTime: formatTime12h(exitDate),
+        breakMinutes: s.pause_minutes || 0,
+        totalMinutes: Math.max(0, s.duration_minutes),
+        isVerified: !isManual,
+        isManual,
+      };
+    })
+    .sort((a, b) => a.date.getTime() - b.date.getTime());
 }
 
 // ============================================
@@ -184,14 +146,13 @@ function generateSimpleHTML(
     const dateKey = toLocalDateString(currentDate);
     const row = rowsByDate.get(dateKey);
 
-    const day = currentDate.getDate().toString().padStart(2, '0');
-    const dayName = currentDate.toLocaleDateString('en-US', { weekday: 'long' });
+    const dateLabel = formatDateFull(currentDate);
 
     if (row) {
       const breakStr = row.breakMinutes > 0 ? `${row.breakMinutes}m` : '';
       tableRows.push(`
         <tr>
-          <td class="day-col">${day} - ${dayName}</td>
+          <td class="day-col">${dateLabel}</td>
           <td class="time-col">${row.startTime}</td>
           <td class="time-col">${row.endTime}</td>
           <td class="break-col">${breakStr}</td>
@@ -202,7 +163,7 @@ function generateSimpleHTML(
     } else {
       tableRows.push(`
         <tr>
-          <td class="day-col">${day} - ${dayName}</td>
+          <td class="day-col">${dateLabel}</td>
           <td class="time-col"></td>
           <td class="time-col"></td>
           <td class="break-col"></td>
@@ -356,7 +317,7 @@ function generateSimpleHTML(
   <!-- DOCUMENT TITLE -->
   <div class="doc-title">
     <h1>Timesheet</h1>
-    <div class="doc-period">Period: ${formatDateShort(options.periodStart)} - ${formatDateShort(options.periodEnd)}</div>
+    <div class="doc-period">Period: ${formatPeriod(options.periodStart, options.periodEnd)}</div>
   </div>
 
   <!-- TABLE -->
@@ -430,7 +391,7 @@ function generateSimpleTable(
     const dateKey = toLocalDateString(currentDate);
     const row = rowsByDate.get(dateKey);
 
-    const dayDate = `${formatDateShort(currentDate)} ${getDayName(currentDate)}`.padEnd(15);
+    const dayDate = formatDateFull(currentDate).padEnd(15);
 
     if (row) {
       // Day with data
@@ -494,13 +455,13 @@ function generateWhatsAppTable(
     if (row) {
       // Day with data
       const breakStr = row.breakMinutes > 0 ? ` (☕${row.breakMinutes}m)` : '';
-      lines.push(`📅 *${row.dateFormatted}* - ${row.dayName}`);
+      lines.push(`📅 *${row.dateFormatted}*`);
       lines.push(`⏰ ${row.startTime} → ${row.endTime}${breakStr}`);
       lines.push(`✅ *${formatHoursHM(row.totalMinutes)}*`);
       grandTotalMinutes += row.totalMinutes;
     } else {
       // Day without data
-      lines.push(`📅 *${formatDateShort(currentDate)}* - ${getDayName(currentDate)}`);
+      lines.push(`📅 *${formatDateFull(currentDate)}*`);
       lines.push(`⏰ -- → --`);
       lines.push(`✅ *--*`);
     }
@@ -598,7 +559,7 @@ export async function generateAndShareTimesheetPDF(
     });
 
     // Rename file
-    const fileName = `Timesheet_${options.employeeName.replace(/\s+/g, '_')}_${formatDateShort(options.periodStart).replace(/\//g, '-')}.pdf`;
+    const fileName = `Timesheet_${options.employeeName.replace(/\s+/g, '_')}_${toLocalDateString(options.periodStart)}.pdf`;
     const newUri = `${FileSystem.cacheDirectory}${fileName}`;
 
     await FileSystem.moveAsync({

@@ -371,92 +371,6 @@ export function useHomeScreen() {
   }, [selectedDayForModal, sessions]);
 
   // ============================================
-  // LOCATION CARDS DATA
-  // ============================================
-  
-  // Active locations only (not deleted)
-  const activeLocations = useMemo(() => {
-    return locations.filter(l => l.status === 'active' && !l.deleted_at);
-  }, [locations]);
-
-  // Compute data for each location card
-  const locationCardsData = useMemo(() => {
-    // Use TODAY's sessions only for the carousel
-    const todaySessions = weekSessions.filter(s => {
-      const sessionDate = new Date(s.entry_at);
-      return isToday(sessionDate) && s.exit_at;
-    });
-
-    const cards = activeLocations.map(location => {
-      // Check if this location has active session
-      const hasActiveSession = currentSession?.location_id === location.id;
-      const activeSessionEntry = hasActiveSession ? currentSession?.entry_at : null;
-
-      // Calculate total hours for this location TODAY
-      const locationSessions = todaySessions.filter(s => s.location_id === location.id);
-      const totalMinutes = locationSessions.reduce((acc, s) => {
-        const pauseMin = s.pause_minutes || 0;
-        return acc + Math.max(0, s.duration_minutes - pauseMin);
-      }, 0);
-
-      // Format coordinates as short string
-      const coordsText = `${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}`;
-
-      // Last check-in (most recent session for this location)
-      const lastSession = [...sessions]
-        .filter(s => s.location_id === location.id && s.exit_at)
-        .sort((a, b) => new Date(b.entry_at).getTime() - new Date(a.entry_at).getTime())[0];
-      
-      let lastCheckIn = 'Never';
-      if (lastSession) {
-        const lastDate = new Date(lastSession.entry_at);
-        if (isToday(lastDate)) {
-          lastCheckIn = `Today, ${formatTimeAMPM(lastSession.entry_at)}`;
-        } else {
-          const yesterday = new Date();
-          yesterday.setDate(yesterday.getDate() - 1);
-          if (isSameDay(lastDate, yesterday)) {
-            lastCheckIn = `Yesterday, ${formatTimeAMPM(lastSession.entry_at)}`;
-          } else {
-            lastCheckIn = lastDate.toLocaleDateString('en-US', { 
-              month: 'short', 
-              day: 'numeric' 
-            }) + `, ${formatTimeAMPM(lastSession.entry_at)}`;
-          }
-        }
-      }
-
-      return {
-        id: location.id,
-        name: location.name,
-        color: location.color,
-        coords: coordsText,
-        hasActiveSession,
-        activeSessionEntry: activeSessionEntry ? formatTimeAMPM(activeSessionEntry) : null,
-        totalMinutes,
-        totalFormatted: formatDuration(totalMinutes),
-        lastCheckIn,
-        sessionsCount: locationSessions.length,
-      };
-    });
-
-    // Sort by: 1) Active session first, 2) Total minutes today (desc), 3) Alphabetical
-    return cards.sort((a, b) => {
-      // Active session always comes first
-      if (a.hasActiveSession && !b.hasActiveSession) return -1;
-      if (!a.hasActiveSession && b.hasActiveSession) return 1;
-
-      // Sort by total minutes today (descending)
-      if (a.totalMinutes !== b.totalMinutes) {
-        return b.totalMinutes - a.totalMinutes;
-      }
-
-      // Alphabetical as tiebreaker
-      return a.name.localeCompare(b.name);
-    });
-  }, [activeLocations, weekSessions, currentSession]);
-
-  // ============================================
   // AUTO-POPULATE FORM FROM TODAY'S DATA
   // ============================================
   // When todayLog updates (e.g., geofence exit), populate the read-only viewer
@@ -537,10 +451,9 @@ export function useHomeScreen() {
       return;
     }
 
-    // Calculate total hours
+    // Calculate total hours (duration_minutes is already NET)
     const totalMinutes = finishedSessions.reduce((acc, s) => {
-      const pauseMin = s.pause_minutes || 0;
-      return acc + Math.max(0, s.duration_minutes - pauseMin);
+      return acc + Math.max(0, s.duration_minutes);
     }, 0);
 
     // Set export modal data
@@ -799,12 +712,10 @@ export function useHomeScreen() {
         return isSameDay(sessionDate, date);
       });
 
+      // duration_minutes is already NET (break subtracted at save time)
       const totalMinutes = daySessions
         .filter(s => s.exit_at)
-        .reduce((acc, s) => {
-          const pauseMin = s.pause_minutes || 0;
-          return acc + Math.max(0, s.duration_minutes - pauseMin);
-        }, 0);
+        .reduce((acc, s) => acc + Math.max(0, s.duration_minutes), 0);
 
       days.push({
         date,
@@ -828,29 +739,21 @@ export function useHomeScreen() {
     });
   }, [sessions]);
 
+  // duration_minutes is already NET (break subtracted at save time) — do NOT subtract again
   const getTotalMinutesForDay = useCallback((date: Date): number => {
     const daySessions = getSessionsForDay(date);
     return daySessions
       .filter(s => s.exit_at)
-      .reduce((acc, s) => {
-        const pauseMin = s.pause_minutes || 0;
-        return acc + Math.max(0, s.duration_minutes - pauseMin);
-      }, 0);
+      .reduce((acc, s) => acc + Math.max(0, s.duration_minutes), 0);
   }, [getSessionsForDay]);
 
   const weekTotalMinutes = weekSessions
     .filter(s => s.exit_at)
-    .reduce((acc, s) => {
-      const pauseMin = s.pause_minutes || 0;
-      return acc + Math.max(0, s.duration_minutes - pauseMin);
-    }, 0);
+    .reduce((acc, s) => acc + Math.max(0, s.duration_minutes), 0);
 
   const monthTotalMinutes = monthSessions
     .filter(s => s.exit_at)
-    .reduce((acc, s) => {
-      const pauseMin = s.pause_minutes || 0;
-      return acc + Math.max(0, s.duration_minutes - pauseMin);
-    }, 0);
+    .reduce((acc, s) => acc + Math.max(0, s.duration_minutes), 0);
 
   // ============================================
   // NAVIGATION
@@ -1595,11 +1498,7 @@ const getSuggestedTimes = useCallback((locationId: string) => {
     dayModalSessions,
     openDayModal,
     closeDayModal,
-    
-    // NEW: Location Cards
-    activeLocations,
-    locationCardsData,
-    
+
     // NEW: Session selection
     selectedSessions,
     toggleSelectSession,

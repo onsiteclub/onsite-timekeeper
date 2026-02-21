@@ -40,16 +40,15 @@ export function FloatingMicButton({ onPress, tabBarHeight, isRecording }: Floati
   const isDragging = useSharedValue(false);
 
   const panGesture = Gesture.Pan()
+    .minDistance(10) // Only activate after clear drag intent (reduces touch conflicts)
+    .shouldCancelWhenOutside(true)
     .onBegin(() => {
       startX.value = translateX.value;
       startY.value = translateY.value;
       isDragging.value = false;
     })
     .onUpdate((event) => {
-      // Mark as dragging after small movement threshold
-      if (Math.abs(event.translationX) > 5 || Math.abs(event.translationY) > 5) {
-        isDragging.value = true;
-      }
+      isDragging.value = true;
       translateX.value = startX.value + event.translationX;
       translateY.value = startY.value + event.translationY;
     })
@@ -75,14 +74,16 @@ export function FloatingMicButton({ onPress, tabBarHeight, isRecording }: Floati
     });
 
   const tapGesture = Gesture.Tap()
+    .shouldCancelWhenOutside(true)
+    .maxDuration(250)
     .onEnd(() => {
       if (!isDragging.value) {
         runOnJS(onPress)();
       }
     });
 
-  // Pan takes priority over tap; tap only fires if no drag occurred
-  const composedGesture = Gesture.Simultaneous(panGesture, tapGesture);
+  // Exclusive: pan wins if finger moves >10px, otherwise tap fires
+  const composedGesture = Gesture.Exclusive(panGesture, tapGesture);
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [

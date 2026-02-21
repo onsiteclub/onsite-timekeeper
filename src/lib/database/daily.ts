@@ -583,8 +583,8 @@ export function markDailyHoursSynced(userId: string, date: string): void {
  */
 export function upsertDailyHoursFromSync(record: DailyHoursDB): void {
   try {
-    const existing = db.getFirstSync<{ id: string; deleted_at: string | null }>(
-      `SELECT id, deleted_at FROM daily_hours WHERE user_id = ? AND date = ?`,
+    const existing = db.getFirstSync<{ id: string; deleted_at: string | null; updated_at: string | null; synced_at: string | null }>(
+      `SELECT id, deleted_at, updated_at, synced_at FROM daily_hours WHERE user_id = ? AND date = ?`,
       [record.user_id, record.date]
     );
 
@@ -595,6 +595,19 @@ export function upsertDailyHoursFromSync(record: DailyHoursDB): void {
     }
 
     if (existing) {
+      // Conflict resolution: if local record was modified after last sync
+      // (synced_at is NULL = pending upload), keep local version (it's newer)
+      if (!existing.synced_at) {
+        logger.debug('database', `[daily_hours] SKIP upsert from sync (local edit pending upload): ${record.date}`);
+        return;
+      }
+
+      // Only overwrite if remote is newer than local
+      if (existing.updated_at && record.updated_at && existing.updated_at > record.updated_at) {
+        logger.debug('database', `[daily_hours] SKIP upsert from sync (local is newer): ${record.date}`);
+        return;
+      }
+
       db.runSync(
         `UPDATE daily_hours SET
           total_minutes = ?,
