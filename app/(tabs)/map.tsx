@@ -47,7 +47,11 @@ export default function MapScreen() {
   const isAddingMode = panelState === 'adding';
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior="padding"
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+    >
       {/* ===== MAP SECTION (75%) ===== */}
       <View style={styles.mapContainer}>
         <MapView
@@ -137,11 +141,7 @@ export default function MapScreen() {
       </View>
 
       {/* ===== BOTTOM PANEL (25%) ===== */}
-      <KeyboardAvoidingView
-        style={styles.panel}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-      >
+      <View style={styles.panel}>
         {/* Panel handle */}
         <View style={styles.panelHandle} />
 
@@ -208,7 +208,7 @@ export default function MapScreen() {
             </TouchableOpacity>
           </View>
         )}
-      </KeyboardAvoidingView>
-    </View>
+      </View>
+    </KeyboardAvoidingView>
   );
 }

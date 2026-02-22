@@ -275,6 +275,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 24,
     paddingTop: 60,
+    paddingBottom: 40,
   },
 
   // Back Button
@@ -299,8 +300,8 @@ const styles = StyleSheet.create({
     marginBottom: 32,
   },
   logo: {
-    width: 200,
-    height: 60,
+    width: 180,
+    height: 62,
     marginBottom: 16,
   },
   subtitle: {

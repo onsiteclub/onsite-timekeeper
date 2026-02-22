@@ -13,7 +13,13 @@ import { logger } from '../lib/logger';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { initDatabase, trackMetric } from '../lib/database';
 import { setBackgroundUserId, clearBackgroundUserId } from '../lib/backgroundHelpers';
-import type { Session, User } from '@supabase/supabase-js';
+import type { Session, User, Subscription } from '@supabase/supabase-js';
+
+// ============================================
+// MODULE-LEVEL SUBSCRIPTIONS (for cleanup)
+// ============================================
+let authSubscription: Subscription | null = null;
+let appStateSubscription: ReturnType<typeof AppState.addEventListener> | null = null;
 
 // ============================================
 // TYPES
@@ -32,7 +38,7 @@ export interface AuthState {
   // Actions
   initialize: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
-  signUp: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  signUp: (email: string, password: string, metadata?: { firstName: string; lastName: string }) => Promise<{ success: boolean; needsConfirmation?: boolean; error?: string }>;
   signOut: () => Promise<void>;
   deleteAccount: () => Promise<{ success: boolean; error?: string }>;
   refreshSession: () => Promise<void>;
@@ -104,8 +110,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         logger.info('auth', 'No active session');
       }
 
+      // Clean up previous subscriptions (safety for re-init)
+      if (authSubscription) {
+        authSubscription.unsubscribe();
+        authSubscription = null;
+      }
+      if (appStateSubscription) {
+        appStateSubscription.remove();
+        appStateSubscription = null;
+      }
+
       // Listen for auth changes
-      supabase.auth.onAuthStateChange(async (event, newSession) => {
+      const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
         logger.info('auth', `Auth state change: ${event}`);
 
         if (event === 'SIGNED_IN' && newSession) {
@@ -123,9 +139,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           set({ session: newSession, user: newSession.user });
         }
       });
+      authSubscription = subscription;
 
       // Setup app state listener for session refresh only (not tracking)
-      AppState.addEventListener('change', async (state: AppStateStatus) => {
+      appStateSubscription = AppState.addEventListener('change', async (state: AppStateStatus) => {
         if (state === 'active') {
           // Refresh session when app becomes active
           await get().refreshSession();
@@ -194,7 +211,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   // ============================================
   // SIGN UP
   // ============================================
-  signUp: async (email, password) => {
+  signUp: async (email, password, metadata?) => {
     set({ isLoading: true, error: null });
 
     try {
@@ -203,9 +220,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         return { success: false, error: 'Supabase not configured' };
       }
 
+      const signUpOptions: Record<string, unknown> = {};
+      if (metadata) {
+        signUpOptions.data = {
+          first_name: metadata.firstName,
+          last_name: metadata.lastName,
+          full_name: `${metadata.firstName} ${metadata.lastName}`,
+        };
+      }
+
       const { data, error } = await supabase.auth.signUp({
         email: email.trim().toLowerCase(),
         password,
+        options: signUpOptions,
       });
 
       if (error) {
@@ -216,24 +243,30 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       if (data.session) {
         logger.info('auth', `✅ Signed up and logged in: ${data.session.user.email}`);
-        set({ 
-          session: data.session, 
-          user: data.session.user, 
+        set({
+          session: data.session,
+          user: data.session.user,
           isLoading: false,
           error: null,
         });
-        
+
         await setBackgroundUserId(data.session.user.id);
-        // NOTE: app_opens tracked in initialize, not here
-        
-        return { success: true };
+
+        return { success: true, needsConfirmation: false };
       }
 
       // Email confirmation required
       if (data.user && !data.session) {
         logger.info('auth', 'Email confirmation required');
         set({ isLoading: false });
-        return { success: true }; // Success but need to confirm email
+        return { success: true, needsConfirmation: true };
+      }
+
+      // Check if user has no identities (email already exists in Supabase)
+      if (data.user && data.user.identities && data.user.identities.length === 0) {
+        logger.info('auth', 'Email already exists (empty identities)');
+        set({ isLoading: false });
+        return { success: false, error: 'already_registered' };
       }
 
       set({ isLoading: false });
@@ -274,11 +307,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     } catch (error) {
       logger.error('auth', 'Sign out error', { error: String(error) });
 
-      // Force clear state even on error
+      // Force clear ALL state even on error (must match success path)
       set({
         session: null,
         user: null,
         isLoading: false,
+        error: null,
+        profileComplete: false,
+        cachedFullName: null,
       });
     }
   },
@@ -346,7 +382,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (!isSupabaseConfigured()) return;
 
     try {
-      const { data: { session }, error } = await supabase.auth.getSession();
+      const { data: { session }, error } = await supabase.auth.refreshSession();
 
       if (error) {
         logger.warn('auth', 'Session refresh error', { error: error.message });
@@ -395,8 +431,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
     } catch (error) {
       logger.error('auth', 'checkProfile failed', { error: String(error) });
-      // On error, allow access (don't block the app)
-      set({ profileComplete: true });
+      // On error, keep previous profileComplete state instead of forcing true.
+      // If user was previously known to have a complete profile, they keep access.
+      // If this is a fresh session (profileComplete=false), they'll be asked once online.
     }
   },
 

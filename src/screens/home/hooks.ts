@@ -13,7 +13,7 @@
  * FIX: Now uses currentFenceId instead of lastGeofenceEvent for START button (fixes button not appearing)
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Alert, Share, Linking } from 'react-native';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
@@ -282,6 +282,7 @@ export function useHomeScreen() {
   const [timer, setTimer] = useState('00:00:00');
   const [isPaused, setIsPaused] = useState(false);
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
+  const isStoppingRef = useRef(false);
 
   // Pause timer (pause_seconds persisted in SQLite via active_tracking)
   const [pauseTimer, setPauseTimer] = useState('00:00:00');
@@ -635,6 +636,7 @@ export function useHomeScreen() {
 
   const handleStop = () => {
     if (!currentSession) return;
+    if (isStoppingRef.current) return; // Prevent double-press
 
     // Read persisted pause + any live delta
     let totalPauseSeconds = getPauseSeconds();
@@ -656,6 +658,8 @@ export function useHomeScreen() {
           text: 'Stop',
           style: 'destructive',
           onPress: async () => {
+            if (isStoppingRef.current) return; // Guard inside dialog too
+            isStoppingRef.current = true;
             try {
               // confirmExit() reads pause_seconds from SQLite and deducts automatically
               await registerExit(currentSession.location_id);
@@ -669,6 +673,8 @@ export function useHomeScreen() {
               loadMonthSessions();
             } catch (error: any) {
               Alert.alert('Error', error.message || 'Could not stop session');
+            } finally {
+              isStoppingRef.current = false;
             }
           },
         },

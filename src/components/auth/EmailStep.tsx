@@ -149,6 +149,7 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     justifyContent: 'center',
     padding: 24,
+    paddingBottom: 40,
   },
 
   // Header
@@ -157,8 +158,8 @@ const styles = StyleSheet.create({
     marginBottom: 40,
   },
   logo: {
-    width: 200,
-    height: 60,
+    width: 180,
+    height: 62,
     marginBottom: 24,
   },
   subtitle: {

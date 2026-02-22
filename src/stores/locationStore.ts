@@ -993,25 +993,8 @@ export const useLocationStore = create<LocationState>((set, get) => ({
       throw new Error('No active session');
     }
 
-    // Get GPS for audit (best effort)
-    try {
-      const coords = await getCurrentLocation();
-      if (coords) {
-        await recordExitAudit(
-          userId,
-          coords.coords.latitude,
-          coords.coords.longitude,
-          coords.accuracy ?? null,
-          location.id,
-          location.name,
-          null // No session ID in V3
-        );
-      }
-    } catch (e) {
-      logger.warn('geofence', 'Could not record GPS audit for manual exit');
-    }
-
     // V3: Use exitHandler for immediate exit (no cooldown)
+    // EXIT FIRST, then GPS audit — so the timer stops immediately
     await onManualExit(userId, locationId, location.name);
 
     // V3: Update state from active_tracking
@@ -1020,6 +1003,23 @@ export const useLocationStore = create<LocationState>((set, get) => ({
     set({ activeSession: getActiveTrackingState() });
 
     logger.info('geofence', `✅ Manual exit: ${location.name}`);
+
+    // GPS audit is fire-and-forget (best effort, non-blocking)
+    getCurrentLocation().then(coords => {
+      if (coords) {
+        recordExitAudit(
+          userId,
+          coords.coords.latitude,
+          coords.coords.longitude,
+          coords.accuracy ?? null,
+          location.id,
+          location.name,
+          null // No session ID in V3
+        ).catch(() => {});
+      }
+    }).catch(() => {
+      logger.warn('geofence', 'Could not record GPS audit for manual exit');
+    });
   },
 
   // ============================================

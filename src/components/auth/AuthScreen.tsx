@@ -32,15 +32,18 @@ export interface AuthScreenProps {
 type AuthStep = 'email' | 'password' | 'signup';
 
 export default function AuthScreen({ onSuccess }: AuthScreenProps) {
-  const { signIn } = useAuthStore();
+  const { signIn, signUp } = useAuthStore();
 
   const [step, setStep] = useState<AuthStep>('email');
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
   // Check if email exists in Supabase using RPC function
+  // NOTE: If RPC is unavailable, defaults to "not found" (signup step).
+  // The signup step handles "already registered" gracefully by redirecting to password.
+  // This avoids the old probe sign-in fallback which triggered Supabase rate limiting.
   const checkEmailExists = useCallback(async (emailToCheck: string): Promise<boolean> => {
-    if (!isSupabaseConfigured() || !supabase) return false;
+    if (!isSupabaseConfigured()) return false;
 
     try {
       const { data, error } = await supabase.rpc('check_email_exists', {
@@ -48,27 +51,10 @@ export default function AuthScreen({ onSuccess }: AuthScreenProps) {
       });
 
       if (error) {
-        // RPC might not exist — fallback: try to sign in with a dummy password
-        // If we get "Invalid login credentials" it means the account EXISTS (wrong password)
-        // If we get "user not found" or similar, account doesn't exist
-        console.log('[AuthScreen] RPC not available, using signIn probe fallback');
-        try {
-          const { error: signInError } = await supabase.auth.signInWithPassword({
-            email: emailToCheck.toLowerCase(),
-            password: '__probe_only__',
-          });
-          // "Invalid login credentials" = account exists (password was wrong, as expected)
-          if (signInError?.message?.includes('Invalid login credentials')) {
-            return true;
-          }
-          // Any other error or no error (unlikely) = treat as not found
-          return false;
-        } catch {
-          return false;
-        }
+        console.log('[AuthScreen] RPC not available, defaulting to signup flow');
+        return false;
       }
 
-      console.log('[AuthScreen] Email exists:', data);
       return data === true;
     } catch (err) {
       console.log('[AuthScreen] checkEmailExists skipped:', err);
@@ -140,7 +126,7 @@ export default function AuthScreen({ onSuccess }: AuthScreenProps) {
     }
   }, []);
 
-  // Handle sign up (new user)
+  // Handle sign up (new user) — delegates to authStore.signUp for proper state management
   const handleSignUp = useCallback(async (
     emailToUse: string,
     password: string,
@@ -149,64 +135,44 @@ export default function AuthScreen({ onSuccess }: AuthScreenProps) {
       lastName: string;
     }
   ): Promise<{ error: string | null; needsConfirmation?: boolean }> => {
-    if (!isSupabaseConfigured() || !supabase) {
+    if (!isSupabaseConfigured()) {
       return { error: 'Authentication is not available.' };
     }
 
     try {
-      // Create the user account
-      const { data, error } = await supabase.auth.signUp({
-        email: emailToUse,
-        password,
-        options: {
-          data: {
-            first_name: profile.firstName,
-            last_name: profile.lastName,
-            full_name: `${profile.firstName} ${profile.lastName}`,
-          },
-        },
+      const result = await signUp(emailToUse, password, {
+        firstName: profile.firstName,
+        lastName: profile.lastName,
       });
 
-      if (error) {
-        if (error.message.toLowerCase().includes('already registered') ||
-            error.message.toLowerCase().includes('already been registered')) {
-          // Email exists - redirect to password step
+      if (!result.success) {
+        // Handle "already registered" — redirect to password step
+        if (result.error === 'already_registered' ||
+            result.error?.toLowerCase().includes('already registered') ||
+            result.error?.toLowerCase().includes('already been registered')) {
           console.log('[AuthScreen] Email already registered, redirecting to password step');
           setStep('password');
           return { error: null };
         }
-        return { error: error.message };
+        return { error: result.error || 'Sign up failed' };
       }
 
-      // Check if user was created but has no identities (means email already exists)
-      if (data.user && data.user.identities && data.user.identities.length === 0) {
-        console.log('[AuthScreen] Email already exists (empty identities), redirecting to password step');
-        setStep('password');
-        return { error: null };
-      }
-
-      // If we have a session, user is logged in
-      if (data.session) {
-        console.log('[AuthScreen] User has session, logging in');
-        if (onSuccess && data.user) {
-          onSuccess(data.user, true);
-        }
-        // Navigation is handled by the navigation guard in _layout.tsx
-        return { error: null, needsConfirmation: false };
-      }
-
-      // No session - email confirmation might be required
-      if (data.user && !data.session) {
-        console.log('[AuthScreen] No session after signup, email confirmation required');
+      // Success — check if confirmation is needed
+      if (result.needsConfirmation) {
         return { error: null, needsConfirmation: true };
       }
 
-      return { error: null, needsConfirmation: true };
+      // Logged in — navigation guard in _layout.tsx handles redirect
+      if (onSuccess) {
+        const { user } = useAuthStore.getState();
+        if (user) onSuccess(user, true);
+      }
+      return { error: null, needsConfirmation: false };
     } catch (err) {
       console.log('[AuthScreen] signUp error:', err);
       return { error: 'Something went wrong. Please try again.' };
     }
-  }, [onSuccess]);
+  }, [signUp, onSuccess]);
 
   // Handle going back to email step
   const handleBack = useCallback(() => {
@@ -217,8 +183,8 @@ export default function AuthScreen({ onSuccess }: AuthScreenProps) {
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView
         style={styles.keyboardView}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+        behavior="padding"
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
         {step === 'email' && (
           <EmailStep
