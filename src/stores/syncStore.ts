@@ -27,6 +27,8 @@ import {
   getLocationsForSync,
   markLocationSynced,
   upsertLocationFromSync,
+  cleanupStaleLocations,
+  enforceSingleFence,
   // Analytics
   getAnalyticsForSync,
   markAnalyticsSynced,
@@ -257,7 +259,11 @@ export const useSyncStore = create<SyncState>((set, get) => ({
       stats.uploadedAudit = audUp.count;
       stats.errors.push(...audUp.errors);
 
-      // 6. Download locations
+      // 6. Pre-download cleanup: purge stale + enforce single fence
+      cleanupStaleLocations(userId);
+      enforceSingleFence(userId);
+
+      // 7. Download locations
       const locDown = await downloadLocations(userId);
       stats.downloadedLocations = locDown.count;
       stats.errors.push(...locDown.errors);
@@ -610,7 +616,8 @@ async function downloadLocations(userId: string): Promise<{ count: number; error
     const { data, error } = await supabase
       .from('app_timekeeper_geofences')
       .select('*')
-      .eq('user_id', userId);
+      .eq('user_id', userId)
+      .neq('status', 'archived');
 
     if (error) {
       errors.push(error.message);

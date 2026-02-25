@@ -174,6 +174,9 @@ export default function SettingsScreen() {
   const loadBusinessProfile = useBusinessProfileStore(s => s.loadProfile);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteInput, setDeleteInput] = useState('');
+  const handleVersionLongPress = () => {
+    router.push('/logs' as any);
+  };
 
   const handleSignOut = async () => {
     Alert.alert(
@@ -444,22 +447,9 @@ export default function SettingsScreen() {
 
         <View style={styles.divider} />
 
-        <View style={styles.versionRow}>
+        <TouchableOpacity style={styles.versionRow} onLongPress={handleVersionLongPress} delayLongPress={5000} activeOpacity={1}>
           <Text style={styles.versionLabel}>Version</Text>
           <Text style={styles.versionValue}>{Constants.expoConfig?.version || '1.0.0'}</Text>
-        </View>
-
-        <View style={styles.divider} />
-
-        <TouchableOpacity
-          style={styles.linkRow}
-          onPress={() => router.push('/logs' as any)}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Ionicons name="terminal-outline" size={18} color={colors.textSecondary} />
-            <Text style={styles.linkText}>System Logs</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
         </TouchableOpacity>
       </AccordionSection>
 

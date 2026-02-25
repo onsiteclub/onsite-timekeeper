@@ -236,24 +236,80 @@ export async function upsertLocationFromSync(location: LocationDB): Promise<void
         logger.debug('sync', `Location updated from server: ${location.name} (status: ${location.status})`);
       }
     } else {
-      // If already deleted on server, DO NOT INSERT
-      if (location.status === 'deleted') {
-        logger.debug('sync', `⭕ Location ignored (already deleted on server): ${location.name}`);
+      // Skip non-active locations (deleted or archived on server)
+      if (location.status === 'deleted' || location.status === 'archived') {
+        logger.debug('sync', `⭕ Location ignored (${location.status} on server): ${location.name}`);
         return;
       }
-      
-      // Insert new (only if status = 'active')
+
+      // Single-fence: don't insert if user already has an active location
+      const activeCount = db.getFirstSync<{ c: number }>(
+        `SELECT COUNT(*) as c FROM locations WHERE user_id = ? AND status = 'active'`,
+        [location.user_id]
+      );
+      if (activeCount && activeCount.c > 0) {
+        logger.debug('sync', `⭕ Skipped (single-fence limit): ${location.name}`);
+        return;
+      }
+
+      // Insert new active location
       db.runSync(
-        `INSERT INTO locations (id, user_id, name, latitude, longitude, radius, color, status, deleted_at, 
+        `INSERT INTO locations (id, user_id, name, latitude, longitude, radius, color, status, deleted_at,
          last_seen_at, created_at, updated_at, synced_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [location.id, location.user_id, location.name, location.latitude, location.longitude, location.radius, 
+        [location.id, location.user_id, location.name, location.latitude, location.longitude, location.radius,
          location.color, location.status, location.deleted_at, now(), location.created_at, location.updated_at, now()]
       );
       logger.debug('sync', `Location inserted from server: ${location.name}`);
     }
   } catch (error) {
     logger.error('database', 'Error in location upsert', { error: String(error) });
+  }
+}
+
+// ============================================
+// SINGLE-FENCE MAINTENANCE
+// ============================================
+
+/**
+ * Remove non-active locations from local DB (cleanup stale data from old sync bugs).
+ */
+export function cleanupStaleLocations(userId: string): number {
+  try {
+    const result = db.runSync(
+      `DELETE FROM locations WHERE user_id = ? AND status != 'active'`,
+      [userId]
+    );
+    if (result.changes > 0) {
+      logger.info('database', `🧹 Cleaned ${result.changes} stale location(s)`);
+    }
+    return result.changes;
+  } catch (error) {
+    logger.error('database', 'Error cleaning stale locations', { error: String(error) });
+    return 0;
+  }
+}
+
+/**
+ * Enforce single-fence rule: if multiple active locations exist, keep only the most recent.
+ */
+export function enforceSingleFence(userId: string): void {
+  try {
+    const active = db.getAllSync<LocationDB>(
+      `SELECT * FROM locations WHERE user_id = ? AND status = 'active' ORDER BY updated_at DESC`,
+      [userId]
+    );
+    if (active.length > 1) {
+      for (let i = 1; i < active.length; i++) {
+        db.runSync(
+          `UPDATE locations SET status = 'deleted', deleted_at = ?, synced_at = NULL WHERE id = ?`,
+          [now(), active[i].id]
+        );
+      }
+      logger.info('database', `🔒 Enforced single fence: kept "${active[0].name}", removed ${active.length - 1} extra(s)`);
+    }
+  } catch (error) {
+    logger.error('database', 'Error enforcing single fence', { error: String(error) });
   }
 }
 

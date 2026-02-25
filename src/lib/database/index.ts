@@ -46,6 +46,8 @@ export {
   getLocationsForSync,
   markLocationSynced,
   upsertLocationFromSync,
+  cleanupStaleLocations,
+  enforceSingleFence,
   initWebData as initLocationsWebData,
   type CreateLocationParams,
 } from './locations';

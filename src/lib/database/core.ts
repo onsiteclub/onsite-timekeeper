@@ -29,7 +29,7 @@ export const db = SQLite.openDatabaseSync('onsite-timekeeper.db');
 // TYPES - CORE
 // ============================================
 
-export type LocationStatus = 'active' | 'deleted' | 'pending_delete' | 'syncing';
+export type LocationStatus = 'active' | 'deleted' | 'archived' | 'pending_delete' | 'syncing';
 export type AuditEventType = 'entry' | 'exit' | 'dispute' | 'correction';
 
 export interface LocationDB {

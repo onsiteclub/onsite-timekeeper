@@ -106,14 +106,22 @@ export function aggregateSessionsByDay(sessions: ComputedSession[]): DayRow[] {
       const date = new Date(toLocalDateString(entryDate) + 'T12:00:00'); // Noon to avoid TZ issues
       const isManual = s.type === 'manual' || s.manually_edited === 1;
 
+      // Compute gap: elapsed time minus worked time minus explicit pauses
+      const elapsedMin = Math.round((exitDate.getTime() - entryDate.getTime()) / 60000);
+      const pauseMin = s.pause_minutes || 0;
+      const workedMin = Math.max(0, s.duration_minutes);
+      const gapMin = Math.max(0, elapsedMin - workedMin - pauseMin);
+      // breakMinutes = explicit pauses + implicit gap (off-site time between sessions)
+      const totalBreak = pauseMin + gapMin;
+
       return {
         date,
         dateFormatted: formatDateFull(date),
         locationName: s.location_name || 'Unknown',
         startTime: formatTime12h(entryDate),
         endTime: formatTime12h(exitDate),
-        breakMinutes: s.pause_minutes || 0,
-        totalMinutes: Math.max(0, s.duration_minutes),
+        breakMinutes: totalBreak,
+        totalMinutes: workedMin,
         isVerified: !isManual,
         isManual,
       };
@@ -163,7 +171,7 @@ function generateSimpleHTML(
     const dateLabel = formatDateFull(currentDate);
 
     if (row) {
-      const breakStr = row.breakMinutes > 0 ? `${row.breakMinutes}m` : '';
+      const breakStr = row.breakMinutes > 0 ? formatHoursHM(row.breakMinutes) : '';
       const hours = row.totalMinutes / 60;
       const amount = hasRate ? hours * options.hourlyRate! : 0;
       grandTotalAmount += amount;
@@ -439,7 +447,7 @@ function generateSimpleTable(
       // Day with data
       const start = row.startTime.padEnd(9);
       const end = row.endTime.padEnd(9);
-      const breakTime = row.breakMinutes > 0 ? `${row.breakMinutes}m`.padEnd(5) : '--'.padEnd(5);
+      const breakTime = row.breakMinutes > 0 ? formatHoursHM(row.breakMinutes).padEnd(5) : '--'.padEnd(5);
       const total = formatHoursHM(row.totalMinutes).padEnd(9);
 
       lines.push(`│ ${dayDate} │ ${start} │ ${end} │ ${breakTime} │ ${total} │`);
@@ -496,7 +504,7 @@ function generateWhatsAppTable(
 
     if (row) {
       // Day with data
-      const breakStr = row.breakMinutes > 0 ? ` (☕${row.breakMinutes}m)` : '';
+      const breakStr = row.breakMinutes > 0 ? ` (☕${formatHoursHM(row.breakMinutes)})` : '';
       lines.push(`📅 *${row.dateFormatted}*`);
       lines.push(`⏰ ${row.startTime} → ${row.endTime}${breakStr}`);
       lines.push(`✅ *${formatHoursHM(row.totalMinutes)}*`);

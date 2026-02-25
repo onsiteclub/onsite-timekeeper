@@ -37,6 +37,7 @@ import { useHomeScreen, type ComputedSession } from '../../src/screens/home/hook
 import { styles } from '../../src/screens/home/styles';
 import { WEEKDAYS_SHORT, getDayKey } from '../../src/screens/home/helpers';
 import { generateAndShareTimesheetPDF } from '../../src/lib/timesheetPdf';
+import { getSessionBreakdown, type SessionSegment } from '../../src/lib/eventLog';
 import { useBusinessProfileStore } from '../../src/stores/businessProfileStore';
 import { logger } from '../../src/lib/logger';
 import { Alert } from 'react-native';
@@ -385,6 +386,10 @@ export default function ReportsScreen() {
   // Absence options toggle (for inline day card)
   const [showAbsenceOptions, setShowAbsenceOptions] = useState(false);
 
+  // Details breakdown (shows entry/exit segments when gap detected)
+  const [showDetails, setShowDetails] = useState(false);
+  const [detailSegments, setDetailSegments] = useState<SessionSegment[]>([]);
+
   // Date range selection state (Airbnb style)
   const [dateRangeMode, setDateRangeMode] = useState(false);
   const [rangeStartDate, setRangeStartDate] = useState<Date | null>(null);
@@ -571,6 +576,8 @@ export default function ReportsScreen() {
       modalScale.setValue(0);
       modalOpacity.setValue(0);
       setPressedDayKey(null);
+      setShowDetails(false);
+      setDetailSegments([]);
     }
   }, [showDayModal, modalScale, modalOpacity]);
 
@@ -1199,6 +1206,73 @@ export default function ReportsScreen() {
                     <Text style={reportStyles.ucTotalLabel}>Total</Text>
                     <Text style={reportStyles.ucTotalValue}>{formatDuration(daySession.duration_minutes)}</Text>
                   </View>
+
+                  {/* Details button — only when elapsed time ≠ total (gap detected) */}
+                  {(() => {
+                    if (!daySession.entry_at || !daySession.exit_at) return null;
+                    const entryMs = new Date(daySession.entry_at).getTime();
+                    const exitMs = new Date(daySession.exit_at).getTime();
+                    const elapsedMin = Math.round((exitMs - entryMs) / 60000);
+                    const gapMin = elapsedMin - daySession.duration_minutes - (daySession.pause_minutes || 0);
+                    if (gapMin < 5) return null; // threshold: ignore < 5min (GPS jitter)
+                    return (
+                      <>
+                        <PressableOpacity
+                          style={reportStyles.detailsButton}
+                          onPress={() => {
+                            if (showDetails) {
+                              setShowDetails(false);
+                              return;
+                            }
+                            if (userId && selectedDayForModal) {
+                              const dateStr = getDayKey(selectedDayForModal);
+                              const segments = getSessionBreakdown(userId, dateStr);
+                              setDetailSegments(segments);
+                            }
+                            setShowDetails(true);
+                          }}
+                        >
+                          <Ionicons
+                            name={showDetails ? 'chevron-up' : 'information-circle-outline'}
+                            size={16}
+                            color={colors.primary}
+                          />
+                          <Text style={reportStyles.detailsButtonText}>
+                            {showDetails ? 'Hide Details' : 'Details'}
+                          </Text>
+                        </PressableOpacity>
+
+                        {showDetails && (
+                          <View style={reportStyles.detailsSection}>
+                            <Text style={reportStyles.detailsSectionTitle}>Session Breakdown</Text>
+                            {detailSegments.length > 0 ? (
+                              detailSegments.map((seg, i) => (
+                                <View key={i} style={reportStyles.detailsSegmentRow}>
+                                  <Text style={reportStyles.detailsSegmentIndex}>{i + 1}.</Text>
+                                  <Text style={reportStyles.detailsSegmentTime}>
+                                    {formatTimeAMPM(seg.startTime)} → {formatTimeAMPM(seg.endTime)}
+                                  </Text>
+                                  <Text style={reportStyles.detailsSegmentDuration}>
+                                    {formatDuration(seg.durationMinutes)}
+                                  </Text>
+                                </View>
+                              ))
+                            ) : (
+                              <Text style={reportStyles.detailsEmpty}>
+                                No geofence events recorded for this day.
+                              </Text>
+                            )}
+                            {detailSegments.length > 0 && (
+                              <View style={reportStyles.detailsGapRow}>
+                                <Text style={reportStyles.detailsGapLabel}>Gap (off-site)</Text>
+                                <Text style={reportStyles.detailsGapValue}>{formatDuration(gapMin)}</Text>
+                              </View>
+                            )}
+                          </View>
+                        )}
+                      </>
+                    );
+                  })()}
                 </View>
               ) : (
                 /* ===== VIEW MODE - EMPTY DAY ===== */
@@ -2435,6 +2509,87 @@ const reportStyles = StyleSheet.create({
     fontWeight: '700',
     color: colors.textMuted,
   },
+
+  // Details breakdown
+  detailsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: withOpacity(colors.primary, 0.08),
+  },
+  detailsButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.primary,
+  },
+  detailsSection: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  detailsSectionTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    marginBottom: 8,
+    textTransform: 'uppercase' as const,
+    letterSpacing: 0.5,
+  },
+  detailsSegmentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    gap: 8,
+  },
+  detailsSegmentIndex: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textMuted,
+    width: 18,
+  },
+  detailsSegmentTime: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: colors.text,
+    flex: 1,
+  },
+  detailsSegmentDuration: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.primary,
+  },
+  detailsEmpty: {
+    fontSize: 13,
+    color: colors.textMuted,
+    fontStyle: 'italic',
+    textAlign: 'center',
+    paddingVertical: 8,
+  },
+  detailsGapRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  detailsGapLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  detailsGapValue: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#EF4444',
+  },
+
   ucLocationDot: {
     width: 10,
     height: 10,
