@@ -1,11 +1,11 @@
 /**
- * Location Disclosure Modal
+ * Permission Rationale Modal - OnSite Timekeeper
  *
- * Google Play REQUIRES a "prominent disclosure" screen BEFORE requesting
- * background location permission. Apple also recommends it.
+ * Reusable modal shown when a user denies a permission and the OS
+ * indicates a rationale should be displayed (shouldShowRequestPermissionRationale).
  *
- * This modal explains WHY the app needs background location and gives the
- * user the choice to accept or decline before the native permission dialog.
+ * Follows the same visual pattern as LocationDisclosureModal and
+ * BatteryOptimizationModal for consistency.
  */
 
 import React from 'react';
@@ -15,19 +15,31 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, borderRadius, shadows } from '../constants/colors';
-import { PERMISSION_STRINGS } from '../constants/permissionStrings';
 
 interface Props {
   visible: boolean;
+  title: string;
+  body: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  acceptLabel: string;
+  declineLabel?: string;
   onAccept: () => void;
   onDecline: () => void;
 }
 
-export function LocationDisclosureModal({ visible, onAccept, onDecline }: Props) {
+export function PermissionRationaleModal({
+  visible,
+  title,
+  body,
+  icon,
+  acceptLabel,
+  declineLabel = 'Not now',
+  onAccept,
+  onDecline,
+}: Props) {
   return (
     <Modal
       visible={visible}
@@ -39,28 +51,14 @@ export function LocationDisclosureModal({ visible, onAccept, onDecline }: Props)
         <View style={styles.card}>
           {/* Icon */}
           <View style={styles.iconContainer}>
-            <Ionicons name="location-outline" size={48} color={colors.accent} />
+            <Ionicons name={icon} size={48} color={colors.accent} />
           </View>
 
           {/* Title */}
-          <Text style={styles.title}>{PERMISSION_STRINGS.prominentDisclosure.title}</Text>
+          <Text style={styles.title}>{title}</Text>
 
           {/* Body */}
-          <Text style={styles.body}>
-            {PERMISSION_STRINGS.prominentDisclosure.body}
-          </Text>
-
-          {/* Privacy policy link */}
-          <TouchableOpacity
-            style={styles.privacyLink}
-            onPress={() =>
-              Linking.openURL('https://www.onsiteclub.ca/legal/timekeeper-privacy')
-            }
-            activeOpacity={0.6}
-          >
-            <Ionicons name="shield-checkmark-outline" size={16} color={colors.info} />
-            <Text style={styles.privacyLinkText}>Privacy Policy</Text>
-          </TouchableOpacity>
+          <Text style={styles.body}>{body}</Text>
 
           {/* Primary button */}
           <TouchableOpacity
@@ -68,8 +66,7 @@ export function LocationDisclosureModal({ visible, onAccept, onDecline }: Props)
             onPress={onAccept}
             activeOpacity={0.8}
           >
-            <Ionicons name="location" size={20} color={colors.white} />
-            <Text style={styles.primaryButtonText}>{PERMISSION_STRINGS.prominentDisclosure.accept}</Text>
+            <Text style={styles.primaryButtonText}>{acceptLabel}</Text>
           </TouchableOpacity>
 
           {/* Secondary button */}
@@ -78,7 +75,7 @@ export function LocationDisclosureModal({ visible, onAccept, onDecline }: Props)
             onPress={onDecline}
             activeOpacity={0.6}
           >
-            <Text style={styles.secondaryButtonText}>{PERMISSION_STRINGS.prominentDisclosure.decline}</Text>
+            <Text style={styles.secondaryButtonText}>{declineLabel}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -124,24 +121,7 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: 'center',
     lineHeight: 21,
-    marginBottom: spacing.md,
-  },
-  bold: {
-    fontWeight: '700',
-    color: colors.text,
-  },
-  privacyLink: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
     marginBottom: spacing.lg,
-    paddingVertical: 4,
-  },
-  privacyLinkText: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: colors.info,
-    textDecorationLine: 'underline',
   },
   primaryButton: {
     flexDirection: 'row',

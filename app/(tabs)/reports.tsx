@@ -37,6 +37,7 @@ import { useHomeScreen, type ComputedSession } from '../../src/screens/home/hook
 import { styles } from '../../src/screens/home/styles';
 import { WEEKDAYS_SHORT, getDayKey } from '../../src/screens/home/helpers';
 import { generateAndShareTimesheetPDF } from '../../src/lib/timesheetPdf';
+import { useBusinessProfileStore } from '../../src/stores/businessProfileStore';
 import { logger } from '../../src/lib/logger';
 import { Alert } from 'react-native';
 
@@ -164,11 +165,13 @@ export default function ReportsScreen() {
   // ============================================
   // FIX: When navigating from Home to Reports, reload data to show new records
   // FIX: Always navigate to current month so chart shows current week
+  const loadBusinessProfile = useBusinessProfileStore(s => s.loadProfile);
   useFocusEffect(
     useCallback(() => {
       setViewMode('month');
       goToCurrentMonth();
       onRefresh();
+      if (userId) loadBusinessProfile(userId);
     }, []) // Empty deps - functions read from store directly
   );
 
@@ -377,6 +380,7 @@ export default function ReportsScreen() {
 
   // PDF export loading state
   const [isExporting, setIsExporting] = useState(false);
+  const businessProfile = useBusinessProfileStore(s => s.profile);
 
   // Absence options toggle (for inline day card)
   const [showAbsenceOptions, setShowAbsenceOptions] = useState(false);
@@ -491,6 +495,27 @@ export default function ReportsScreen() {
 
   // Month navigation: arrows only (swipe removed — caused recurring touch deadlocks with GestureHandlerRootView)
 
+  // Build business profile options for export
+  const getBusinessOptions = () => {
+    if (!businessProfile) return {};
+    const addressParts = [
+      businessProfile.address_street,
+      businessProfile.address_city,
+      businessProfile.address_province,
+      businessProfile.address_postal_code,
+    ].filter(Boolean);
+    return {
+      businessName: businessProfile.business_name || undefined,
+      businessAddress: addressParts.length > 0 ? addressParts.join(', ') : undefined,
+      businessPhone: businessProfile.phone || undefined,
+      businessEmail: businessProfile.email || undefined,
+      businessNumber: businessProfile.business_number || undefined,
+      gstHstNumber: businessProfile.gst_hst_number || undefined,
+      hourlyRate: businessProfile.default_hourly_rate ?? undefined,
+      taxRate: businessProfile.tax_rate ?? undefined,
+    };
+  };
+
   // Export to PDF - Professional Timesheet
   const handleExportPDF = async () => {
     const sessions = getSessionsInRange();
@@ -505,19 +530,17 @@ export default function ReportsScreen() {
     }
 
     try {
-      // Show loading state
       setIsExporting(true);
       setShowExportModal(false);
 
-      // Generate and share professional PDF timesheet
       await generateAndShareTimesheetPDF(sessions, {
         employeeName: userName || 'Employee',
         employeeId: userId || undefined,
         periodStart: rangeStartDate,
         periodEnd: rangeEndDate,
+        ...getBusinessOptions(),
       });
 
-      // Clear selection after successful export
       cancelDateRange();
     } catch (error: any) {
       Alert.alert('Export Error', error.message || 'Failed to generate PDF');
@@ -1299,6 +1322,18 @@ export default function ReportsScreen() {
                 <Text style={reportStyles.exportModalTotalLabel}>Total Hours</Text>
                 <Text style={reportStyles.exportModalTotalValue}>{formatDuration(rangeTotalMinutes)}</Text>
               </View>
+
+              {/* Rate & Tax info (if business profile set) */}
+              {businessProfile?.default_hourly_rate ? (
+                <View style={reportStyles.exportModalRateRow}>
+                  <Text style={reportStyles.exportModalRateText}>
+                    Rate: ${businessProfile.default_hourly_rate}/hr
+                    {businessProfile.gst_hst_number && businessProfile.tax_rate
+                      ? `  ·  Tax: ${businessProfile.tax_rate}% HST`
+                      : ''}
+                  </Text>
+                </View>
+              ) : null}
             </View>
 
             {/* Actions */}
@@ -2189,6 +2224,18 @@ const reportStyles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '700',
     color: colors.primary,
+  },
+  exportModalRateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 8,
+    marginTop: 4,
+  },
+  exportModalRateText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: colors.textSecondary,
   },
   exportModalActions: {
     flexDirection: 'row',

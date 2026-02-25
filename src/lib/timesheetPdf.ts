@@ -30,9 +30,18 @@ export interface TimesheetOptions {
   companyName?: string;
   periodStart: Date;
   periodEnd: Date;
+  // Business profile fields (optional)
+  businessName?: string;
+  businessAddress?: string;
+  businessPhone?: string;
+  businessEmail?: string;
+  businessNumber?: string;
+  gstHstNumber?: string;
+  hourlyRate?: number;
+  taxRate?: number;
 }
 
-interface DayRow {
+export interface DayRow {
   date: Date;
   dateFormatted: string; // "Fri, Feb 23"
   locationName: string;
@@ -75,7 +84,7 @@ function formatPeriod(start: Date, end: Date): string {
   return `${startStr} - ${endStr}`;
 }
 
-function formatHoursHM(minutes: number): string {
+export function formatHoursHM(minutes: number): string {
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   if (h === 0) return `${m}m`;
@@ -87,7 +96,7 @@ function formatHoursHM(minutes: number): string {
 // AGGREGATE SESSIONS BY DAY
 // ============================================
 
-function aggregateSessionsByDay(sessions: ComputedSession[]): DayRow[] {
+export function aggregateSessionsByDay(sessions: ComputedSession[]): DayRow[] {
   // 1 location per day → each session maps directly to a DayRow
   return sessions
     .filter(s => s.exit_at)
@@ -133,8 +142,13 @@ function generateSimpleHTML(
     rowsByDate.set(dateKey, row);
   }
 
+  // Billing columns?
+  const hasRate = !!(options.hourlyRate && options.hourlyRate > 0);
+  const hasTax = !!(hasRate && options.taxRate && options.taxRate > 0);
+
   // Generate table rows for ALL days in period
   let grandTotalMinutes = 0;
+  let grandTotalAmount = 0;
   const tableRows: string[] = [];
 
   const currentDate = new Date(options.periodStart);
@@ -150,6 +164,10 @@ function generateSimpleHTML(
 
     if (row) {
       const breakStr = row.breakMinutes > 0 ? `${row.breakMinutes}m` : '';
+      const hours = row.totalMinutes / 60;
+      const amount = hasRate ? hours * options.hourlyRate! : 0;
+      grandTotalAmount += amount;
+
       tableRows.push(`
         <tr>
           <td class="day-col">${dateLabel}</td>
@@ -157,6 +175,7 @@ function generateSimpleHTML(
           <td class="time-col">${row.endTime}</td>
           <td class="break-col">${breakStr}</td>
           <td class="total-col">${formatHoursHM(row.totalMinutes)}</td>
+          ${hasRate ? `<td class="amount-col">$${amount.toFixed(2)}</td>` : ''}
         </tr>
       `);
       grandTotalMinutes += row.totalMinutes;
@@ -168,6 +187,7 @@ function generateSimpleHTML(
           <td class="time-col"></td>
           <td class="break-col"></td>
           <td class="total-col"></td>
+          ${hasRate ? '<td class="amount-col"></td>' : ''}
         </tr>
       `);
     }
@@ -275,9 +295,14 @@ function generateSimpleHTML(
     }
     .total-col {
       text-align: center;
-      width: 23%;
+      width: 18%;
       font-weight: 500;
       background: #f8f9fa;
+    }
+    .amount-col {
+      text-align: right;
+      width: 15%;
+      font-weight: 500;
     }
     .total-row {
       background: #eef2ff;
@@ -307,10 +332,15 @@ function generateSimpleHTML(
 <body>
   <!-- LETTERHEAD -->
   <div class="letterhead">
-    <div class="company-name">${options.employeeName}</div>
-    <div class="company-subtitle">Sole Proprietorship</div>
+    <div class="company-name">${options.businessName || options.employeeName}</div>
+    ${options.businessAddress ? `<div class="company-subtitle">${options.businessAddress}</div>` : '<div class="company-subtitle">Sole Proprietorship</div>'}
     <div class="company-info">
-      <!-- Space for address, phone, email if needed -->
+      ${[
+        options.businessPhone ? `Tel: ${options.businessPhone}` : '',
+        options.businessEmail ? `Email: ${options.businessEmail}` : '',
+        options.businessNumber ? `BN: ${options.businessNumber}` : '',
+        options.gstHstNumber ? `GST/HST: ${options.gstHstNumber}` : '',
+      ].filter(Boolean).join(' &nbsp;|&nbsp; ')}
     </div>
   </div>
 
@@ -329,7 +359,8 @@ function generateSimpleHTML(
           <th>Start time</th>
           <th>End Time</th>
           <th>Break</th>
-          <th>Total Work Hours</th>
+          <th>Total Hours</th>
+          ${hasRate ? '<th>Amount</th>' : ''}
         </tr>
       </thead>
       <tbody>
@@ -337,7 +368,18 @@ function generateSimpleHTML(
         <tr class="total-row">
           <td colspan="4" style="text-align: right; padding-right: 20px;">TOTAL HOURS:</td>
           <td class="total-col">${formatHoursHM(grandTotalMinutes)}</td>
+          ${hasRate ? `<td class="amount-col" style="font-weight:bold;">$${grandTotalAmount.toFixed(2)}</td>` : ''}
         </tr>
+        ${hasTax ? `
+        <tr class="total-row">
+          <td colspan="${hasRate ? 5 : 4}" style="text-align: right; padding-right: 20px;">${options.gstHstNumber ? 'GST/HST' : 'TAX'} (${options.taxRate}%):</td>
+          <td class="amount-col" style="font-weight:bold;">$${(grandTotalAmount * (options.taxRate! / 100)).toFixed(2)}</td>
+        </tr>
+        <tr class="total-row">
+          <td colspan="${hasRate ? 5 : 4}" style="text-align: right; padding-right: 20px;">GRAND TOTAL:</td>
+          <td class="amount-col" style="font-weight:bold; font-size:12px;">$${(grandTotalAmount * (1 + options.taxRate! / 100)).toFixed(2)}</td>
+        </tr>
+        ` : ''}
       </tbody>
     </table>
   </div>
@@ -486,7 +528,7 @@ function generateWhatsAppTable(
  * Adjusts periodEnd to end-of-day (23:59:59.999) so sessions
  * on the last day of the range are included.
  */
-function filterSessionsInPeriod(
+export function filterSessionsInPeriod(
   sessions: ComputedSession[],
   options: TimesheetOptions
 ): ComputedSession[] {

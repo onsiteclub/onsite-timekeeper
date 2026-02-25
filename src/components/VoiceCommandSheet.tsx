@@ -28,6 +28,7 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors } from '../constants/colors';
+import { PERMISSION_STRINGS } from '../constants/permissionStrings';
 import { processVoiceCommand, type VoiceAppState, type VoiceAction } from '../lib/ai/voice';
 import {
   startRecording,
@@ -161,7 +162,7 @@ export function VoiceCommandSheet({ visible, onClose }: VoiceCommandSheetProps) 
       if (started === true) {
         setIsRecording(true);
       } else if (started === 'denied') {
-        addMessage('ai', '🎙️ Microphone permission is disabled. Tap "Open Settings" below to enable it.');
+        addMessage('ai', `🎙️ ${PERMISSION_STRINGS.rationale.microphone}\n\nTap "Open Settings" below to enable it.`);
         setShowMicPermissionBanner(true);
       } else {
         // Show the actual error for diagnosis (started contains "error:...")

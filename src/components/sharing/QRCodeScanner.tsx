@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { colors, borderRadius, spacing } from '../../constants/colors';
+import { PERMISSION_STRINGS } from '../../constants/permissionStrings';
 import { parseQRPayload, redeemToken } from '../../lib/accessGrants';
 
 interface QRCodeScannerProps {
@@ -96,9 +97,9 @@ export function QRCodeScanner({ onSuccess, onCancel }: QRCodeScannerProps) {
   if (!permission.granted) {
     return (
       <View style={styles.container}>
-        <Text style={styles.permissionTitle}>Permission Required</Text>
+        <Text style={styles.permissionTitle}>{PERMISSION_STRINGS.rationaleTitle.camera}</Text>
         <Text style={styles.permissionText}>
-          To scan the QR code, we need camera access.
+          {PERMISSION_STRINGS.rationale.camera}
         </Text>
         <TouchableOpacity style={styles.permissionButton} onPress={requestPermission}>
           <Text style={styles.permissionButtonText}>Allow Camera</Text>

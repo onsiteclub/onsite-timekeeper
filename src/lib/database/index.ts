@@ -29,6 +29,7 @@ export {
   type ErrorLogDB,
   type LocationAuditDB,
   type DailyHoursDB,
+  type BusinessProfileDB,
 } from './core';
 
 // ============================================
@@ -152,6 +153,24 @@ export {
   type UpsertDailyHoursParams,
   type UpdateDailyHoursParams,
 } from './daily';
+
+// ============================================
+// BUSINESS PROFILE
+// ============================================
+
+export {
+  getBusinessProfile,
+  upsertBusinessProfile,
+  deleteBusinessProfile,
+  getUnsyncedBusinessProfile,
+  markBusinessProfileSynced,
+  upsertBusinessProfileFromSync,
+  validateEmail,
+  validateCanadianPhone,
+  validatePostalCode,
+  formatPostalCode,
+  type UpsertBusinessProfileParams,
+} from './businessProfile';
 
 // ============================================
 // DEBUG

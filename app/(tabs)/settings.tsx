@@ -30,6 +30,7 @@ import {
   TIMER_OPTIONS,
 } from '../../src/stores/settingsStore';
 import { onUserLogout } from '../../src/lib/bootstrap';
+import { useBusinessProfileStore } from '../../src/stores/businessProfileStore';
 
 // ============================================
 // ACCORDION SECTION
@@ -169,6 +170,8 @@ export default function SettingsScreen() {
   const router = useRouter();
   const { user, signOut, deleteAccount, isLoading, getUserName } = useAuthStore();
   const settings = useSettingsStore();
+  const businessProfile = useBusinessProfileStore(s => s.profile);
+  const loadBusinessProfile = useBusinessProfileStore(s => s.loadProfile);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteInput, setDeleteInput] = useState('');
 
@@ -251,6 +254,11 @@ export default function SettingsScreen() {
     }
   };
 
+  // Load business profile on mount
+  React.useEffect(() => {
+    if (user?.id) loadBusinessProfile(user.id);
+  }, [user?.id]);
+
   // Get user initials for avatar
   const getUserInitials = () => {
     const name = getUserName();
@@ -272,6 +280,25 @@ export default function SettingsScreen() {
         </View>
         <Text style={styles.userName}>{getUserName() || user?.email || 'Guest'}</Text>
       </View>
+
+      {/* ============================================ */}
+      {/* BUSINESS PROFILE SECTION */}
+      {/* ============================================ */}
+      <AccordionSection title="Business" icon="briefcase-outline">
+        <TouchableOpacity
+          style={styles.linkRow}
+          onPress={() => router.push('/business-profile' as any)}
+          activeOpacity={0.7}
+        >
+          <View>
+            <Text style={styles.linkText}>Business Profile</Text>
+            <Text style={styles.settingHint}>
+              {businessProfile?.business_name || 'Set up your business details'}
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+        </TouchableOpacity>
+      </AccordionSection>
 
       {/* ============================================ */}
       {/* TIMERS SECTION */}

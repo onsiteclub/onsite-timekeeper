@@ -176,6 +176,29 @@ export interface DailyHoursDB {
 }
 
 // ============================================
+// TYPES - BUSINESS PROFILE
+// ============================================
+
+export interface BusinessProfileDB {
+  id: string;
+  user_id: string;
+  business_name: string;
+  address_street: string | null;
+  address_city: string | null;
+  address_province: string | null;
+  address_postal_code: string | null;
+  phone: string | null;
+  email: string | null;
+  business_number: string | null;
+  gst_hst_number: string | null;
+  default_hourly_rate: number | null;
+  tax_rate: number | null;
+  created_at: string;
+  updated_at: string;
+  synced_at: string | null;
+}
+
+// ============================================
 // TYPES - ACTIVE TRACKING (Singleton)
 // ============================================
 
@@ -377,6 +400,34 @@ export async function initDatabase(): Promise<void> {
     } catch {
       // Column already exists, ignore
     }
+
+    // ============================================
+    // BUSINESS PROFILE TABLE (one per user)
+    // ============================================
+
+    db.execSync(`
+      CREATE TABLE IF NOT EXISTS business_profile (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        business_name TEXT NOT NULL,
+        address_street TEXT,
+        address_city TEXT,
+        address_province TEXT,
+        address_postal_code TEXT,
+        phone TEXT,
+        email TEXT,
+        business_number TEXT,
+        gst_hst_number TEXT,
+        default_hourly_rate REAL,
+        tax_rate REAL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        synced_at TEXT,
+        UNIQUE(user_id)
+      )
+    `);
+
+    db.execSync(`CREATE INDEX IF NOT EXISTS idx_business_profile_user ON business_profile(user_id)`);
 
     // ============================================
     // ACTIVE TRACKING TABLE (Singleton for current geofence session)

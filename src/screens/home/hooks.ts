@@ -1091,6 +1091,7 @@ export function useHomeScreen() {
 
     const pauseMinutes = manualPause ? parseInt(manualPause, 10) : 0;
 
+    const isEditing = !!editingSessionId;
     try {
       if (editingSessionId) {
         // EDIT MODE: Update existing session
@@ -1119,13 +1120,24 @@ export function useHomeScreen() {
         });
       }
 
-      setShowManualModal(false);
-      setIsEditingInline(false);
-      setManualPause('');
-
       // Reload sessions to show the new/updated record
       await loadWeekSessions();
       await loadMonthSessions();
+
+      // Show success — close all modals when user taps OK
+      Alert.alert(
+        '✅ Hours Saved',
+        isEditing ? 'Entry updated successfully.' : 'Hours recorded successfully.',
+        [{
+          text: 'OK',
+          onPress: () => {
+            setShowManualModal(false);
+            setIsEditingInline(false);
+            setManualPause('');
+            closeDayModal();
+          },
+        }]
+      );
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Could not save');
     }

@@ -12,16 +12,16 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.onsiteclub.timekeeper",
-      "buildNumber": "24",
+      "buildNumber": "25",
       "config": {
         "googleMapsApiKey": "AIzaSyBdITLu3Kr5OYPr8ZnhxIGVNFHIGEgvfKY"
       },
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "OnSite Timekeeper needs your location to show where you are on the map.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "OnSite Timekeeper needs background location access to automatically detect when you arrive at or leave work.",
-        "NSLocationAlwaysUsageDescription": "OnSite Timekeeper needs background location access to automatically track your work hours.",
-        "NSCameraUsageDescription": "OnSite Timekeeper uses the camera to scan QR codes for team sharing.",
-        "NSMicrophoneUsageDescription": "OnSite Timekeeper uses the microphone to record voice commands. Your audio is sent to a secure server for speech-to-text transcription and is not stored after processing.",
+        "NSLocationWhenInUseUsageDescription": "Your location is used to show your position on the map when setting up job site geofences. For example, when you add a new job site, your current location helps you place the geofence accurately.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Your location is used to detect when you arrive at or leave your job sites, so your work hours are logged automatically. For example, when you arrive at a saved job site, your start time is recorded without any manual input.",
+        "NSLocationAlwaysUsageDescription": "Your location is used in the background to detect when you enter or leave a job site geofence. For example, if you drive to a job site, your hours are logged automatically — even if the app is not open.",
+        "NSCameraUsageDescription": "The camera is used to scan QR codes when connecting with other workers through Team Crew. For example, you scan a fellow contractor's QR code to link accounts and share time entries.",
+        "NSMicrophoneUsageDescription": "The microphone is used for voice commands so you can manage time tracking hands-free. For example, you can say 'clock in' when you arrive at a job site without touching your phone.",
         "NSMotionUsageDescription": "OnSite Timekeeper uses motion data to improve location accuracy for automatic work hour tracking.",
         "UIBackgroundModes": [
           "location",
@@ -36,7 +36,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0B0D10"
       },
-      "versionCode": 20,
+      "versionCode": 21,
       "package": "com.onsiteclub.timekeeper",
       "allowBackup": false,
       "config": {
@@ -57,7 +57,8 @@
         "VIBRATE",
         "WAKE_LOCK",
         "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
-        "RECORD_AUDIO"
+        "RECORD_AUDIO",
+        "CAMERA"
       ]
     },
     "web": {
@@ -71,9 +72,9 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "OnSite Timekeeper needs your location to automatically track when you arrive at or leave work.",
-          "locationAlwaysPermission": "OnSite Timekeeper needs background location access to work properly even when the app is closed.",
-          "locationWhenInUsePermission": "OnSite Timekeeper needs your location to show your position on the map.",
+          "locationAlwaysAndWhenInUsePermission": "Your location is used to detect when you arrive at or leave your job sites, so your work hours are logged automatically. For example, when you arrive at a saved job site, your start time is recorded without any manual input.",
+          "locationAlwaysPermission": "Your location is used in the background to detect when you enter or leave a job site geofence. For example, if you drive to a job site, your hours are logged automatically — even if the app is not open.",
+          "locationWhenInUsePermission": "Your location is used to show your position on the map when setting up job site geofences. For example, when you add a new job site, your current location helps you place the geofence accurately.",
           "isAndroidBackgroundLocationEnabled": true,
           "isAndroidForegroundServiceEnabled": true
         }

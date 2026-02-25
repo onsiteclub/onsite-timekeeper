@@ -55,6 +55,11 @@ import {
   upsertDailyHoursFromSync,
   type DailyHoursEntry,
 } from '../lib/database/daily';
+import {
+  getUnsyncedBusinessProfile,
+  markBusinessProfileSynced,
+  upsertBusinessProfileFromSync,
+} from '../lib/database/businessProfile';
 import { useAuthStore } from './authStore';
 
 
@@ -261,6 +266,10 @@ export const useSyncStore = create<SyncState>((set, get) => ({
       const dhDown = await downloadDailyHours(userId);
       stats.downloadedDailyHours = dhDown.count;
       stats.errors.push(...dhDown.errors);
+
+      // 8. Upload/download business profile
+      const bpSync = await syncBusinessProfile(userId);
+      stats.errors.push(...bpSync.errors);
 
       if (stats.errors.length > 0) {
         await trackMetric(userId, 'sync_failures');
@@ -647,6 +656,83 @@ async function downloadLocations(userId: string): Promise<{ count: number; error
   } catch (error) {
     errors.push(String(error));
     logger.error('sync', `❌ Download geofences exception`, { error: String(error) });
+  }
+
+  return { count, errors };
+}
+
+async function syncBusinessProfile(userId: string): Promise<{ count: number; errors: string[] }> {
+  let count = 0;
+  const errors: string[] = [];
+
+  try {
+    // Upload: local → Supabase
+    const unsynced = getUnsyncedBusinessProfile(userId);
+    if (unsynced) {
+      const payload = {
+        id: unsynced.id,
+        user_id: unsynced.user_id,
+        business_name: unsynced.business_name,
+        address_street: unsynced.address_street,
+        address_city: unsynced.address_city,
+        address_province: unsynced.address_province,
+        address_postal_code: unsynced.address_postal_code,
+        phone: unsynced.phone,
+        email: unsynced.email,
+        business_number: unsynced.business_number,
+        gst_hst_number: unsynced.gst_hst_number,
+        default_hourly_rate: unsynced.default_hourly_rate,
+        tax_rate: unsynced.tax_rate,
+        created_at: unsynced.created_at,
+        updated_at: unsynced.updated_at,
+      };
+
+      const { error } = await supabase
+        .from('business_profiles')
+        .upsert(payload, { onConflict: 'user_id' })
+        .select();
+
+      if (error) {
+        errors.push(`BusinessProfile upload: ${error.message}`);
+      } else {
+        markBusinessProfileSynced(userId);
+        count++;
+        logger.debug('sync', `📤 Business profile uploaded`);
+      }
+    }
+
+    // Download: Supabase → local
+    const { data, error } = await supabase
+      .from('business_profiles')
+      .select('*')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (error) {
+      errors.push(`BusinessProfile download: ${error.message}`);
+    } else if (data) {
+      upsertBusinessProfileFromSync({
+        id: data.id,
+        user_id: data.user_id,
+        business_name: data.business_name,
+        address_street: data.address_street,
+        address_city: data.address_city,
+        address_province: data.address_province,
+        address_postal_code: data.address_postal_code,
+        phone: data.phone,
+        email: data.email,
+        business_number: data.business_number,
+        gst_hst_number: data.gst_hst_number,
+        default_hourly_rate: data.default_hourly_rate,
+        tax_rate: data.tax_rate,
+        created_at: data.created_at,
+        updated_at: data.updated_at,
+        synced_at: new Date().toISOString(),
+      });
+      logger.debug('sync', `📥 Business profile downloaded`);
+    }
+  } catch (error) {
+    errors.push(`BusinessProfile sync: ${String(error)}`);
   }
 
   return { count, errors };
