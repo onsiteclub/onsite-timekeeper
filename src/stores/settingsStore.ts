@@ -77,6 +77,20 @@ interface SettingsState {
   batteryOptimizationSkipped: boolean;
 
   // ============================================
+  // TIME ROUNDING (GPS only)
+  // ============================================
+
+  /** Round GPS entry/exit to 30-min blocks (entry↑ exit↓). Manual entries unaffected. */
+  timeRoundingEnabled: boolean;
+
+  // ============================================
+  // AUTO-LOGGING (location-based)
+  // ============================================
+
+  /** Whether automatic location-based time logging is enabled */
+  autoLoggingEnabled: boolean;
+
+  // ============================================
   // DEBUG
   // ============================================
 
@@ -146,8 +160,14 @@ const DEFAULT_SETTINGS: SettingsData = {
   // Report export
   pendingReportExport: null,
 
+  // Time rounding
+  timeRoundingEnabled: true,
+
   // Battery optimization
   batteryOptimizationSkipped: false,
+
+  // Auto-logging
+  autoLoggingEnabled: false,
 
   // Debug
   devMonitorEnabled: false,
@@ -286,7 +306,9 @@ export const useSettingsStore = create<SettingsState>()(
         minimumLocationDistance: state.minimumLocationDistance,
         distanciaMinimaLocais: state.distanciaMinimaLocais,
         pendingReportExport: state.pendingReportExport,
+        timeRoundingEnabled: state.timeRoundingEnabled,
         batteryOptimizationSkipped: state.batteryOptimizationSkipped,
+        autoLoggingEnabled: state.autoLoggingEnabled,
         devMonitorEnabled: state.devMonitorEnabled,
       }),
     }

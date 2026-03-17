@@ -154,6 +154,8 @@ export interface LocationState {
   setTimerConfigs: (entry: number, exit: number, pause: number) => void;
   completeLocationDisclosure: () => Promise<void>;
   skipLocationDisclosure: () => void;
+  enableAutoLogging: () => Promise<boolean>;
+  disableAutoLogging: () => Promise<void>;
 
   // Debug
   getDebugState: () => object;
@@ -218,45 +220,16 @@ export const useLocationStore = create<LocationState>((set, get) => ({
   // INITIALIZE
   // ============================================
   initialize: async () => {
-    logger.info('boot', '📍 Initializing location store V2...');
+    logger.info('boot', '📍 Initializing location store V3 (deferred permissions)...');
     set({ isLoading: true });
 
     try {
-      // Check if background permission already granted (skip disclosure)
+      // Check EXISTING permissions — do NOT request new ones at boot
       const existing = await checkPermissions();
-
-      let permissions: { foreground: boolean; background: boolean };
-
-      if (existing.background) {
-        // Already have background → no disclosure needed
-        permissions = existing;
-      } else {
-        // Check if disclosure was shown before
-        const disclosureShown = await AsyncStorage.getItem(LOCATION_DISCLOSURE_KEY);
-
-        if (disclosureShown) {
-          // Disclosure was shown before → request normally
-          permissions = await requestAllPermissions();
-        } else {
-          // First time — request foreground only, defer background to after disclosure
-          const foreground = await requestForegroundPermission();
-          permissions = { foreground, background: false };
-
-          if (foreground) {
-            // Signal UI to show disclosure modal
-            set({ needsLocationDisclosure: true });
-            logger.info('geofence', 'Location disclosure needed — deferring background permission');
-          }
-        }
-      }
-
-      if (!permissions.foreground) {
-        logger.warn('geofence', 'Location permission denied');
-        set({ permissionStatus: 'denied', isLoading: false });
-        return;
-      }
-
-      set({ permissionStatus: permissions.background ? 'granted' : 'restricted' });
+      const permissionStatus = existing.background ? 'granted'
+        : existing.foreground ? 'restricted'
+        : 'unknown';
+      set({ permissionStatus });
 
       // On web, populate in-memory cache from Supabase before first read
       const userId = useAuthStore.getState().getUserId();
@@ -267,32 +240,34 @@ export const useLocationStore = create<LocationState>((set, get) => ({
       // Load locations
       await get().reloadLocations();
 
-      // Get current location
-      const location = await getCurrentLocation();
-      if (location) {
-        set({ 
-          currentLocation: {
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
-            accuracy: location.accuracy,
-          }
-     });
-        
-        const { locations } = get();
-        for (const fence of locations) {
-          const distance = calculateDistanceMeters(
-            location.coords.latitude,
-            location.coords.longitude,
-            fence.latitude,
-            fence.longitude
-          );
-          if (distance <= fence.radius) {
-            logger.info('geofence', `📍 Boot: Already inside fence "${fence.name}"`);
-            set({ currentFenceId: fence.id });
-            break;
+      // Get current location ONLY if we already have foreground permission
+      if (existing.foreground) {
+        const location = await getCurrentLocation();
+        if (location) {
+          set({
+            currentLocation: {
+              latitude: location.coords.latitude,
+              longitude: location.coords.longitude,
+              accuracy: location.accuracy,
+            }
+          });
+
+          const { locations } = get();
+          for (const fence of locations) {
+            const distance = calculateDistanceMeters(
+              location.coords.latitude,
+              location.coords.longitude,
+              fence.latitude,
+              fence.longitude
+            );
+            if (distance <= fence.radius) {
+              logger.info('geofence', `📍 Boot: Already inside fence "${fence.name}"`);
+              set({ currentFenceId: fence.id });
+              break;
+            }
           }
         }
-      }  // <- fecha o if (location)
+      }
 
       // NOTE: Callbacks are registered in bootstrap.ts (singleton pattern)
       // DO NOT register here to avoid duplicates
@@ -308,16 +283,18 @@ export const useLocationStore = create<LocationState>((set, get) => ({
       }
 
       // ============================================
-      // AUTO-START MONITORING (NEW!)
+      // AUTO-START MONITORING (only if user previously enabled auto-logging)
       // ============================================
-      const { locations, permissionStatus } = get();
+      const autoLoggingEnabled = useSettingsStore.getState().autoLoggingEnabled;
+      const { locations } = get();
       const shouldMonitor = await loadMonitoringState();
-      
-      if (shouldMonitor && permissionStatus === 'granted' && locations.length > 0) {
-        logger.info('geofence', '🚀 Auto-starting monitoring...');
+
+      if (autoLoggingEnabled && shouldMonitor && permissionStatus === 'granted' && locations.length > 0) {
+        logger.info('geofence', '🚀 Auto-starting monitoring (returning user)...');
         await get().startMonitoring();
       } else {
         logger.info('geofence', 'Monitoring not auto-started', {
+          autoLoggingEnabled,
           shouldMonitor,
           hasPermission: permissionStatus === 'granted',
           hasLocations: locations.length > 0,
@@ -331,7 +308,7 @@ export const useLocationStore = create<LocationState>((set, get) => ({
         set({ isMonitoring: true });
       }
 
-      logger.info('boot', '✅ Location store V2 initialized');
+      logger.info('boot', '✅ Location store V3 initialized');
     } catch (error) {
       logger.error('boot', 'Error initializing location store', { error: String(error) });
     } finally {
@@ -348,15 +325,21 @@ export const useLocationStore = create<LocationState>((set, get) => ({
       await AsyncStorage.setItem(LOCATION_DISCLOSURE_KEY, 'true');
       set({ needsLocationDisclosure: false });
 
+      // Request foreground first if needed
+      const existing = await checkPermissions();
+      if (!existing.foreground) {
+        await requestForegroundPermission();
+      }
+
       // Now request background permission
       const granted = await requestBackgroundPermission();
       set({ permissionStatus: granted ? 'granted' : 'restricted' });
 
-      // If granted, try to start monitoring
+      // If granted, enable auto-logging and start monitoring
       if (granted) {
+        useSettingsStore.getState().updateSetting('autoLoggingEnabled', true);
         const { locations } = get();
-        const shouldMonitor = await loadMonitoringState();
-        if (shouldMonitor && locations.length > 0) {
+        if (locations.length > 0) {
           logger.info('geofence', '🚀 Starting monitoring after disclosure acceptance');
           await get().startMonitoring();
         }
@@ -372,6 +355,77 @@ export const useLocationStore = create<LocationState>((set, get) => ({
     AsyncStorage.setItem(LOCATION_DISCLOSURE_KEY, 'true').catch(() => {});
     set({ needsLocationDisclosure: false });
     logger.info('geofence', 'Location disclosure skipped by user');
+  },
+
+  // ============================================
+  // ENABLE/DISABLE AUTO-LOGGING
+  // Called from Locations screen toggle — triggers full permission flow
+  // ============================================
+  enableAutoLogging: async () => {
+    try {
+      // Check existing permissions first
+      const existing = await checkPermissions();
+
+      if (existing.background) {
+        // Already have all permissions — just enable
+        set({ permissionStatus: 'granted' });
+        useSettingsStore.getState().updateSetting('autoLoggingEnabled', true);
+
+        const { locations } = get();
+        if (locations.length > 0) {
+          await get().startMonitoring();
+        }
+        logger.info('geofence', '✅ Auto-logging enabled (permissions already granted)');
+        return true;
+      }
+
+      // Need to request permissions — show disclosure first
+      const disclosureShown = await AsyncStorage.getItem(LOCATION_DISCLOSURE_KEY);
+
+      if (!disclosureShown) {
+        // Show disclosure modal and wait for user action
+        set({ needsLocationDisclosure: true });
+        logger.info('geofence', 'Showing location disclosure before enabling auto-logging');
+        // completeLocationDisclosure() will finish the flow
+        return false; // Not yet enabled — waiting for disclosure
+      }
+
+      // Disclosure was shown before — request permissions directly
+      if (!existing.foreground) {
+        const foreground = await requestForegroundPermission();
+        if (!foreground) {
+          logger.warn('geofence', 'Foreground permission denied during auto-logging enable');
+          return false;
+        }
+      }
+
+      const background = await requestBackgroundPermission();
+      if (!background) {
+        set({ permissionStatus: 'restricted' });
+        logger.warn('geofence', 'Background permission denied during auto-logging enable');
+        return false;
+      }
+
+      set({ permissionStatus: 'granted' });
+      useSettingsStore.getState().updateSetting('autoLoggingEnabled', true);
+
+      const { locations } = get();
+      if (locations.length > 0) {
+        await get().startMonitoring();
+      }
+
+      logger.info('geofence', '✅ Auto-logging enabled');
+      return true;
+    } catch (error) {
+      logger.error('geofence', 'Error enabling auto-logging', { error: String(error) });
+      return false;
+    }
+  },
+
+  disableAutoLogging: async () => {
+    useSettingsStore.getState().updateSetting('autoLoggingEnabled', false);
+    await get().stopMonitoring();
+    logger.info('geofence', '⏹️ Auto-logging disabled');
   },
 
   // ============================================

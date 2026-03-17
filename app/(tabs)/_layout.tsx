@@ -70,19 +70,25 @@ export default function TabsLayout() {
         <Tabs.Screen
           name="map"
           options={{
-            title: 'Jobsites',
+            title: 'Locations',
             tabBarIcon: ({ color, size }) => (
               <Ionicons name="map" size={size} color={color} />
             ),
           }}
         />
         <Tabs.Screen
+          name="invoice"
+          options={{
+            title: 'Invoice',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="document-text" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
           name="team"
           options={{
-            title: 'Crew',
-            tabBarIcon: ({ color, size }) => (
-              <Ionicons name="people" size={size} color={color} />
-            ),
+            href: null,
           }}
         />
         <Tabs.Screen

@@ -651,7 +651,7 @@ export default function ReportsScreen() {
               <View style={heroStyles.cooldownRow}>
                 <Ionicons name="warning" size={14} color={colors.amber} />
                 <Text style={heroStyles.cooldownText}>
-                  You left the jobsite. Return within {cooldownSeconds}s or tracking stops.
+                  You left the location. Return within {cooldownSeconds}s or tracking stops.
                 </Text>
               </View>
             )}
@@ -698,6 +698,42 @@ export default function ReportsScreen() {
                 </Text>
               </PressableOpacity>
             )}
+          </View>
+        );
+      })()}
+
+      {/* TODAY'S HOURS CARD */}
+      {(() => {
+        const today = new Date();
+        const todaySessions = getSessionsForDay(today);
+        const todayMinutes = getTotalMinutesForDay(today);
+        const firstSession = todaySessions.length > 0 ? todaySessions[0] : null;
+        const entryTime = firstSession?.entry_at
+          ? formatTimeAMPM(firstSession.entry_at)
+          : null;
+        const totalPause = todaySessions.reduce((sum, s) => sum + (s.pause_minutes || 0), 0);
+
+        if (todayMinutes === 0 && !currentSession) return null;
+
+        return (
+          <View style={todayStyles.card}>
+            <View style={todayStyles.row}>
+              <View style={todayStyles.iconCircle}>
+                <Ionicons name="time-outline" size={20} color={colors.primary} />
+              </View>
+              <View style={todayStyles.content}>
+                <Text style={todayStyles.title}>Today's Hours</Text>
+                <Text style={todayStyles.value}>{formatCompact(todayMinutes)}</Text>
+              </View>
+              {entryTime && (
+                <View style={todayStyles.details}>
+                  <Text style={todayStyles.detailText}>Entry: {entryTime}</Text>
+                  {totalPause > 0 && (
+                    <Text style={todayStyles.detailText}>Break: {formatCompact(totalPause)}</Text>
+                  )}
+                </View>
+              )}
+            </View>
           </View>
         );
       })()}
@@ -881,14 +917,25 @@ export default function ReportsScreen() {
 
             {/* Export button inside calendar scroll */}
             {!dateRangeMode && (
-              <PressableOpacity
-                style={reportStyles.exportInlineBtn}
-                activeOpacity={0.7}
-                onPress={() => setDateRangeMode(true)}
-              >
-                <Ionicons name="calendar-outline" size={18} color={colors.white} />
-                <Text style={reportStyles.exportInlineBtnText}>Select Dates to Export</Text>
-              </PressableOpacity>
+              <>
+                <PressableOpacity
+                  style={reportStyles.exportInlineBtn}
+                  activeOpacity={0.7}
+                  onPress={() => setDateRangeMode(true)}
+                >
+                  <Ionicons name="calendar-outline" size={18} color={colors.white} />
+                  <Text style={reportStyles.exportInlineBtnText}>Select Dates to Export</Text>
+                </PressableOpacity>
+
+                <PressableOpacity
+                  style={todayStyles.invoiceBtn}
+                  activeOpacity={0.7}
+                  onPress={() => router.push('/(tabs)/invoice' as any)}
+                >
+                  <Ionicons name="document-text-outline" size={18} color={colors.accent} />
+                  <Text style={todayStyles.invoiceBtnText}>Generate Invoice</Text>
+                </PressableOpacity>
+              </>
             )}
 
       </ScrollView>
@@ -2916,4 +2963,73 @@ const heroStyles = StyleSheet.create({
     color: colors.iconMuted,
   },
 
+});
+
+// ============================================
+// TODAY'S HOURS + INVOICE STYLES
+// ============================================
+
+const todayStyles = StyleSheet.create({
+  card: {
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    marginHorizontal: 16,
+    marginTop: 8,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  iconCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.primarySoft,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  content: {
+    flex: 1,
+  },
+  title: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    fontWeight: '500',
+  },
+  value: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  details: {
+    alignItems: 'flex-end',
+  },
+  detailText: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    lineHeight: 18,
+  },
+  invoiceBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 4,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: colors.accent,
+    backgroundColor: colors.card,
+  },
+  invoiceBtnText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.accent,
+  },
 });

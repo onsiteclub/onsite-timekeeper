@@ -1,5 +1,5 @@
 /**
- * Jobsites Screen - OnSite Timekeeper
+ * Locations Screen - OnSite Timekeeper
  *
  * v2: Map (75%) + Bottom Panel (25%)
  * - Single fence limit (delete to add new)
@@ -17,9 +17,12 @@ import {
   Animated,
   KeyboardAvoidingView,
   Platform,
+  Switch,
+  StyleSheet,
 } from 'react-native';
 import MapView, { Marker, Circle, PROVIDER_GOOGLE } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors, withOpacity } from '../../src/constants/colors';
 import { useMapScreen } from '../../src/screens/map/hooks';
@@ -32,6 +35,7 @@ import { MapPermissionBanner } from '../../src/components/PermissionBanner';
 const pinIcon = require('../../assets/notification-icon.png');
 
 export default function MapScreen() {
+  const insets = useSafeAreaInsets();
   const {
     mapRef, nameInputRef, shakeAnimation,
     region, mapCenter,
@@ -39,6 +43,7 @@ export default function MapScreen() {
     fenceName, setFenceName, fenceNameError, setFenceNameError,
     selectedRadius, setSelectedRadius, isAdding,
     currentLocation,
+    autoLoggingEnabled, isTogglingAutoLog, handleToggleAutoLogging,
     handleMapReady, handleMapPress, handleRegionChange,
     handleSelectSearchResult, handleGoToMyLocation,
     handleAddFence, handleDeleteFence, handleChangeRadius,
@@ -52,7 +57,31 @@ export default function MapScreen() {
       behavior="padding"
       keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
     >
-      {/* ===== MAP SECTION (75%) ===== */}
+      {/* ===== AUTO-LOGGING INFO CARD ===== */}
+      <View style={[autoLogStyles.card, { paddingTop: insets.top + 8 }]}>
+        <View style={autoLogStyles.row}>
+          <View style={autoLogStyles.iconCircle}>
+            <Ionicons name="location-outline" size={20} color={colors.primary} />
+          </View>
+          <View style={autoLogStyles.textWrap}>
+            <Text style={autoLogStyles.title}>Automatic Time Logging</Text>
+            <Text style={autoLogStyles.subtitle}>
+              {autoLoggingEnabled
+                ? 'Recording arrival and departure at saved locations'
+                : 'Optional. You can always log time manually.'}
+            </Text>
+          </View>
+          <Switch
+            value={autoLoggingEnabled}
+            onValueChange={handleToggleAutoLogging}
+            disabled={isTogglingAutoLog}
+            trackColor={{ false: colors.border, true: colors.primarySoft }}
+            thumbColor={autoLoggingEnabled ? colors.primary : '#f4f3f4'}
+          />
+        </View>
+      </View>
+
+      {/* ===== MAP SECTION ===== */}
       <View style={styles.mapContainer}>
         <MapView
           ref={mapRef}
@@ -154,7 +183,7 @@ export default function MapScreen() {
                 <TextInput
                   ref={nameInputRef}
                   style={[styles.nameInput, fenceNameError && styles.nameInputError]}
-                  placeholder="Jobsite name (e.g. Main Office)"
+                  placeholder="Location name (e.g. Main Office)"
                   placeholderTextColor={colors.textSecondary}
                   value={fenceName}
                   onChangeText={(text) => {
@@ -180,7 +209,7 @@ export default function MapScreen() {
             >
               <Ionicons name="add-circle-outline" size={20} color={colors.buttonPrimaryText} />
               <Text style={styles.addButtonText}>
-                {isAdding ? 'Adding...' : 'Add Jobsite'}
+                {isAdding ? 'Adding...' : 'Add Location'}
               </Text>
             </TouchableOpacity>
           </View>
@@ -204,7 +233,7 @@ export default function MapScreen() {
               activeOpacity={0.7}
             >
               <Ionicons name="trash-outline" size={18} color={colors.error} />
-              <Text style={styles.deleteButtonText}>Delete Jobsite</Text>
+              <Text style={styles.deleteButtonText}>Delete Location</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -212,3 +241,40 @@ export default function MapScreen() {
     </KeyboardAvoidingView>
   );
 }
+
+const autoLogStyles = StyleSheet.create({
+  card: {
+    backgroundColor: colors.card,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  iconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.primarySoft,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  textWrap: {
+    flex: 1,
+  },
+  title: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  subtitle: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginTop: 1,
+    lineHeight: 16,
+  },
+});

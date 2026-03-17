@@ -69,7 +69,7 @@ export function BatteryOptimizationModal({ visible, onDismiss }: Props) {
 
           {/* Body */}
           <Text style={styles.body}>
-            To track your work hours reliably, OnSite needs to run in the background
+            To keep your time records accurate, OnSite needs to run in the background
             without restrictions.
             {'\n\n'}
             Tap below and select{' '}

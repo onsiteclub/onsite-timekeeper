@@ -1,7 +1,7 @@
 /**
  * Map Screen Hooks - OnSite Timekeeper
  *
- * Custom hook for the Jobsites screen (v2: bottom panel, 1-fence limit)
+ * Custom hook for the Locations screen (v2: bottom panel, 1-fence limit)
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react';
@@ -17,6 +17,7 @@ import {
   selectLocations,
   selectCurrentLocation,
 } from '../../stores/locationStore';
+import { useSettingsStore } from '../../stores/settingsStore';
 import { logger } from '../../lib/logger';
 import { getRandomGeofenceColor } from '../../constants/colors';
 import {
@@ -49,6 +50,12 @@ export function useMapScreen() {
   const removeLocation = useLocationStore(s => s.removeLocation);
   const editLocation = useLocationStore(s => s.editLocation);
   const refreshCurrentLocation = useLocationStore(s => s.refreshCurrentLocation);
+  const enableAutoLogging = useLocationStore(s => s.enableAutoLogging);
+  const disableAutoLogging = useLocationStore(s => s.disableAutoLogging);
+
+  // Auto-logging state
+  const autoLoggingEnabled = useSettingsStore(s => s.autoLoggingEnabled);
+  const [isTogglingAutoLog, setIsTogglingAutoLog] = useState(false);
 
   // ============================================
   // DERIVED STATE
@@ -262,7 +269,7 @@ export function useMapScreen() {
     if (locations.length > 0) {
       const existing = locations[0];
       Alert.alert(
-        'Replace Jobsite?',
+        'Replace Location?',
         `You already have "${existing.name}" saved.\n\nReplace it with "${fenceName.trim()}"?`,
         [
           { text: 'Keep Current', style: 'cancel' },
@@ -275,7 +282,7 @@ export function useMapScreen() {
                 logger.info('ui', `Fence replaced: "${existing.name}" → "${fenceName.trim()}"`);
                 await doAddFence();
               } catch (error: any) {
-                Alert.alert('Error', error.message || 'Could not replace jobsite');
+                Alert.alert('Error', error.message || 'Could not replace location');
               }
             },
           },
@@ -292,7 +299,7 @@ export function useMapScreen() {
     if (!f) return;
 
     Alert.alert(
-      'Delete Jobsite?',
+      'Delete Location?',
       `"${f.name}" will be permanently removed.\n\nYour logged hours will NOT be deleted.`,
       [
         { text: 'Cancel', style: 'cancel' },
@@ -323,6 +330,23 @@ export function useMapScreen() {
       Alert.alert('Error', error.message || 'Could not change radius');
     }
   }, [locations, editLocation]);
+
+  // ============================================
+  // AUTO-LOGGING TOGGLE
+  // ============================================
+
+  const handleToggleAutoLogging = useCallback(async (value: boolean) => {
+    setIsTogglingAutoLog(true);
+    try {
+      if (value) {
+        await enableAutoLogging();
+      } else {
+        await disableAutoLogging();
+      }
+    } finally {
+      setIsTogglingAutoLog(false);
+    }
+  }, [enableAutoLogging, disableAutoLogging]);
 
   // ============================================
   // RETURN
@@ -356,6 +380,11 @@ export function useMapScreen() {
     // Store data
     locations,
     currentLocation,
+
+    // Auto-logging
+    autoLoggingEnabled,
+    isTogglingAutoLog,
+    handleToggleAutoLogging,
 
     // Handlers
     handleMapReady,

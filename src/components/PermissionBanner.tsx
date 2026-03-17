@@ -118,7 +118,7 @@ export function NotificationDisabledBanner() {
     <PermissionBanner
       type="error"
       title="Notifications disabled"
-      message="Enable notifications to track your work hours automatically. Without this, the app cannot run in the background."
+      message="Enable notifications for automatic time tracking reminders. Without this, background features may not work reliably."
       actionLabel="Enable"
       onAction={openAppSettings}
       icon="notifications-off"
@@ -141,7 +141,7 @@ export function LocationPermissionBanner() {
     <PermissionBanner
       type="warning"
       title="Location access limited"
-      message="Set location to 'Always Allow' for automatic time tracking when you arrive or leave work sites."
+      message="Set location to 'Always Allow' for automatic time tracking when you arrive or leave your saved locations."
       actionLabel="Allow"
       onAction={async () => {
         const granted = await requestLocationPermission();
