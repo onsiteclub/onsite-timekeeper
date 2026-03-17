@@ -192,6 +192,35 @@ export default function ReportsScreen() {
   }, [viewDate]);
 
   // ============================================
+  // TIMER MODAL STATE
+  // ============================================
+  const [timerModalVisible, setTimerModalVisible] = useState(false);
+  const userMinimizedRef = useRef(false);
+
+  // Auto-open modal when session starts
+  useEffect(() => {
+    if (currentSession) {
+      if (!userMinimizedRef.current) {
+        setTimerModalVisible(true);
+      }
+    } else {
+      // Session ended — reset
+      setTimerModalVisible(false);
+      userMinimizedRef.current = false;
+    }
+  }, [!!currentSession]);
+
+  const minimizeTimer = useCallback(() => {
+    userMinimizedRef.current = true;
+    setTimerModalVisible(false);
+  }, []);
+
+  const expandTimer = useCallback(() => {
+    userMinimizedRef.current = false;
+    setTimerModalVisible(true);
+  }, []);
+
+  // ============================================
   // AM/PM STATE FOR MANUAL ENTRY MODAL
   // ============================================
   const [entryPeriod, setEntryPeriod] = useState<'AM' | 'PM'>('AM');
@@ -586,158 +615,6 @@ export default function ReportsScreen() {
       <StatusBar barStyle="dark-content" backgroundColor="#F3F4F6" />
 
       <View style={reportStyles.container}>
-      {/* TIMER HERO CARD */}
-      {(() => {
-        const isActive = !!currentSession && !isPaused;
-        const isPausedState = !!currentSession && isPaused;
-        const isReady = !currentSession && !!canRestart;
-        const isLocked = !currentSession && !canRestart;
-
-        const locationName = currentSession?.location_name
-          || activeLocation?.name
-          || null;
-
-        return (
-          <View style={[
-            heroStyles.card,
-            isActive && heroStyles.cardActive,
-            isPausedState && heroStyles.cardPaused,
-            isLocked && heroStyles.cardLocked,
-          ]}>
-            {/* Location chip */}
-            <View style={[
-              heroStyles.chip,
-              isActive && heroStyles.chipActive,
-              isPausedState && heroStyles.chipPaused,
-              isLocked && heroStyles.chipLocked,
-            ]}>
-              <Ionicons
-                name={isLocked ? 'lock-closed' : 'location'}
-                size={13}
-                color={isActive ? colors.green : isPausedState ? colors.amber : isReady ? colors.green : colors.iconMuted}
-              />
-              <Text style={[
-                heroStyles.chipText,
-                isActive && heroStyles.chipTextActive,
-                isPausedState && heroStyles.chipTextPaused,
-                isLocked && heroStyles.chipTextLocked,
-              ]} numberOfLines={1}>
-                {locationName || (isGeofencingActive ? 'Waiting for location...' : 'No location set')}
-              </Text>
-            </View>
-
-            {/* Timer display */}
-            <Text style={[
-              heroStyles.timer,
-              isActive && heroStyles.timerActive,
-              isPausedState && heroStyles.timerPaused,
-              isLocked && heroStyles.timerLocked,
-            ]}>
-              {currentSession ? timer : '00:00:00'}
-            </Text>
-
-            {/* Break line (only when active/paused) */}
-            {currentSession && (
-              <Text style={[
-                heroStyles.breakText,
-                isPausedState && heroStyles.breakTextPaused,
-              ]}>
-                {isPaused ? `☕ break: ${pauseTimer}` : `☕ ${pauseTimer}`}
-              </Text>
-            )}
-
-            {/* Cooldown warning */}
-            {cooldownSeconds > 0 && (
-              <View style={heroStyles.cooldownRow}>
-                <Ionicons name="warning" size={14} color={colors.amber} />
-                <Text style={heroStyles.cooldownText}>
-                  You left the location. Return within {cooldownSeconds}s or tracking stops.
-                </Text>
-              </View>
-            )}
-
-            {/* Progress bar */}
-            <View style={heroStyles.progressTrack}>
-              {isActive && <View style={[heroStyles.progressFill, { width: '100%' }]} />}
-              {isPausedState && <View style={[heroStyles.progressFillPaused, { width: '60%' }]} />}
-            </View>
-
-            {/* Action button */}
-            {currentSession ? (
-              <View style={heroStyles.actions}>
-                {isPaused ? (
-                  <PressableOpacity style={heroStyles.resumeBtn} onPress={handleResume} activeOpacity={0.8}>
-                    <Ionicons name="play" size={18} color={colors.white} />
-                    <Text style={heroStyles.btnTextLight}>RESUME</Text>
-                  </PressableOpacity>
-                ) : (
-                  <PressableOpacity style={heroStyles.pauseBtn} onPress={handlePause} activeOpacity={0.8}>
-                    <Ionicons name="pause" size={18} color={colors.white} />
-                    <Text style={heroStyles.btnTextLight}>PAUSE</Text>
-                  </PressableOpacity>
-                )}
-                <PressableOpacity style={heroStyles.stopBtn} onPress={handleStop} activeOpacity={0.8}>
-                  <Ionicons name="stop" size={16} color={colors.error} />
-                  <Text style={heroStyles.stopBtnText}>STOP</Text>
-                </PressableOpacity>
-              </View>
-            ) : (
-              <PressableOpacity
-                style={[heroStyles.startBtn, isLocked && heroStyles.startBtnLocked]}
-                onPress={isReady ? handleRestart : undefined}
-                activeOpacity={isReady ? 0.8 : 1}
-                disabled={isLocked}
-              >
-                <Ionicons
-                  name={isLocked ? 'lock-closed' : 'play'}
-                  size={18}
-                  color={isLocked ? colors.iconMuted : colors.white}
-                />
-                <Text style={[heroStyles.btnTextLight, isLocked && heroStyles.btnTextLocked]}>
-                  START
-                </Text>
-              </PressableOpacity>
-            )}
-          </View>
-        );
-      })()}
-
-      {/* TODAY'S HOURS CARD */}
-      {(() => {
-        const today = new Date();
-        const todaySessions = getSessionsForDay(today);
-        const todayMinutes = getTotalMinutesForDay(today);
-        const firstSession = todaySessions.length > 0 ? todaySessions[0] : null;
-        const entryTime = firstSession?.entry_at
-          ? formatTimeAMPM(firstSession.entry_at)
-          : null;
-        const totalPause = todaySessions.reduce((sum, s) => sum + (s.pause_minutes || 0), 0);
-
-        if (todayMinutes === 0 && !currentSession) return null;
-
-        return (
-          <View style={todayStyles.card}>
-            <View style={todayStyles.row}>
-              <View style={todayStyles.iconCircle}>
-                <Ionicons name="time-outline" size={20} color={colors.primary} />
-              </View>
-              <View style={todayStyles.content}>
-                <Text style={todayStyles.title}>Today's Hours</Text>
-                <Text style={todayStyles.value}>{formatCompact(todayMinutes)}</Text>
-              </View>
-              {entryTime && (
-                <View style={todayStyles.details}>
-                  <Text style={todayStyles.detailText}>Entry: {entryTime}</Text>
-                  {totalPause > 0 && (
-                    <Text style={todayStyles.detailText}>Break: {formatCompact(totalPause)}</Text>
-                  )}
-                </View>
-              )}
-            </View>
-          </View>
-        );
-      })()}
-
       {/* CALENDAR CARD - Hidden in date range mode */}
       {!dateRangeMode && (
         <Card style={reportStyles.calendarCard}>
@@ -915,27 +792,16 @@ export default function ReportsScreen() {
               </View>
             </View>
 
-            {/* Export button inside calendar scroll */}
+            {/* Generate Invoice button inside calendar scroll */}
             {!dateRangeMode && (
-              <>
-                <PressableOpacity
-                  style={reportStyles.exportInlineBtn}
-                  activeOpacity={0.7}
-                  onPress={() => setDateRangeMode(true)}
-                >
-                  <Ionicons name="calendar-outline" size={18} color={colors.white} />
-                  <Text style={reportStyles.exportInlineBtnText}>Select Dates to Export</Text>
-                </PressableOpacity>
-
-                <PressableOpacity
-                  style={todayStyles.invoiceBtn}
-                  activeOpacity={0.7}
-                  onPress={() => router.push('/(tabs)/invoice' as any)}
-                >
-                  <Ionicons name="document-text-outline" size={18} color={colors.accent} />
-                  <Text style={todayStyles.invoiceBtnText}>Generate Invoice</Text>
-                </PressableOpacity>
-              </>
+              <PressableOpacity
+                style={todayStyles.invoiceBtn}
+                activeOpacity={0.7}
+                onPress={() => setDateRangeMode(true)}
+              >
+                <Ionicons name="document-text-outline" size={18} color={colors.accent} />
+                <Text style={todayStyles.invoiceBtnText}>Generate Invoice</Text>
+              </PressableOpacity>
             )}
 
       </ScrollView>
@@ -1396,7 +1262,7 @@ export default function ReportsScreen() {
 
             {/* Header */}
             <View style={reportStyles.exportModalHeader}>
-              <Text style={reportStyles.exportModalTitle}>Export Timesheet</Text>
+              <Text style={reportStyles.exportModalTitle}>Generate Invoice</Text>
               <PressableOpacity
                 style={reportStyles.exportModalClose}
                 onPress={() => {
@@ -1476,12 +1342,155 @@ export default function ReportsScreen() {
                 disabled={isExporting}
               >
                 <Ionicons name={isExporting ? "hourglass-outline" : "document-text-outline"} size={20} color={colors.white} />
-                <Text style={reportStyles.exportModalBtnText}>{isExporting ? 'Generating...' : 'Export PDF'}</Text>
+                <Text style={reportStyles.exportModalBtnText}>{isExporting ? 'Generating...' : 'Generate Invoice'}</Text>
               </PressableOpacity>
             </View>
           </View>
         </View>
       </Modal>
+
+      {/* TIMER MODAL (overlay) */}
+      <Modal
+        visible={timerModalVisible}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={minimizeTimer}
+      >
+        <View style={timerModalStyles.overlay}>
+          <View style={timerModalStyles.card}>
+            {(() => {
+              const isActive = !!currentSession && !isPaused;
+              const isPausedState = !!currentSession && isPaused;
+              const locationName = currentSession?.location_name || activeLocation?.name || null;
+
+              return (
+                <>
+                  {/* Location chip */}
+                  <View style={[
+                    heroStyles.chip,
+                    isActive && heroStyles.chipActive,
+                    isPausedState && heroStyles.chipPaused,
+                  ]}>
+                    <Ionicons
+                      name="location"
+                      size={13}
+                      color={isActive ? colors.green : isPausedState ? colors.amber : colors.iconMuted}
+                    />
+                    <Text style={[
+                      heroStyles.chipText,
+                      isActive && heroStyles.chipTextActive,
+                      isPausedState && heroStyles.chipTextPaused,
+                    ]} numberOfLines={1}>
+                      {locationName || 'Timer'}
+                    </Text>
+                  </View>
+
+                  {/* Timer display */}
+                  <Text style={[
+                    heroStyles.timer,
+                    isActive && heroStyles.timerActive,
+                    isPausedState && heroStyles.timerPaused,
+                  ]}>
+                    {currentSession ? timer : '00:00:00'}
+                  </Text>
+
+                  {/* Break line */}
+                  {currentSession && (
+                    <Text style={[
+                      heroStyles.breakText,
+                      isPausedState && heroStyles.breakTextPaused,
+                    ]}>
+                      {isPaused ? `☕ break: ${pauseTimer}` : `☕ ${pauseTimer}`}
+                    </Text>
+                  )}
+
+                  {/* Cooldown warning */}
+                  {cooldownSeconds > 0 && (
+                    <View style={heroStyles.cooldownRow}>
+                      <Ionicons name="warning" size={14} color={colors.amber} />
+                      <Text style={heroStyles.cooldownText}>
+                        You left the location. Return within {cooldownSeconds}s or tracking stops.
+                      </Text>
+                    </View>
+                  )}
+
+                  {/* Progress bar */}
+                  <View style={heroStyles.progressTrack}>
+                    {isActive && <View style={[heroStyles.progressFill, { width: '100%' }]} />}
+                    {isPausedState && <View style={[heroStyles.progressFillPaused, { width: '60%' }]} />}
+                  </View>
+
+                  {/* Action buttons */}
+                  {currentSession && (
+                    <View style={heroStyles.actions}>
+                      {isPaused ? (
+                        <PressableOpacity style={heroStyles.resumeBtn} onPress={handleResume} activeOpacity={0.8}>
+                          <Ionicons name="play" size={18} color={colors.white} />
+                          <Text style={heroStyles.btnTextLight}>RESUME</Text>
+                        </PressableOpacity>
+                      ) : (
+                        <PressableOpacity style={heroStyles.pauseBtn} onPress={handlePause} activeOpacity={0.8}>
+                          <Ionicons name="pause" size={18} color={colors.white} />
+                          <Text style={heroStyles.btnTextLight}>PAUSE</Text>
+                        </PressableOpacity>
+                      )}
+                      <PressableOpacity style={heroStyles.stopBtn} onPress={handleStop} activeOpacity={0.8}>
+                        <Ionicons name="stop" size={16} color={colors.error} />
+                        <Text style={heroStyles.stopBtnText}>STOP</Text>
+                      </PressableOpacity>
+                    </View>
+                  )}
+
+                  {/* Minimize button */}
+                  <PressableOpacity style={timerModalStyles.minimizeBtn} onPress={minimizeTimer} activeOpacity={0.7}>
+                    <Ionicons name="chevron-down" size={20} color={colors.textSecondary} />
+                    <Text style={timerModalStyles.minimizeBtnText}>Minimize</Text>
+                  </PressableOpacity>
+                </>
+              );
+            })()}
+          </View>
+        </View>
+      </Modal>
+
+      {/* TIMER BAR (bottom strip, always visible) */}
+      {(() => {
+        const isActive = !!currentSession && !isPaused;
+        const isPausedState = !!currentSession && isPaused;
+        const locationName = currentSession?.location_name || activeLocation?.name || null;
+
+        if (!currentSession) {
+          return (
+            <View style={timerBarStyles.bar}>
+              <Ionicons name="time-outline" size={16} color={colors.iconMuted} />
+              <Text style={timerBarStyles.inactiveText}>No active timer</Text>
+            </View>
+          );
+        }
+
+        return (
+          <PressableOpacity style={timerBarStyles.bar} onPress={expandTimer} activeOpacity={0.7}>
+            <View style={[
+              timerBarStyles.dot,
+              isActive && timerBarStyles.dotActive,
+              isPausedState && timerBarStyles.dotPaused,
+            ]} />
+            <Text style={[
+              timerBarStyles.timerText,
+              isActive && timerBarStyles.timerTextActive,
+              isPausedState && timerBarStyles.timerTextPaused,
+            ]}>
+              {timer}
+            </Text>
+            <Ionicons name="location" size={14} color={colors.textSecondary} />
+            <Text style={timerBarStyles.locationText} numberOfLines={1}>
+              {locationName || 'Timer'}
+            </Text>
+            <Ionicons name="chevron-up" size={16} color={colors.textSecondary} />
+          </PressableOpacity>
+        );
+      })()}
 
       {/* iOS: Done button above number-pad keyboard */}
       {Platform.OS === 'ios' && (
@@ -2970,49 +2979,6 @@ const heroStyles = StyleSheet.create({
 // ============================================
 
 const todayStyles = StyleSheet.create({
-  card: {
-    backgroundColor: colors.card,
-    borderRadius: 16,
-    marginHorizontal: 16,
-    marginTop: 8,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: colors.cardBorder,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  iconCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.primarySoft,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  content: {
-    flex: 1,
-  },
-  title: {
-    fontSize: 13,
-    color: colors.textSecondary,
-    fontWeight: '500',
-  },
-  value: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  details: {
-    alignItems: 'flex-end',
-  },
-  detailText: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    lineHeight: 18,
-  },
   invoiceBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -3031,5 +2997,98 @@ const todayStyles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: colors.accent,
+  },
+});
+
+// ============================================
+// TIMER BAR STYLES (bottom strip)
+// ============================================
+
+const timerBarStyles = StyleSheet.create({
+  bar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: colors.card,
+    borderTopWidth: 1,
+    borderTopColor: colors.borderLight,
+  },
+  inactiveText: {
+    fontSize: 13,
+    color: colors.iconMuted,
+    fontWeight: '500',
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.iconMuted,
+  },
+  dotActive: {
+    backgroundColor: colors.green,
+  },
+  dotPaused: {
+    backgroundColor: colors.amber,
+  },
+  timerText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.text,
+    fontVariant: ['tabular-nums'] as any,
+  },
+  timerTextActive: {
+    color: colors.green,
+  },
+  timerTextPaused: {
+    color: colors.amber,
+  },
+  locationText: {
+    flex: 1,
+    fontSize: 13,
+    color: colors.textSecondary,
+    fontWeight: '500',
+  },
+});
+
+// ============================================
+// TIMER MODAL STYLES (overlay)
+// ============================================
+
+const timerModalStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(16, 24, 40, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  card: {
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 28,
+    borderRadius: 24,
+    gap: 8,
+    backgroundColor: colors.white,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 24,
+    elevation: 12,
+  },
+  minimizeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 16,
+  },
+  minimizeBtnText: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    fontWeight: '500',
   },
 });
