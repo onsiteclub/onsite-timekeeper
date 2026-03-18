@@ -1,9 +1,9 @@
 /**
  * Locations Screen - OnSite Timekeeper
  *
- * v2: Map (75%) + Bottom Panel (25%)
+ * v3: Map (75%) + Bottom Panel (25%)
  * - Single fence limit (delete to add new)
- * - Bottom panel replaces modals
+ * - Bottom panel with stepper, auto-logging toggle, trigger mode
  * - Reverse geocoding for address display
  */
 
@@ -18,37 +18,40 @@ import {
   KeyboardAvoidingView,
   Platform,
   Switch,
+  ScrollView,
   StyleSheet,
 } from 'react-native';
 import MapView, { Marker, Circle, PROVIDER_GOOGLE } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors, withOpacity } from '../../src/constants/colors';
 import { useMapScreen } from '../../src/screens/map/hooks';
 import { SearchBox } from '../../src/screens/map/SearchBox';
 import { styles } from '../../src/screens/map/styles';
-import { RadiusSlider } from '../../src/screens/map/RadiusSlider';
+import { RADIUS_MIN, RADIUS_MAX, RADIUS_STEP } from '../../src/screens/map/constants';
 import { MapPermissionBanner } from '../../src/components/PermissionBanner';
+import { usePermissionStatus } from '../../src/hooks/usePermissionStatus';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const pinIcon = require('../../assets/notification-icon.png');
 
 export default function MapScreen() {
-  const insets = useSafeAreaInsets();
   const {
     mapRef, nameInputRef, shakeAnimation,
     region, mapCenter,
     fence, panelState, address, isGeocoding,
     fenceName, setFenceName, fenceNameError, setFenceNameError,
-    selectedRadius, setSelectedRadius, isAdding,
+    selectedRadius, isAdding,
     currentLocation,
     autoLoggingEnabled, isTogglingAutoLog, handleToggleAutoLogging,
     triggerMode, handleTriggerModeChange,
     handleMapReady, handleMapPress, handleRegionChange,
     handleSelectSearchResult, handleGoToMyLocation,
-    handleAddFence, handleDeleteFence, handleChangeRadius,
+    handleAddFence, handleDeleteFence,
+    handleStepRadius, handleStepSelectedRadius,
   } = useMapScreen();
+
+  const { canTrackReliably, openAppSettings } = usePermissionStatus();
 
   const isAddingMode = panelState === 'adding';
 
@@ -58,30 +61,6 @@ export default function MapScreen() {
       behavior="padding"
       keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
     >
-      {/* ===== AUTO-LOGGING INFO CARD ===== */}
-      <View style={[autoLogStyles.card, { paddingTop: insets.top + 8 }]}>
-        <View style={autoLogStyles.row}>
-          <View style={autoLogStyles.iconCircle}>
-            <Ionicons name="location-outline" size={20} color={colors.primary} />
-          </View>
-          <View style={autoLogStyles.textWrap}>
-            <Text style={autoLogStyles.title}>Automatic Time Logging</Text>
-            <Text style={autoLogStyles.subtitle}>
-              {autoLoggingEnabled
-                ? 'Recording arrival and departure at saved locations'
-                : 'Optional. You can always log time manually.'}
-            </Text>
-          </View>
-          <Switch
-            value={autoLoggingEnabled}
-            onValueChange={handleToggleAutoLogging}
-            disabled={isTogglingAutoLog}
-            trackColor={{ false: colors.border, true: colors.primarySoft }}
-            thumbColor={autoLoggingEnabled ? colors.primary : '#f4f3f4'}
-          />
-        </View>
-      </View>
-
       {/* ===== MAP SECTION ===== */}
       <View style={styles.mapContainer}>
         <MapView
@@ -170,7 +149,7 @@ export default function MapScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* ===== BOTTOM PANEL (25%) ===== */}
+      {/* ===== BOTTOM PANEL ===== */}
       <View style={styles.panel}>
         {/* Panel handle */}
         <View style={styles.panelHandle} />
@@ -197,8 +176,29 @@ export default function MapScreen() {
                 />
               </Animated.View>
 
-              {/* Radius slider */}
-              <RadiusSlider value={selectedRadius} onValueChange={setSelectedRadius} />
+              {/* Radius stepper */}
+              <View style={panelConfigStyles.radiusRow}>
+                <Text style={panelConfigStyles.radiusLabel}>Detection radius</Text>
+                <View style={panelConfigStyles.stepper}>
+                  <TouchableOpacity
+                    style={[panelConfigStyles.stepperBtn, selectedRadius <= RADIUS_MIN && panelConfigStyles.stepperBtnDisabled]}
+                    onPress={() => handleStepSelectedRadius(-RADIUS_STEP)}
+                    disabled={selectedRadius <= RADIUS_MIN}
+                    activeOpacity={0.6}
+                  >
+                    <Ionicons name="remove" size={20} color={selectedRadius <= RADIUS_MIN ? colors.border : colors.text} />
+                  </TouchableOpacity>
+                  <Text style={panelConfigStyles.stepperValue}>{selectedRadius}m</Text>
+                  <TouchableOpacity
+                    style={[panelConfigStyles.stepperBtn, selectedRadius >= RADIUS_MAX && panelConfigStyles.stepperBtnDisabled]}
+                    onPress={() => handleStepSelectedRadius(RADIUS_STEP)}
+                    disabled={selectedRadius >= RADIUS_MAX}
+                    activeOpacity={0.6}
+                  >
+                    <Ionicons name="add" size={20} color={selectedRadius >= RADIUS_MAX ? colors.border : colors.text} />
+                  </TouchableOpacity>
+                </View>
+              </View>
             </View>
 
             {/* Add button */}
@@ -216,15 +216,56 @@ export default function MapScreen() {
           </View>
         ) : (
           // STATE B: Fence configured
-          <View style={styles.panelContent}>
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.panelContent} bounces={false}>
             <View>
               {/* Fence name */}
               <Text style={styles.fenceName} numberOfLines={1}>
                 {fence!.name}
               </Text>
 
-              {/* Radius slider (saves immediately on change) */}
-              <RadiusSlider value={fence!.radius} onValueChange={handleChangeRadius} />
+              {/* Address */}
+              {address ? (
+                <View style={styles.addressRow}>
+                  <Ionicons name="location-outline" size={14} color={colors.textSecondary} />
+                  <Text style={styles.addressText} numberOfLines={1}>{address}</Text>
+                </View>
+              ) : null}
+
+              {/* Radius stepper */}
+              <View style={panelConfigStyles.radiusRow}>
+                <Text style={panelConfigStyles.radiusLabel}>Detection radius</Text>
+                <View style={panelConfigStyles.stepper}>
+                  <TouchableOpacity
+                    style={[panelConfigStyles.stepperBtn, fence!.radius <= RADIUS_MIN && panelConfigStyles.stepperBtnDisabled]}
+                    onPress={() => handleStepRadius(-RADIUS_STEP)}
+                    disabled={fence!.radius <= RADIUS_MIN}
+                    activeOpacity={0.6}
+                  >
+                    <Ionicons name="remove" size={20} color={fence!.radius <= RADIUS_MIN ? colors.border : colors.text} />
+                  </TouchableOpacity>
+                  <Text style={panelConfigStyles.stepperValue}>{fence!.radius}m</Text>
+                  <TouchableOpacity
+                    style={[panelConfigStyles.stepperBtn, fence!.radius >= RADIUS_MAX && panelConfigStyles.stepperBtnDisabled]}
+                    onPress={() => handleStepRadius(RADIUS_STEP)}
+                    disabled={fence!.radius >= RADIUS_MAX}
+                    activeOpacity={0.6}
+                  >
+                    <Ionicons name="add" size={20} color={fence!.radius >= RADIUS_MAX ? colors.border : colors.text} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Auto-logging toggle */}
+              <View style={panelConfigStyles.toggleRow}>
+                <Text style={panelConfigStyles.toggleLabel}>Auto-logging</Text>
+                <Switch
+                  value={autoLoggingEnabled}
+                  onValueChange={handleToggleAutoLogging}
+                  disabled={isTogglingAutoLog}
+                  trackColor={{ false: colors.border, true: colors.primarySoft }}
+                  thumbColor={autoLoggingEnabled ? colors.primary : '#f4f3f4'}
+                />
+              </View>
 
               {/* Trigger mode radio buttons */}
               {autoLoggingEnabled && (
@@ -256,57 +297,101 @@ export default function MapScreen() {
                   ))}
                 </View>
               )}
+
+              {/* Permission warning */}
+              {autoLoggingEnabled && !canTrackReliably && (
+                <TouchableOpacity style={panelConfigStyles.warningBox} onPress={openAppSettings} activeOpacity={0.7}>
+                  <Ionicons name="warning-outline" size={16} color={colors.amber} />
+                  <Text style={panelConfigStyles.warningText}>
+                    Background location is required for auto-logging to work.
+                  </Text>
+                  <Text style={panelConfigStyles.warningLink}>Settings</Text>
+                </TouchableOpacity>
+              )}
             </View>
 
             {/* Delete button */}
             <TouchableOpacity
-              style={styles.deleteButton}
+              style={[styles.deleteButton, { marginTop: 12 }]}
               onPress={handleDeleteFence}
               activeOpacity={0.7}
             >
               <Ionicons name="trash-outline" size={18} color={colors.error} />
               <Text style={styles.deleteButtonText}>Delete Location</Text>
             </TouchableOpacity>
-          </View>
+          </ScrollView>
         )}
       </View>
     </KeyboardAvoidingView>
   );
 }
 
-const autoLogStyles = StyleSheet.create({
-  card: {
-    backgroundColor: colors.card,
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-    borderBottomWidth: 0.5,
-    borderBottomColor: colors.borderLight,
+const panelConfigStyles = StyleSheet.create({
+  radiusRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 10,
   },
-  row: {
+  radiusLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: colors.text,
+  },
+  stepper: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
   },
-  iconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: colors.primarySoft,
+  stepperBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 1.5,
+    borderColor: colors.border,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  textWrap: {
-    flex: 1,
+  stepperBtnDisabled: {
+    borderColor: colors.borderLight,
   },
-  title: {
+  stepperValue: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.text,
+    minWidth: 60,
+    textAlign: 'center',
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderTopWidth: 0.5,
+    borderTopColor: colors.borderLight,
+  },
+  toggleLabel: {
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '500',
     color: colors.text,
   },
-  subtitle: {
+  warningBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: withOpacity(colors.amber, 0.08),
+    marginTop: 8,
+  },
+  warningText: {
     fontSize: 12,
     color: colors.textSecondary,
-    marginTop: 1,
+    flex: 1,
     lineHeight: 16,
+  },
+  warningLink: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.amber,
   },
 });

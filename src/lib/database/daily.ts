@@ -87,6 +87,43 @@ export function formatTimeHHMM(date: Date): string {
 }
 
 /**
+ * Round a Date to the nearest 30-minute boundary.
+ * - 'ceil': rounds UP to next 30 min (for entries — 6:47→7:00, 7:10→7:30)
+ * - 'floor': rounds DOWN to previous 30 min (for exits — 5:20→5:00, 4:50→4:30)
+ * If already on a boundary (XX:00 or XX:30), returns unchanged.
+ */
+export function roundToHalfHour(date: Date, direction: 'ceil' | 'floor'): Date {
+  const result = new Date(date);
+  const minutes = result.getMinutes();
+  const seconds = result.getSeconds();
+  const ms = result.getMilliseconds();
+
+  // Already on a 30-min boundary (and no trailing seconds/ms)
+  if ((minutes === 0 || minutes === 30) && seconds === 0 && ms === 0) {
+    return result;
+  }
+
+  if (direction === 'ceil') {
+    // Round UP to next 30-min boundary
+    if (minutes < 30) {
+      result.setMinutes(30, 0, 0);
+    } else {
+      result.setMinutes(0, 0, 0);
+      result.setHours(result.getHours() + 1);
+    }
+  } else {
+    // Round DOWN to previous 30-min boundary
+    if (minutes < 30) {
+      result.setMinutes(0, 0, 0);
+    } else {
+      result.setMinutes(30, 0, 0);
+    }
+  }
+
+  return result;
+}
+
+/**
  * Get date string (YYYY-MM-DD) from Date or ISO string
  */
 export function getDateString(date: Date | string): string {

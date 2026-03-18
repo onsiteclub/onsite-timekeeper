@@ -13,7 +13,7 @@ import { useSyncStore } from '../stores/syncStore';
 import { useDailyLogStore } from '../stores/dailyLogStore';
 import { showArrivalNotification, showEndOfDayNotification, showSessionGuardNotification, showSimpleNotification } from './notifications';
 import { useAuthStore } from '../stores/authStore';
-import { upsertDailyHours, getDailyHours, formatTimeHHMM } from './database/daily';
+import { upsertDailyHours, getDailyHours, formatTimeHHMM, roundToHalfHour } from './database/daily';
 import { switchToActiveMode, switchToIdleMode } from './bgGeo';
 import { useSettingsStore } from '../stores/settingsStore';
 
@@ -266,7 +266,10 @@ export async function onGeofenceEnter(
 
   // 6. Update daily_hours with first_entry if needed
   if (isFirstEntry) {
-    const entryTime = formatTimeHHMM(eventTimestamp ? new Date(eventTimestamp) : new Date());
+    const rawEntry = eventTimestamp ? new Date(eventTimestamp) : new Date();
+    const roundingEnabled = useSettingsStore.getState().timeRoundingEnabled;
+    const displayEntry = roundingEnabled ? roundToHalfHour(rawEntry, 'ceil') : rawEntry;
+    const entryTime = formatTimeHHMM(displayEntry);
     upsertDailyHours({
       userId,
       date: today,
@@ -277,7 +280,7 @@ export async function onGeofenceEnter(
       source: 'gps',
       firstEntry: entryTime,
     });
-    logger.info('session', `[5/6] daily_hours first_entry=${entryTime} | date=${today}`);
+    logger.info('session', `[5/6] daily_hours first_entry=${entryTime}${roundingEnabled ? ` (rounded from ${formatTimeHHMM(rawEntry)})` : ''} | date=${today}`);
   }
 
   // 7. Notification only on first entry of the day
@@ -442,12 +445,21 @@ async function confirmExit(
   const pauseSeconds = getPauseSeconds();
   const breakMinutes = Math.ceil(pauseSeconds / 60);
 
-  // 2. Calculate duration (deduct pause)
-  const entryTime = new Date(enterAt);
-  const durationMs = exitTime.getTime() - entryTime.getTime();
+  // 2. Apply 30-min rounding if enabled (GPS only — entry↑ exit↓)
+  const roundingEnabled = useSettingsStore.getState().timeRoundingEnabled;
+  const rawEntryTime = new Date(enterAt);
+  const entryTime = roundingEnabled ? roundToHalfHour(rawEntryTime, 'ceil') : rawEntryTime;
+  const roundedExitTime = roundingEnabled ? roundToHalfHour(exitTime, 'floor') : exitTime;
+
+  if (roundingEnabled) {
+    logger.info('session', `[5/6] Time rounding: entry ${formatTimeHHMM(rawEntryTime)}→${formatTimeHHMM(entryTime)} | exit ${formatTimeHHMM(exitTime)}→${formatTimeHHMM(roundedExitTime)}`);
+  }
+
+  // 3. Calculate duration from (possibly rounded) times (deduct pause)
+  const durationMs = roundedExitTime.getTime() - entryTime.getTime();
   const durationMinutes = Math.max(0, Math.round((durationMs - pauseSeconds * 1000) / 60000));
 
-  logger.info('session', `[5/6] Duration calc: ${durationMinutes}min | enter=${enterAt} | exit=${exitTime.toISOString()} | pause=${pauseSeconds}s`);
+  logger.info('session', `[5/6] Duration calc: ${durationMinutes}min | enter=${formatTimeHHMM(entryTime)} | exit=${formatTimeHHMM(roundedExitTime)} | pause=${pauseSeconds}s`);
 
   // 3. Clear active tracking
   clearActiveTracking();
@@ -456,10 +468,10 @@ async function confirmExit(
   // 4. Apply exit adjustment (subtract configured minutes from recorded time)
   const adjustMin = useSettingsStore.getState().exitAdjustmentMinutes;
   const adjustedDuration = Math.max(0, durationMinutes - adjustMin);
-  const adjustedExitTime = new Date(exitTime.getTime() - adjustMin * 60000);
+  const adjustedExitTime = new Date(roundedExitTime.getTime() - adjustMin * 60000);
 
   if (adjustMin > 0) {
-    logger.info('session', `[4.5] Exit adjustment: -${adjustMin}min | duration ${durationMinutes}→${adjustedDuration}min | exit ${formatTimeHHMM(exitTime)}→${formatTimeHHMM(adjustedExitTime)}`);
+    logger.info('session', `[4.5] Exit adjustment: -${adjustMin}min | duration ${durationMinutes}→${adjustedDuration}min | exit ${formatTimeHHMM(roundedExitTime)}→${formatTimeHHMM(adjustedExitTime)}`);
   }
 
   // 5. Update daily_hours (midnight-crossing aware)

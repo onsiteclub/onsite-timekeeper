@@ -132,6 +132,11 @@ export default function RootLayout() {
       }
     }
 
+    // Handle auto-logging nudge notification
+    if (data?.type === 'auto_logging_nudge') {
+      router.push('/(tabs)/map');
+    }
+
     // Handle session guard notifications (10h/16h safety net)
     if (data?.type === 'session_guard') {
       if (actionIdentifier === 'stop_timer' && data.locationId) {

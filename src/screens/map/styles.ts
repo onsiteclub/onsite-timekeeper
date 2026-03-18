@@ -26,7 +26,7 @@ export const styles = StyleSheet.create({
   // ============================================
   searchContainer: {
     position: 'absolute',
-    top: Platform.OS === 'ios' ? 60 : 40,
+    top: Platform.OS === 'ios' ? 12 : 10,
     left: 16,
     right: 16,
     zIndex: 10,
@@ -85,7 +85,7 @@ export const styles = StyleSheet.create({
   // ============================================
   myLocationButton: {
     position: 'absolute',
-    top: Platform.OS === 'ios' ? 130 : 110,
+    top: Platform.OS === 'ios' ? 70 : 60,
     right: 16,
     width: 48,
     height: 48,
@@ -189,7 +189,7 @@ export const styles = StyleSheet.create({
   // ============================================
   panel: {
     flex: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.65)',
+    backgroundColor: colors.white,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     shadowColor: colors.black,

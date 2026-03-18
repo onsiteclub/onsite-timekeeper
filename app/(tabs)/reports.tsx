@@ -21,6 +21,7 @@ import {
   Platform,
   InputAccessoryView,
   Keyboard,
+  Alert,
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
@@ -28,9 +29,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { runOnJS } from 'react-native-reanimated';
 
 import { colors, withOpacity, shadows } from '../../src/constants/colors';
 import { useHomeScreen } from '../../src/screens/home/hooks';
+import { useDailyLogStore } from '../../src/stores/dailyLogStore';
+import { getDailyHours } from '../../src/lib/database/daily';
+import { getToday, toLocalDateString } from '../../src/lib/database/core';
 
 // ============================================
 // HELPERS
@@ -93,6 +99,17 @@ const BREAK_PRESETS = [
   { label: '1 hour', value: 60 },
 ];
 
+const QUICK_LOG_PRESETS = [
+  { hours: 4, label: '4h' },
+  { hours: 6, label: '6h' },
+  { hours: 8, label: '8h' },
+  { hours: 10, label: '10h' },
+];
+
+function getSmartBreak(hours: number): number {
+  return hours <= 6 ? 0 : 60;
+}
+
 // ============================================
 // MAIN COMPONENT
 // ============================================
@@ -149,8 +166,7 @@ export default function ReportsScreen() {
     d.setHours(17, 0, 0, 0);
     return d;
   });
-  const [showEntryPicker, setShowEntryPicker] = useState(false);
-  const [showExitPicker, setShowExitPicker] = useState(false);
+  const [activeTimePicker, setActiveTimePicker] = useState<'entry' | 'exit' | null>(null);
 
   // Break
   const [breakMinutes, setBreakMinutes] = useState(0);
@@ -167,6 +183,22 @@ export default function ReportsScreen() {
 
   // Saving state
   const [isSaving, setIsSaving] = useState(false);
+
+  // Quick Log
+  const [quickLogSaving, setQuickLogSaving] = useState<number | null>(null);
+  const [quickLogTarget, setQuickLogTarget] = useState<'today' | 'yesterday'>('today');
+  const todayLog = useDailyLogStore(s => s.todayLog);
+  const addQuickHours = useDailyLogStore(s => s.addManualHours);
+  const reloadToday = useDailyLogStore(s => s.reloadToday);
+
+  const yesterdayDate = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    return toLocalDateString(d);
+  }, []);
+
+  const [yesterdayLog, setYesterdayLog] = useState<any>(null);
+  const [yesterdayChecked, setYesterdayChecked] = useState(false);
 
   // ============================================
   // EFFECTS
@@ -205,6 +237,15 @@ export default function ReportsScreen() {
     }, [])
   );
 
+  // Check yesterday's log (only when today IS logged)
+  useEffect(() => {
+    if (todayLog && userId && !yesterdayChecked) {
+      const entry = getDailyHours(userId, yesterdayDate);
+      setYesterdayLog(entry);
+      setYesterdayChecked(true);
+    }
+  }, [todayLog, userId, yesterdayDate, yesterdayChecked]);
+
   // ============================================
   // COMPUTED
   // ============================================
@@ -235,33 +276,26 @@ export default function ReportsScreen() {
   // HANDLERS
   // ============================================
 
-  const handleEntryTimeChange = (_event: DateTimePickerEvent, selectedDate?: Date) => {
+  const handleTimePickerChange = (_event: DateTimePickerEvent, selectedDate?: Date) => {
     if (Platform.OS === 'android') {
-      setShowEntryPicker(false);
+      setActiveTimePicker(null);
     }
     if (selectedDate) {
-      setEntryTime(selectedDate);
-    }
-  };
-
-  const handleExitTimeChange = (_event: DateTimePickerEvent, selectedDate?: Date) => {
-    if (Platform.OS === 'android') {
-      setShowExitPicker(false);
-    }
-    if (selectedDate) {
-      setExitTime(selectedDate);
+      if (activeTimePicker === 'entry') {
+        setEntryTime(selectedDate);
+      } else if (activeTimePicker === 'exit') {
+        setExitTime(selectedDate);
+      }
     }
   };
 
   const handleSave = async () => {
     if (!manualLocationId) {
-      const { Alert } = require('react-native');
       Alert.alert('No Location', 'Please select a work location first.');
       return;
     }
 
     if (totalMinutes <= 0) {
-      const { Alert } = require('react-native');
       Alert.alert('Invalid Time', 'Exit time must be after entry time (accounting for break).');
       return;
     }
@@ -308,6 +342,56 @@ export default function ReportsScreen() {
     setShowCustomBreak(false);
     setCustomBreakText('');
   };
+
+  // Quick Log handler
+  const handleQuickLog = useCallback(async (hours: number) => {
+    const targetDate = quickLogTarget === 'yesterday' ? yesterdayDate : getToday();
+    const breakMins = getSmartBreak(hours);
+    const totalMins = hours * 60;
+    const locId = manualLocationId || (locations.length > 0 ? locations[0].id : undefined);
+    const locName = locations.find(l => l.id === locId)?.name || undefined;
+
+    setQuickLogSaving(hours);
+    try {
+      await addQuickHours({
+        date: targetDate,
+        totalMinutes: totalMins,
+        breakMinutes: breakMins,
+        locationId: locId || undefined,
+        locationName: locName,
+      });
+      await reloadToday();
+      onRefresh();
+      setYesterdayChecked(false);
+      setQuickLogTarget('today');
+      Alert.alert('Saved', `${hours}h logged${breakMins > 0 ? ` (${breakMins}min break)` : ''}`);
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Could not save hours');
+    } finally {
+      setQuickLogSaving(null);
+    }
+  }, [quickLogTarget, yesterdayDate, manualLocationId, locations, addQuickHours, reloadToday, onRefresh]);
+
+  // Timer gestures
+  const timerBarGesture = useMemo(() =>
+    Gesture.Pan()
+      .onEnd((event) => {
+        if (event.translationY < -50 && Math.abs(event.translationX) < 50) {
+          runOnJS(expandTimer)();
+        }
+      }),
+    [expandTimer]
+  );
+
+  const timerModalGesture = useMemo(() =>
+    Gesture.Pan()
+      .onEnd((event) => {
+        if (event.translationY > 80 && Math.abs(event.translationX) < 80) {
+          runOnJS(minimizeTimer)();
+        }
+      }),
+    [minimizeTimer]
+  );
 
   // ============================================
   // RENDER
@@ -378,86 +462,29 @@ export default function ReportsScreen() {
 
           {/* ===== TIME INPUTS ===== */}
           <View style={logStyles.timeRow}>
-            {/* Entry */}
             <View style={logStyles.timeCol}>
               <Text style={logStyles.timeLabel}>ENTRY</Text>
               <PressableOpacity
                 style={logStyles.timePill}
-                onPress={() => setShowEntryPicker(true)}
+                onPress={() => setActiveTimePicker('entry')}
                 activeOpacity={0.7}
               >
                 <Text style={logStyles.timeValue}>
                   {formatTimeDisplay(entryTime)}
                 </Text>
               </PressableOpacity>
-              {showEntryPicker && (
-                Platform.OS === 'ios' ? (
-                  <View style={logStyles.pickerInline}>
-                    <DateTimePicker
-                      value={entryTime}
-                      mode="time"
-                      display="spinner"
-                      onChange={handleEntryTimeChange}
-                      minuteInterval={5}
-                      style={{ height: 120 }}
-                    />
-                    <PressableOpacity
-                      style={logStyles.pickerDoneBtn}
-                      onPress={() => setShowEntryPicker(false)}
-                    >
-                      <Text style={logStyles.pickerDoneBtnText}>Done</Text>
-                    </PressableOpacity>
-                  </View>
-                ) : (
-                  <DateTimePicker
-                    value={entryTime}
-                    mode="time"
-                    display="default"
-                    onChange={handleEntryTimeChange}
-                  />
-                )
-              )}
             </View>
-
-            {/* Exit */}
             <View style={logStyles.timeCol}>
               <Text style={logStyles.timeLabel}>EXIT</Text>
               <PressableOpacity
                 style={logStyles.timePill}
-                onPress={() => setShowExitPicker(true)}
+                onPress={() => setActiveTimePicker('exit')}
                 activeOpacity={0.7}
               >
                 <Text style={logStyles.timeValue}>
                   {formatTimeDisplay(exitTime)}
                 </Text>
               </PressableOpacity>
-              {showExitPicker && (
-                Platform.OS === 'ios' ? (
-                  <View style={logStyles.pickerInline}>
-                    <DateTimePicker
-                      value={exitTime}
-                      mode="time"
-                      display="spinner"
-                      onChange={handleExitTimeChange}
-                      minuteInterval={5}
-                      style={{ height: 120 }}
-                    />
-                    <PressableOpacity
-                      style={logStyles.pickerDoneBtn}
-                      onPress={() => setShowExitPicker(false)}
-                    >
-                      <Text style={logStyles.pickerDoneBtnText}>Done</Text>
-                    </PressableOpacity>
-                  </View>
-                ) : (
-                  <DateTimePicker
-                    value={exitTime}
-                    mode="time"
-                    display="default"
-                    onChange={handleExitTimeChange}
-                  />
-                )
-              )}
             </View>
           </View>
 
@@ -496,6 +523,110 @@ export default function ReportsScreen() {
               {isSaving ? 'Saving...' : 'Save Hours'}
             </Text>
           </PressableOpacity>
+
+          {/* ===== QUICK LOG ===== */}
+          <View style={quickLogStyles.section}>
+            {!todayLog ? (
+              <>
+                <Text style={logStyles.sectionLabel}>QUICK LOG</Text>
+                <View style={quickLogStyles.card}>
+                  <Text style={quickLogStyles.title}>Worked a full day?</Text>
+                  <View style={quickLogStyles.presetRow}>
+                    {QUICK_LOG_PRESETS.map(({ hours, label }) => (
+                      <PressableOpacity
+                        key={hours}
+                        style={[
+                          quickLogStyles.presetPill,
+                          quickLogSaving === hours && quickLogStyles.presetPillActive,
+                        ]}
+                        onPress={() => handleQuickLog(hours)}
+                        disabled={quickLogSaving !== null}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[
+                          quickLogStyles.presetText,
+                          quickLogSaving === hours && quickLogStyles.presetTextActive,
+                        ]}>
+                          {quickLogSaving === hours ? '...' : label}
+                        </Text>
+                      </PressableOpacity>
+                    ))}
+                  </View>
+                  {selectedLocation && (
+                    <Text style={quickLogStyles.contextText}>
+                      {selectedLocation.name} · Break auto-included for 8h+
+                    </Text>
+                  )}
+                </View>
+              </>
+            ) : (
+              <>
+                <View style={quickLogStyles.loggedCard}>
+                  <View style={quickLogStyles.loggedRow}>
+                    <Ionicons name="checkmark-circle" size={20} color={colors.success} />
+                    <Text style={quickLogStyles.loggedText}>
+                      <Text style={quickLogStyles.loggedHours}>
+                        {formatDuration(todayLog.totalMinutes)}
+                      </Text>
+                      {' logged today'}
+                    </Text>
+                  </View>
+                  {todayLog.firstEntry && todayLog.lastExit ? (
+                    <Text style={quickLogStyles.loggedMeta}>
+                      {todayLog.firstEntry} – {todayLog.lastExit}
+                    </Text>
+                  ) : (
+                    <Text style={quickLogStyles.loggedMeta}>Manual entry</Text>
+                  )}
+                </View>
+
+                {/* Yesterday fallback */}
+                {yesterdayChecked && !yesterdayLog && quickLogTarget !== 'yesterday' && (
+                  <PressableOpacity
+                    style={quickLogStyles.yesterdayLink}
+                    onPress={() => setQuickLogTarget('yesterday')}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={quickLogStyles.yesterdayText}>Log yesterday?</Text>
+                  </PressableOpacity>
+                )}
+
+                {/* Yesterday quick log presets */}
+                {quickLogTarget === 'yesterday' && (
+                  <View style={quickLogStyles.card}>
+                    <Text style={quickLogStyles.title}>Log yesterday</Text>
+                    <View style={quickLogStyles.presetRow}>
+                      {QUICK_LOG_PRESETS.map(({ hours, label }) => (
+                        <PressableOpacity
+                          key={hours}
+                          style={[
+                            quickLogStyles.presetPill,
+                            quickLogSaving === hours && quickLogStyles.presetPillActive,
+                          ]}
+                          onPress={() => handleQuickLog(hours)}
+                          disabled={quickLogSaving !== null}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={[
+                            quickLogStyles.presetText,
+                            quickLogSaving === hours && quickLogStyles.presetTextActive,
+                          ]}>
+                            {quickLogSaving === hours ? '...' : label}
+                          </Text>
+                        </PressableOpacity>
+                      ))}
+                    </View>
+                    <PressableOpacity
+                      style={quickLogStyles.cancelLink}
+                      onPress={() => setQuickLogTarget('today')}
+                    >
+                      <Text style={quickLogStyles.cancelLinkText}>Cancel</Text>
+                    </PressableOpacity>
+                  </View>
+                )}
+              </>
+            )}
+          </View>
         </ScrollView>
 
         {/* ===== LOCATION PICKER MODAL ===== */}
@@ -632,7 +763,53 @@ export default function ReportsScreen() {
           </Pressable>
         </Modal>
 
-        {/* ===== TIMER MODAL (overlay) ===== */}
+        {/* ===== TIME PICKER MODAL ===== */}
+        {activeTimePicker !== null && (
+          Platform.OS === 'ios' ? (
+            <Modal
+              visible
+              transparent
+              animationType="fade"
+              statusBarTranslucent
+              onRequestClose={() => setActiveTimePicker(null)}
+            >
+              <Pressable
+                style={modalStyles.overlay}
+                onPress={() => setActiveTimePicker(null)}
+              >
+                <Pressable style={timePickerStyles.sheet}>
+                  <Text style={modalStyles.sheetTitle}>
+                    {activeTimePicker === 'entry' ? 'Entry Time' : 'Exit Time'}
+                  </Text>
+                  <DateTimePicker
+                    value={activeTimePicker === 'entry' ? entryTime : exitTime}
+                    mode="time"
+                    display="spinner"
+                    onChange={handleTimePickerChange}
+                    minuteInterval={5}
+                    style={{ height: 180, width: '100%' }}
+                  />
+                  <PressableOpacity
+                    style={timePickerStyles.doneBtn}
+                    onPress={() => setActiveTimePicker(null)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={timePickerStyles.doneBtnText}>Done</Text>
+                  </PressableOpacity>
+                </Pressable>
+              </Pressable>
+            </Modal>
+          ) : (
+            <DateTimePicker
+              value={activeTimePicker === 'entry' ? entryTime : exitTime}
+              mode="time"
+              display="default"
+              onChange={handleTimePickerChange}
+            />
+          )
+        )}
+
+        {/* ===== TIMER MODAL (overlay) — swipe down to minimize ===== */}
         <Modal
           visible={timerModalVisible}
           transparent
@@ -641,7 +818,9 @@ export default function ReportsScreen() {
           onRequestClose={minimizeTimer}
         >
           <View style={timerModalStyles.overlay}>
+            <GestureDetector gesture={timerModalGesture}>
             <View style={timerModalStyles.card}>
+              <View style={timerModalStyles.dragHandle} />
               {(() => {
                 const isActive = !!currentSession && !isPaused;
                 const isPausedState = !!currentSession && isPaused;
@@ -734,46 +913,42 @@ export default function ReportsScreen() {
                 );
               })()}
             </View>
+            </GestureDetector>
           </View>
         </Modal>
 
-        {/* ===== TIMER BAR (bottom) ===== */}
-        {(() => {
-          const isActive = !!currentSession && !isPaused;
-          const isPausedState = !!currentSession && isPaused;
-          const locationName = currentSession?.location_name || activeLocation?.name || null;
-
-          if (!currentSession) {
-            return (
-              <View style={timerBarStyles.bar}>
-                <Ionicons name="time-outline" size={16} color={colors.iconMuted} />
-                <Text style={timerBarStyles.inactiveText}>No active timer</Text>
-              </View>
-            );
-          }
-
-          return (
-            <PressableOpacity style={timerBarStyles.bar} onPress={expandTimer} activeOpacity={0.7}>
-              <View style={[
-                timerBarStyles.dot,
-                isActive && timerBarStyles.dotActive,
-                isPausedState && timerBarStyles.dotPaused,
-              ]} />
-              <Text style={[
-                timerBarStyles.timerText,
-                isActive && timerBarStyles.timerTextActive,
-                isPausedState && timerBarStyles.timerTextPaused,
-              ]}>
-                {timer}
-              </Text>
-              <Ionicons name="location" size={14} color={colors.textSecondary} />
-              <Text style={timerBarStyles.locationText} numberOfLines={1}>
-                {locationName || 'Timer'}
-              </Text>
-              <Ionicons name="chevron-up" size={16} color={colors.textSecondary} />
-            </PressableOpacity>
-          );
-        })()}
+        {/* ===== TIMER BAR (bottom) — swipe up to expand ===== */}
+        {!currentSession ? (
+          <View style={timerBarStyles.bar}>
+            <Ionicons name="time-outline" size={16} color={colors.iconMuted} />
+            <Text style={timerBarStyles.inactiveText}>No active timer</Text>
+          </View>
+        ) : (
+          <GestureDetector gesture={timerBarGesture}>
+            <View>
+              <View style={timerBarStyles.dragHandle} />
+              <PressableOpacity style={timerBarStyles.bar} onPress={expandTimer} activeOpacity={0.7}>
+                <View style={[
+                  timerBarStyles.dot,
+                  !isPaused && timerBarStyles.dotActive,
+                  isPaused && timerBarStyles.dotPaused,
+                ]} />
+                <Text style={[
+                  timerBarStyles.timerText,
+                  !isPaused && timerBarStyles.timerTextActive,
+                  isPaused && timerBarStyles.timerTextPaused,
+                ]}>
+                  {timer}
+                </Text>
+                <Ionicons name="location" size={14} color={colors.textSecondary} />
+                <Text style={timerBarStyles.locationText} numberOfLines={1}>
+                  {currentSession?.location_name || activeLocation?.name || 'Timer'}
+                </Text>
+                <Ionicons name="chevron-up" size={16} color={colors.textSecondary} />
+              </PressableOpacity>
+            </View>
+          </GestureDetector>
+        )}
 
         {/* iOS: Done button above number-pad keyboard */}
         {Platform.OS === 'ios' && (
@@ -912,26 +1087,6 @@ const logStyles = StyleSheet.create({
     fontWeight: '700',
     color: colors.text,
   },
-  pickerInline: {
-    marginTop: 8,
-    backgroundColor: colors.card,
-    borderRadius: 14,
-    borderWidth: 0.5,
-    borderColor: colors.border,
-    overflow: 'hidden',
-  },
-  pickerDoneBtn: {
-    alignItems: 'center',
-    paddingVertical: 10,
-    borderTopWidth: 0.5,
-    borderTopColor: colors.border,
-  },
-  pickerDoneBtnText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.primary,
-  },
-
   // Break pill
   breakPill: {
     flexDirection: 'row',
@@ -1004,6 +1159,142 @@ const logStyles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '700',
     color: colors.white,
+  },
+});
+
+// ============================================
+// TIME PICKER MODAL STYLES
+// ============================================
+
+const timePickerStyles = StyleSheet.create({
+  sheet: {
+    backgroundColor: colors.white,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 20,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+    paddingHorizontal: 20,
+    width: '100%',
+  },
+  doneBtn: {
+    backgroundColor: colors.primary,
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 52,
+    marginTop: 12,
+  },
+  doneBtnText: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: colors.white,
+  },
+});
+
+// ============================================
+// QUICK LOG STYLES
+// ============================================
+
+const quickLogStyles = StyleSheet.create({
+  section: {
+    marginTop: 28,
+  },
+  card: {
+    backgroundColor: colors.card,
+    borderWidth: 0.5,
+    borderColor: colors.border,
+    borderRadius: 14,
+    padding: 16,
+  },
+  title: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.text,
+    marginBottom: 14,
+  },
+  presetRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  presetPill: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 9999,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    backgroundColor: 'transparent',
+  },
+  presetPillActive: {
+    backgroundColor: colors.primary,
+  },
+  presetText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.primary,
+  },
+  presetTextActive: {
+    color: colors.white,
+  },
+  contextText: {
+    fontSize: 12,
+    fontWeight: '400',
+    color: colors.textSecondary,
+    marginTop: 12,
+    textAlign: 'center',
+  },
+  // Already logged card
+  loggedCard: {
+    backgroundColor: colors.card,
+    borderWidth: 0.5,
+    borderColor: colors.border,
+    borderRadius: 14,
+    padding: 16,
+  },
+  loggedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  loggedText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: colors.text,
+  },
+  loggedHours: {
+    fontWeight: '700',
+    color: colors.primary,
+  },
+  loggedMeta: {
+    fontSize: 12,
+    fontWeight: '400',
+    color: colors.textSecondary,
+    marginTop: 4,
+    marginLeft: 28,
+  },
+  // Yesterday link
+  yesterdayLink: {
+    marginTop: 12,
+    alignItems: 'center',
+    paddingVertical: 6,
+  },
+  yesterdayText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.primary,
+  },
+  // Cancel link (inside yesterday card)
+  cancelLink: {
+    marginTop: 12,
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  cancelLinkText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: colors.textSecondary,
   },
 });
 
@@ -1110,6 +1401,15 @@ const modalStyles = StyleSheet.create({
 // ============================================
 
 const timerBarStyles = StyleSheet.create({
+  dragHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    alignSelf: 'center',
+    marginTop: 6,
+    marginBottom: 2,
+  },
   bar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1163,7 +1463,7 @@ const timerBarStyles = StyleSheet.create({
 const timerModalStyles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(16, 24, 40, 0.5)',
+    backgroundColor: colors.overlay,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 24,
@@ -1176,11 +1476,19 @@ const timerModalStyles = StyleSheet.create({
     borderRadius: 24,
     gap: 8,
     backgroundColor: colors.white,
-    shadowColor: '#000',
+    shadowColor: colors.black,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.15,
     shadowRadius: 24,
     elevation: 12,
+  },
+  dragHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.border,
+    alignSelf: 'center',
+    marginBottom: 12,
   },
   minimizeBtn: {
     flexDirection: 'row',

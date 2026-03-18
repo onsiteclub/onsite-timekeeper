@@ -23,6 +23,9 @@ import { getRandomGeofenceColor } from '../../constants/colors';
 import {
   DEFAULT_REGION,
   DEFAULT_RADIUS,
+  RADIUS_MIN,
+  RADIUS_MAX,
+  RADIUS_STEP,
   ZOOM_CLOSE,
   ZOOM_DEFAULT,
   MAP_ANIMATION_DURATION,
@@ -342,6 +345,19 @@ export function useMapScreen() {
     }
   }, [locations, editLocation]);
 
+  const handleStepRadius = useCallback((delta: number) => {
+    const f = locations[0];
+    if (!f) return;
+    const newRadius = Math.max(RADIUS_MIN, Math.min(RADIUS_MAX, f.radius + delta));
+    if (newRadius !== f.radius) {
+      handleChangeRadius(newRadius);
+    }
+  }, [locations, handleChangeRadius]);
+
+  const handleStepSelectedRadius = useCallback((delta: number) => {
+    setSelectedRadius(prev => Math.max(RADIUS_MIN, Math.min(RADIUS_MAX, prev + delta)));
+  }, []);
+
   // ============================================
   // AUTO-LOGGING TOGGLE
   // ============================================
@@ -428,5 +444,7 @@ export function useMapScreen() {
     handleAddFence,
     handleDeleteFence,
     handleChangeRadius,
+    handleStepRadius,
+    handleStepSelectedRadius,
   };
 }

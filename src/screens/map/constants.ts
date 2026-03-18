@@ -21,7 +21,12 @@ export const DEFAULT_REGION: Region = {
 // Default radius in meters
 export const DEFAULT_RADIUS = 150;
 
-// Available radius options
+// Radius stepper constraints
+export const RADIUS_MIN = 50;
+export const RADIUS_MAX = 500;
+export const RADIUS_STEP = 50;
+
+// Available radius options (legacy, kept for reference)
 export const RADIUS_OPTIONS = [150, 200, 300, 500];
 
 // Debounce delay for autocomplete (ms)

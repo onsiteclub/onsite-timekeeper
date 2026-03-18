@@ -69,6 +69,7 @@ import { useSyncStore } from './syncStore';
 // NOTE: WorkSessionStore removed in V3 - now using exitHandler directly
 import { useDailyLogStore } from './dailyLogStore';
 import { useSettingsStore } from './settingsStore';
+import { scheduleAutoLoggingNudge, cancelAutoLoggingNudge } from '../lib/notifications';
 
 // Radius bounds (150m is minimum for reasonable geofence accuracy)
 const MIN_RADIUS = 150;  // meters
@@ -414,6 +415,7 @@ export const useLocationStore = create<LocationState>((set, get) => ({
         await get().startMonitoring();
       }
 
+      await cancelAutoLoggingNudge();
       logger.info('geofence', '✅ Auto-logging enabled');
       return true;
     } catch (error) {
@@ -425,6 +427,13 @@ export const useLocationStore = create<LocationState>((set, get) => ({
   disableAutoLogging: async () => {
     useSettingsStore.getState().updateSetting('autoLoggingEnabled', false);
     await get().stopMonitoring();
+
+    // Schedule nudge if fence exists
+    const { locations } = get();
+    if (locations.length > 0) {
+      scheduleAutoLoggingNudge();
+    }
+
     logger.info('geofence', '⏹️ Auto-logging disabled');
   },
 
@@ -564,6 +573,11 @@ export const useLocationStore = create<LocationState>((set, get) => ({
 
       // Sync to cloud
       await useSyncStore.getState().syncLocationsOnly();
+
+      // Nudge if auto-logging is off
+      if (!useSettingsStore.getState().autoLoggingEnabled) {
+        scheduleAutoLoggingNudge();
+      }
 
       logger.info('database', `📍 Location added: ${name}`);
       return id;
@@ -710,6 +724,11 @@ export const useLocationStore = create<LocationState>((set, get) => ({
 
       // Notify daily log store
       useDailyLogStore.getState().reloadToday();
+
+      // Cancel nudge if no more fences
+      if (get().locations.length === 0) {
+        cancelAutoLoggingNudge();
+      }
 
       logger.info('database', `🗑️ Location deleted: ${id}`);
     } catch (error) {

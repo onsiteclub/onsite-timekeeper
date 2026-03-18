@@ -64,7 +64,7 @@ export type NotificationAction =
   | 'stop_timer';
 
 export interface GeofenceNotificationData {
-  type: 'geofence_enter' | 'geofence_exit' | 'geofence_return' | 'auto_action' | 'reminder' | 'report_reminder' | 'session_guard';
+  type: 'geofence_enter' | 'geofence_exit' | 'geofence_return' | 'auto_action' | 'reminder' | 'report_reminder' | 'session_guard' | 'auto_logging_nudge';
   locationId?: string;
   locationName?: string;
   action?: NotificationAction;
@@ -77,6 +77,7 @@ export interface GeofenceNotificationData {
 // ============================================
 
 const REPORT_REMINDER_ID = 'report-reminder-scheduled';
+const AUTO_LOGGING_NUDGE_ID = 'auto-logging-nudge';
 
 // ============================================
 // GUARDS (prevent duplicate initialization)
@@ -349,6 +350,59 @@ export async function showSessionGuardNotification(
   } catch (error) {
     logger.error('notification', '❌ Error showing session guard notification', { error: String(error), locationName });
     return '';
+  }
+}
+
+// ============================================
+// AUTO-LOGGING NUDGE
+// ============================================
+
+/**
+ * Schedule a nudge notification encouraging auto-logging activation.
+ * Fires 3 days after scheduling. Call when auto-logging is OFF + fence exists.
+ */
+export async function scheduleAutoLoggingNudge(): Promise<string> {
+  try {
+    if (!await canSendNotification()) return '';
+
+    // Cancel any existing nudge first
+    await Notifications.cancelScheduledNotificationAsync(AUTO_LOGGING_NUDGE_ID).catch(() => {});
+
+    const notificationId = await Notifications.scheduleNotificationAsync({
+      identifier: AUTO_LOGGING_NUDGE_ID,
+      content: {
+        title: 'Save time with Auto-Logging',
+        body: 'Turn on automatic time tracking and never forget to log your hours. Tap to activate.',
+        data: {
+          type: 'auto_logging_nudge',
+        },
+        sound: 'default',
+        priority: Notifications.AndroidNotificationPriority.DEFAULT,
+        ...(Platform.OS === 'android' && { channelId: 'report_reminder_v2' }),
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+        seconds: 3 * 24 * 60 * 60, // 3 days
+      },
+    });
+
+    logger.info('notification', 'Auto-logging nudge scheduled (3 days)');
+    return notificationId;
+  } catch (error) {
+    logger.error('notification', 'Error scheduling nudge', { error: String(error) });
+    return '';
+  }
+}
+
+/**
+ * Cancel any pending auto-logging nudge notification.
+ */
+export async function cancelAutoLoggingNudge(): Promise<void> {
+  try {
+    await Notifications.cancelScheduledNotificationAsync(AUTO_LOGGING_NUDGE_ID);
+    logger.debug('notification', 'Auto-logging nudge cancelled');
+  } catch {
+    // Ignore — may not exist
   }
 }
 
