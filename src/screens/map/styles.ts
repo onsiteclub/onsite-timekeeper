@@ -85,7 +85,7 @@ export const styles = StyleSheet.create({
   // ============================================
   myLocationButton: {
     position: 'absolute',
-    top: Platform.OS === 'ios' ? 70 : 60,
+    top: Platform.OS === 'ios' ? 120 : 100,
     right: 16,
     width: 48,
     height: 48,
@@ -199,10 +199,10 @@ export const styles = StyleSheet.create({
     elevation: 8,
   },
   panelContent: {
-    flex: 1,
+    flexGrow: 1,
     paddingHorizontal: 20,
     paddingTop: 16,
-    paddingBottom: Platform.OS === 'ios' ? 8 : 12,
+    paddingBottom: 24,
     justifyContent: 'space-between',
   },
 

@@ -363,17 +363,38 @@ export function useMapScreen() {
   // ============================================
 
   const handleToggleAutoLogging = useCallback(async (value: boolean) => {
-    setIsTogglingAutoLog(true);
-    try {
-      if (value) {
+    if (value) {
+      setIsTogglingAutoLog(true);
+      try {
+        updateSetting('autoStartEnabled', true);
+        updateSetting('autoStopEnabled', true);
         await enableAutoLogging();
-      } else {
-        await disableAutoLogging();
+      } finally {
+        setIsTogglingAutoLog(false);
       }
-    } finally {
-      setIsTogglingAutoLog(false);
+    } else {
+      // Confirm before turning off
+      Alert.alert(
+        'Turn off Auto-logging?',
+        'This will disable background location detection. Your hours will no longer be logged automatically and the map will be locked.\n\nYou can still log hours manually anytime.',
+        [
+          { text: 'Keep On', style: 'cancel' },
+          {
+            text: 'Turn Off',
+            style: 'destructive',
+            onPress: async () => {
+              setIsTogglingAutoLog(true);
+              try {
+                await disableAutoLogging();
+              } finally {
+                setIsTogglingAutoLog(false);
+              }
+            },
+          },
+        ]
+      );
     }
-  }, [enableAutoLogging, disableAutoLogging]);
+  }, [enableAutoLogging, disableAutoLogging, updateSetting]);
 
   const handleTriggerModeChange = useCallback((mode: TriggerMode) => {
     switch (mode) {

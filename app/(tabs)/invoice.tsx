@@ -36,7 +36,7 @@ function formatHM(minutes: number): string {
 export default function InvoiceScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { profile: businessProfile, loadProfile } = useBusinessProfileStore();
+  const { profile: businessProfile, loadProfile, incrementInvoiceNumber } = useBusinessProfileStore();
   const userId = useAuthStore((s) => s.getUserId());
   const userName = useAuthStore((s) => s.getUserName());
 
@@ -94,6 +94,8 @@ export default function InvoiceScreen() {
         verified: r.verified || false,
       }));
 
+      const invoiceNumber = businessProfile?.next_invoice_number ?? undefined;
+
       await generateAndShareTimesheetPDF(sessions as any, {
         employeeName: userName || 'User',
         employeeId: userId,
@@ -109,7 +111,13 @@ export default function InvoiceScreen() {
         gstHstNumber: businessProfile?.gst_hst_number ?? undefined,
         hourlyRate: businessProfile?.default_hourly_rate || undefined,
         taxRate: businessProfile?.tax_rate || undefined,
+        invoiceNumber,
       });
+
+      // Auto-increment invoice number after successful generation
+      if (userId && invoiceNumber) {
+        incrementInvoiceNumber(userId);
+      }
     } catch (error) {
       // PDF generation handles its own errors
     } finally {
@@ -179,7 +187,7 @@ export default function InvoiceScreen() {
           <View style={styles.cardContent}>
             <Text style={styles.cardTitle}>Generate Invoice</Text>
             <Text style={styles.cardDescription}>
-              Export a PDF timesheet for the current month with your business details, hours, and rates.
+              Export a PDF time report for the current month with your business details, hours, and rates.
             </Text>
           </View>
         </View>

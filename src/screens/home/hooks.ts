@@ -13,7 +13,7 @@
  * FIX: Now uses currentFenceId instead of lastGeofenceEvent for START button (fixes button not appearing)
  */
 
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Alert, Share, Linking } from 'react-native';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
@@ -31,7 +31,7 @@ import { useSyncStore } from '../../stores/syncStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { formatDuration, getDailyHoursByPeriod, upsertDailyHours, updateDailyHours, deleteDailyHours, deleteDailyHoursById, getToday, toLocalDateString } from '../../lib/database';
 import type { DailyHoursEntry } from '../../lib/database/daily';
-import { getActiveTrackingState, getPauseSeconds, updatePauseSeconds, getCooldownExpiresAt, type ActiveTracking } from '../../lib/exitHandler';
+import { getActiveTrackingState, getPauseSeconds, updatePauseSeconds, getTotalPauseSeconds, setPauseStart, clearPauseStart, getCooldownExpiresAt, type ActiveTracking } from '../../lib/exitHandler';
 import { generateCompleteReport } from '../../lib/reports';
 
 import {
@@ -282,7 +282,6 @@ export function useHomeScreen() {
   const [timer, setTimer] = useState('00:00:00');
   const [isPaused, setIsPaused] = useState(false);
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
-  const isStoppingRef = useRef(false);
 
   // Pause timer (pause_seconds persisted in SQLite via active_tracking)
   const [pauseTimer, setPauseTimer] = useState('00:00:00');
@@ -503,8 +502,8 @@ export function useHomeScreen() {
     const updateTimer = () => {
       const start = new Date(currentSession.entry_at).getTime();
       const now = Date.now();
-      // Subtract persisted pause time from calculation
-      const pauseSec = getPauseSeconds();
+      // Subtract total pause time (including ongoing pause) from calculation
+      const pauseSec = getTotalPauseSeconds();
       const diffMs = now - start - (pauseSec * 1000);
       const diffSec = Math.max(0, Math.floor(diffMs / 1000));
 
@@ -546,11 +545,8 @@ export function useHomeScreen() {
     if (!currentSession || currentSession.status !== 'active') return;
 
     const updatePauseTimer = () => {
-      let totalPauseSeconds = getPauseSeconds();
-
-      if (isPaused && pauseStartTimestamp) {
-        totalPauseSeconds += Math.floor((Date.now() - pauseStartTimestamp) / 1000);
-      }
+      // getTotalPauseSeconds already includes ongoing pause from SQLite
+      const totalPauseSeconds = getTotalPauseSeconds();
 
       const hours = Math.floor(totalPauseSeconds / 3600);
       const mins = Math.floor((totalPauseSeconds % 3600) / 60);
@@ -622,65 +618,21 @@ export function useHomeScreen() {
     setFrozenTime(timer);
     setIsPaused(true);
     setPauseStartTimestamp(Date.now());
+    // Persist to SQLite so confirmExit can calculate pending pause
+    setPauseStart();
   };
 
   const handleResume = () => {
-    if (pauseStartTimestamp) {
-      const pauseDuration = Math.floor((Date.now() - pauseStartTimestamp) / 1000);
-      updatePauseSeconds(getPauseSeconds() + pauseDuration);
-    }
+    // Persist: accumulate pause_seconds and clear pause_start in SQLite
+    clearPauseStart();
     setPauseStartTimestamp(null);
     setFrozenTime(null); // Release to resume counting
     setIsPaused(false);
   };
 
-  const handleStop = () => {
-    if (!currentSession) return;
-    if (isStoppingRef.current) return; // Prevent double-press
-
-    // Read persisted pause + any live delta
-    let totalPauseSeconds = getPauseSeconds();
-    if (isPaused && pauseStartTimestamp) {
-      totalPauseSeconds += Math.floor((Date.now() - pauseStartTimestamp) / 1000);
-    }
-    // Flush final pause to SQLite so confirmExit() picks it up
-    if (isPaused && pauseStartTimestamp) {
-      updatePauseSeconds(totalPauseSeconds);
-    }
-    const totalPauseMinutes = Math.floor(totalPauseSeconds / 60);
-
-    Alert.alert(
-      '⏹️ Stop Timer',
-      `End current session?${totalPauseMinutes > 0 ? `\n\nTotal break: ${totalPauseMinutes} minutes` : ''}`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Stop',
-          style: 'destructive',
-          onPress: async () => {
-            if (isStoppingRef.current) return; // Guard inside dialog too
-            isStoppingRef.current = true;
-            try {
-              // confirmExit() reads pause_seconds from SQLite and deducts automatically
-              await registerExit(currentSession.location_id);
-
-              setIsPaused(false);
-              setPauseStartTimestamp(null);
-              setPauseTimer('00:00:00');
-
-              // Reload data to show the finished session
-              loadWeekSessions();
-              loadMonthSessions();
-            } catch (error: any) {
-              Alert.alert('Error', error.message || 'Could not stop session');
-            } finally {
-              isStoppingRef.current = false;
-            }
-          },
-        },
-      ]
-    );
-  };
+  // STOP removed — only PAUSE exists now.
+  // When user leaves the fence, confirmExit() reads pause_start from SQLite
+  // and calculates the full pause duration automatically.
 
   const handleRestart = async () => {
     if (!activeLocation) return;
@@ -997,7 +949,7 @@ export function useHomeScreen() {
    * Save manual entry
    * @param overrides - Optional 24h format overrides to avoid stale closure issues with AM/PM conversion
    */
-  const handleSaveManual = async (overrides?: { entryH?: number; exitH?: number }) => {
+  const handleSaveManual = async (overrides?: { entryH?: number; entryM?: number; exitH?: number; exitM?: number; pauseMinutes?: number }) => {
     // Handle absence mode
     if (manualEntryMode === 'absence') {
       if (!manualAbsenceType) {
@@ -1055,16 +1007,18 @@ export function useHomeScreen() {
       Alert.alert('Error', 'Select a location');
       return;
     }
-    if (!manualEntryH || !manualEntryM || !manualExitH || !manualExitM) {
+    const hasOverrides = overrides?.entryH !== undefined && overrides?.entryM !== undefined &&
+                         overrides?.exitH !== undefined && overrides?.exitM !== undefined;
+    if (!hasOverrides && (!manualEntryH || !manualEntryM || !manualExitH || !manualExitM)) {
       Alert.alert('Error', 'Fill in entry and exit times');
       return;
     }
 
     // Use overrides if provided (from AM/PM conversion), otherwise parse from state
     const entryH = overrides?.entryH ?? parseInt(manualEntryH, 10);
-    const entryM = parseInt(manualEntryM, 10);
+    const entryM = overrides?.entryM ?? parseInt(manualEntryM, 10);
     const exitH = overrides?.exitH ?? parseInt(manualExitH, 10);
-    const exitM = parseInt(manualExitM, 10);
+    const exitM = overrides?.exitM ?? parseInt(manualExitM, 10);
 
     if (isNaN(entryH) || isNaN(entryM) || isNaN(exitH) || isNaN(exitM)) {
       Alert.alert('Error', 'Invalid time format');
@@ -1089,7 +1043,7 @@ export function useHomeScreen() {
       return;
     }
 
-    const pauseMinutes = manualPause ? parseInt(manualPause, 10) : 0;
+    const pauseMinutes = overrides?.pauseMinutes ?? (manualPause ? parseInt(manualPause, 10) : 0);
 
     const isEditing = !!editingSessionId;
     try {
@@ -1572,7 +1526,6 @@ const getSuggestedTimes = useCallback((locationId: string) => {
     // Timer handlers
     handlePause,
     handleResume,
-    handleStop,
     handleRestart,
     
     // Navigation handlers

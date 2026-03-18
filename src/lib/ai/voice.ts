@@ -349,7 +349,7 @@ async function executeVoiceAction(
     case 'pause':
     case 'resume':
     case 'stop': {
-      // UI component executes session control via handlePause/handleResume/handleStop
+      // UI component executes session control via handlePause/handleResume
       logger.info('voice', `Session control: ${action.action}`);
       break;
     }

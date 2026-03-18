@@ -80,7 +80,7 @@ export async function configure(): Promise<void> {
       foregroundService: true,
       notification: {
         title: 'OnSite Timekeeper',
-        text: 'Tracking work hours',
+        text: 'Auto-logging your hours at saved locations',
         sticky: true,
       },
       autoSync: false,

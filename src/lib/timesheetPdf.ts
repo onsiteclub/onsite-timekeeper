@@ -39,6 +39,7 @@ export interface TimesheetOptions {
   gstHstNumber?: string;
   hourlyRate?: number;
   taxRate?: number;
+  invoiceNumber?: number;
 }
 
 export interface DayRow {
@@ -354,7 +355,8 @@ function generateSimpleHTML(
 
   <!-- DOCUMENT TITLE -->
   <div class="doc-title">
-    <h1>Timesheet</h1>
+    <h1>Time Report</h1>
+    ${options.invoiceNumber ? `<div class="doc-period">Invoice #${options.invoiceNumber}</div>` : ''}
     <div class="doc-period">Period: ${formatPeriod(options.periodStart, options.periodEnd)}</div>
   </div>
 
@@ -576,7 +578,7 @@ export async function generateAndShareTimesheetPDF(
 
       return new Promise((resolve, reject) => {
         Alert.alert(
-          'Share Timesheet',
+          'Share Time Report',
           'PDF requires app rebuild. Share as text?',
           [
             { text: 'Cancel', style: 'cancel', onPress: () => resolve() },
@@ -586,7 +588,7 @@ export async function generateAndShareTimesheetPDF(
                 try {
                   await Share.share({
                     message: textReport,
-                    title: `Timesheet - ${options.employeeName}`,
+                    title: `Time Report - ${options.employeeName}`,
                   });
                   resolve();
                 } catch (e) {
@@ -609,7 +611,7 @@ export async function generateAndShareTimesheetPDF(
     });
 
     // Rename file
-    const fileName = `Timesheet_${options.employeeName.replace(/\s+/g, '_')}_${toLocalDateString(options.periodStart)}.pdf`;
+    const fileName = `TimeReport_${options.employeeName.replace(/\s+/g, '_')}_${toLocalDateString(options.periodStart)}.pdf`;
     const newUri = `${FileSystem.cacheDirectory}${fileName}`;
 
     await FileSystem.moveAsync({
@@ -621,7 +623,7 @@ export async function generateAndShareTimesheetPDF(
     if (await Sharing.isAvailableAsync()) {
       await Sharing.shareAsync(newUri, {
         mimeType: 'application/pdf',
-        dialogTitle: 'Share Timesheet',
+        dialogTitle: 'Share Time Report',
         UTI: 'com.adobe.pdf',
       });
     }
@@ -645,10 +647,10 @@ export async function generateAndShareTimesheet(
 
     await Share.share({
       message: textReport,
-      title: `Timesheet - ${options.employeeName}`,
+      title: `Time Report - ${options.employeeName}`,
     });
   } catch (error) {
-    console.error('Error sharing timesheet:', error);
+    console.error('Error sharing time report:', error);
     throw error;
   }
 }
@@ -669,7 +671,7 @@ export async function generateTimesheetFileUri(
 
   // Generate simple table
   const textReport = generateSimpleTable(filteredSessions, options);
-  const fileName = `Timesheet_${options.employeeName.replace(/\s+/g, '_')}.txt`;
+  const fileName = `TimeReport_${options.employeeName.replace(/\s+/g, '_')}.txt`;
   const fileUri = `${FileSystem.cacheDirectory}${fileName}`;
 
   await FileSystem.writeAsStringAsync(fileUri, textReport, {

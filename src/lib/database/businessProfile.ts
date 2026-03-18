@@ -30,6 +30,7 @@ export interface UpsertBusinessProfileParams {
   gstHstNumber?: string | null;
   defaultHourlyRate?: number | null;
   taxRate?: number | null;
+  nextInvoiceNumber?: number | null;
 }
 
 // ============================================
@@ -85,9 +86,9 @@ export function upsertBusinessProfile(params: UpsertBusinessProfileParams): stri
         id, user_id, business_name,
         address_street, address_city, address_province, address_postal_code,
         phone, email, business_number, gst_hst_number,
-        default_hourly_rate, tax_rate,
+        default_hourly_rate, tax_rate, next_invoice_number,
         created_at, updated_at, synced_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
       [
         id,
         params.userId,
@@ -102,6 +103,7 @@ export function upsertBusinessProfile(params: UpsertBusinessProfileParams): stri
         params.gstHstNumber ?? null,
         params.defaultHourlyRate ?? null,
         params.taxRate ?? null,
+        params.nextInvoiceNumber ?? existing?.next_invoice_number ?? 1,
         existing?.created_at || timestamp,
         timestamp,
       ]
@@ -125,6 +127,25 @@ export function deleteBusinessProfile(userId: string): void {
   } catch (error) {
     logger.error('database', '[DB:business_profile] DELETE ERROR', { error: String(error) });
   }
+}
+
+/**
+ * Increment the invoice number after generating an invoice.
+ * Returns the number that was used (before incrementing).
+ */
+export function incrementInvoiceNumber(userId: string): number {
+  const profile = getBusinessProfile(userId);
+  const current = profile?.next_invoice_number ?? 1;
+  try {
+    db.runSync(
+      `UPDATE business_profile SET next_invoice_number = ?, updated_at = ?, synced_at = NULL WHERE user_id = ?`,
+      [current + 1, now(), userId]
+    );
+    logger.info('database', `[DB:business_profile] Invoice number incremented: ${current} → ${current + 1}`);
+  } catch (error) {
+    logger.error('database', '[DB:business_profile] INCREMENT INVOICE ERROR', { error: String(error) });
+  }
+  return current;
 }
 
 // ============================================

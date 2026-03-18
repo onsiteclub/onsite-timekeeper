@@ -28,7 +28,7 @@ export const PERMISSION_STRINGS = {
       'Your location is used only for arrival and departure detection. No coordinates, ' +
       'routes, or movement data are stored or shared with any third party.',
     accept: 'I understand',
-    decline: 'Not now',
+    decline: 'Skip',
   },
 
   // ============================================
@@ -38,24 +38,24 @@ export const PERMISSION_STRINGS = {
   // ============================================
   rationale: {
     foregroundLocation:
-      'Timekeeper needs your location to show your position on the map when setting ' +
+      'Timekeeper uses your location to show your position on the map when setting ' +
       'up location zones. For example, when you add a new location, your current ' +
       'position helps you place the zone accurately.',
 
     backgroundLocation:
-      'Timekeeper needs background location access to automatically record your time ' +
+      'Background location allows Timekeeper to log your hours automatically ' +
       'when you arrive at or leave your saved locations \u2014 even when the app is closed. ' +
-      'For example, if you visit a saved location, your time is logged automatically.\n\n' +
-      'Without this permission, you\u2019ll need to start and stop the timer manually.',
+      'For example, if you visit a saved location, your start time is recorded for you.\n\n' +
+      'Without this, you can still log your hours manually anytime.',
 
     // Camera rationale kept for QRCodeScanner.tsx (Crew tab hidden, not deleted)
     camera:
-      'Timekeeper needs camera access to scan QR codes when connecting with teammates. ' +
+      'Timekeeper uses the camera to scan QR codes when connecting with teammates. ' +
       'For example, you scan a teammate\u2019s QR code to link accounts and share time entries.',
 
     microphone:
-      'Timekeeper needs microphone access for voice commands so you can manage time ' +
-      'tracking hands-free. For example, you can say \u2018start timer\u2019 when your hands ' +
+      'Timekeeper uses the microphone for voice commands so you can manage time ' +
+      'logging hands-free. For example, you can say \u2018start timer\u2019 when your hands ' +
       'are busy without touching your phone.',
   },
 
@@ -85,7 +85,7 @@ export const PERMISSION_STRINGS = {
       'For example, if you visit a saved location, the app records your arrival time automatically. ' +
       'When you leave, your departure time is logged. All data is stored locally on your device for your personal records only.',
     NSMicrophoneUsageDescription:
-      'The microphone is used for voice commands so you can manage time tracking hands-free. ' +
+      'The microphone is used for voice commands so you can manage time logging hands-free. ' +
       'For example, you can say \u2018start timer\u2019 when your hands are busy to begin logging time without touching your phone.',
   },
 } as const;

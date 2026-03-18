@@ -12,6 +12,7 @@ import {
   getBusinessProfile,
   upsertBusinessProfile,
   deleteBusinessProfile as dbDelete,
+  incrementInvoiceNumber as dbIncrementInvoice,
   validateEmail,
   validateCanadianPhone,
   validatePostalCode,
@@ -30,6 +31,7 @@ interface BusinessProfileState {
   // Actions
   loadProfile: (userId: string) => void;
   saveProfile: (userId: string, data: Omit<UpsertBusinessProfileParams, 'userId'>) => boolean;
+  incrementInvoiceNumber: (userId: string) => number;
   clearProfile: () => void;
   deleteProfile: (userId: string) => void;
 }
@@ -95,6 +97,14 @@ export const useBusinessProfileStore = create<BusinessProfileState>()((set) => (
       Alert.alert('Error', 'Failed to save business profile');
       return false;
     }
+  },
+
+  incrementInvoiceNumber: (userId: string): number => {
+    const invoiceNum = dbIncrementInvoice(userId);
+    // Reload profile to reflect new number
+    const profile = getBusinessProfile(userId);
+    set({ profile });
+    return invoiceNum;
   },
 
   clearProfile: () => {

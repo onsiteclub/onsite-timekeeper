@@ -58,12 +58,13 @@ export interface ActiveTracking {
   location_name: string;
   enter_at: string;
   pause_seconds: number;
+  pause_start: string | null; // ISO timestamp when paused, null when running
 }
 
 function getActiveTracking(): ActiveTracking | null {
   try {
     const row = db.getFirstSync<ActiveTracking>(
-      `SELECT location_id, location_name, enter_at, COALESCE(pause_seconds, 0) as pause_seconds FROM active_tracking WHERE id = 'current'`
+      `SELECT location_id, location_name, enter_at, COALESCE(pause_seconds, 0) as pause_seconds, pause_start FROM active_tracking WHERE id = 'current'`
     );
     return row;
   } catch {
@@ -92,6 +93,46 @@ export function updatePauseSeconds(seconds: number): void {
     `UPDATE active_tracking SET pause_seconds = ? WHERE id = 'current'`,
     [seconds]
   );
+}
+
+/**
+ * Set pause_start timestamp (called when user taps PAUSE)
+ */
+export function setPauseStart(): void {
+  db.runSync(
+    `UPDATE active_tracking SET pause_start = ? WHERE id = 'current'`,
+    [new Date().toISOString()]
+  );
+}
+
+/**
+ * Clear pause_start and accumulate pause_seconds (called when user taps RESUME)
+ */
+export function clearPauseStart(): void {
+  const tracking = getActiveTracking();
+  if (!tracking?.pause_start) return;
+
+  const pauseDuration = Math.floor((Date.now() - new Date(tracking.pause_start).getTime()) / 1000);
+  const newTotal = tracking.pause_seconds + pauseDuration;
+
+  db.runSync(
+    `UPDATE active_tracking SET pause_seconds = ?, pause_start = NULL WHERE id = 'current'`,
+    [newTotal]
+  );
+}
+
+/**
+ * Get total pause seconds including any ongoing pause
+ */
+export function getTotalPauseSeconds(): number {
+  const tracking = getActiveTracking();
+  if (!tracking) return 0;
+
+  let total = tracking.pause_seconds;
+  if (tracking.pause_start) {
+    total += Math.floor((Date.now() - new Date(tracking.pause_start).getTime()) / 1000);
+  }
+  return total;
 }
 
 /**
@@ -442,14 +483,19 @@ async function confirmExit(
   }
 
   // 1. Read pause_seconds BEFORE clearing active tracking
-  const pauseSeconds = getPauseSeconds();
+  //    Include any ongoing pause (pause_start set but not yet cleared)
+  const pauseSeconds = getTotalPauseSeconds();
   const breakMinutes = Math.ceil(pauseSeconds / 60);
+
+  // 1b. If user was paused, use pause_start as effective exit time (not physical exit)
+  const tracking = getActiveTracking();
+  const effectiveExitTime = tracking?.pause_start ? new Date(tracking.pause_start) : exitTime;
 
   // 2. Apply 30-min rounding if enabled (GPS only — entry↑ exit↓)
   const roundingEnabled = useSettingsStore.getState().timeRoundingEnabled;
   const rawEntryTime = new Date(enterAt);
   const entryTime = roundingEnabled ? roundToHalfHour(rawEntryTime, 'ceil') : rawEntryTime;
-  const roundedExitTime = roundingEnabled ? roundToHalfHour(exitTime, 'floor') : exitTime;
+  const roundedExitTime = roundingEnabled ? roundToHalfHour(effectiveExitTime, 'floor') : effectiveExitTime;
 
   if (roundingEnabled) {
     logger.info('session', `[5/6] Time rounding: entry ${formatTimeHHMM(rawEntryTime)}→${formatTimeHHMM(entryTime)} | exit ${formatTimeHHMM(exitTime)}→${formatTimeHHMM(roundedExitTime)}`);

@@ -223,8 +223,12 @@ export const SearchBox = memo(function SearchBox({
             </TouchableOpacity>
           </>
         ) : (
-          // DISPLAY MODE: address text + search button
-          <>
+          // DISPLAY MODE: entire bar is tappable to enter search
+          <TouchableOpacity
+            onPress={enterSearchMode}
+            activeOpacity={0.7}
+            style={styles.barTouchable}
+          >
             <Ionicons name="location" size={18} color={colors.primary} style={styles.barIcon} />
             <Text style={styles.barText} numberOfLines={2}>
               {displayText}
@@ -232,14 +236,8 @@ export const SearchBox = memo(function SearchBox({
             {isGeocoding && (
               <ActivityIndicator size="small" color={colors.primary} style={styles.barLoader} />
             )}
-            <TouchableOpacity
-              onPress={enterSearchMode}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              style={styles.searchButton}
-            >
-              <Ionicons name="search" size={20} color={colors.textSecondary} />
-            </TouchableOpacity>
-          </>
+            <Ionicons name="search" size={20} color={colors.textSecondary} style={styles.searchButton} />
+          </TouchableOpacity>
         )}
       </View>
 
@@ -353,9 +351,13 @@ const styles = StyleSheet.create({
     marginRight: 8,
     backgroundColor: 'transparent',
   },
+  barTouchable: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
   searchButton: {
     marginLeft: 8,
-    padding: 4,
     backgroundColor: 'transparent',
   },
 

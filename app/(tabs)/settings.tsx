@@ -28,6 +28,7 @@ import { useAuthStore } from '../../src/stores/authStore';
 import { useSettingsStore } from '../../src/stores/settingsStore';
 import { onUserLogout } from '../../src/lib/bootstrap';
 import { useBusinessProfileStore } from '../../src/stores/businessProfileStore';
+import { useLocationStore } from '../../src/stores/locationStore';
 
 // ============================================
 // MAIN COMPONENT
@@ -39,6 +40,8 @@ export default function MoreScreen() {
   const settings = useSettingsStore();
   const businessProfile = useBusinessProfileStore(s => s.profile);
   const loadBusinessProfile = useBusinessProfileStore(s => s.loadProfile);
+  const enableAutoLogging = useLocationStore(s => s.enableAutoLogging);
+  const disableAutoLogging = useLocationStore(s => s.disableAutoLogging);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteInput, setDeleteInput] = useState('');
 
@@ -167,20 +170,6 @@ export default function MoreScreen() {
           </View>
           <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
         </TouchableOpacity>
-
-        <View style={styles.rowSeparator} />
-
-        <TouchableOpacity
-          style={styles.row}
-          onPress={() => router.push('/(tabs)/team' as any)}
-          activeOpacity={0.6}
-        >
-          <View style={styles.rowLeft}>
-            <Ionicons name="people" size={20} color={colors.primary} style={styles.rowIcon} />
-            <Text style={styles.rowText}>My Crew</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
-        </TouchableOpacity>
       </View>
 
       {/* ============================================ */}
@@ -191,11 +180,27 @@ export default function MoreScreen() {
         <View style={styles.row}>
           <View style={styles.rowLeft}>
             <Ionicons name="sync" size={20} color={colors.primary} style={styles.rowIcon} />
-            <Text style={styles.rowText}>Auto-logging</Text>
+            <View>
+              <Text style={styles.rowText}>Auto-logging</Text>
+              <Text style={{ fontSize: 12, color: colors.textSecondary, marginTop: 2 }}>Automatically log hours at your saved locations</Text>
+            </View>
           </View>
           <Switch
             value={settings.autoLoggingEnabled}
-            onValueChange={(v) => settings.updateSetting('autoLoggingEnabled', v)}
+            onValueChange={(v) => {
+              if (v) {
+                enableAutoLogging();
+              } else {
+                Alert.alert(
+                  'Turn off Auto-logging?',
+                  'This will disable background location detection. Your hours will no longer be logged automatically and the map will be locked.\n\nYou can still log hours manually anytime.',
+                  [
+                    { text: 'Keep On', style: 'cancel' },
+                    { text: 'Turn Off', style: 'destructive', onPress: () => disableAutoLogging() },
+                  ]
+                );
+              }
+            }}
             trackColor={{ false: colors.border, true: colors.primarySoft }}
             thumbColor={settings.autoLoggingEnabled ? colors.primary : '#FFFFFF'}
           />

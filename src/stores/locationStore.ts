@@ -12,6 +12,7 @@
  */
 
 import { create } from 'zustand';
+import { Alert, Linking, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { logger } from '../lib/logger';
 import {
@@ -128,6 +129,7 @@ export interface LocationState {
   permissionStatus: 'unknown' | 'granted' | 'denied' | 'restricted';
   lastGeofenceEvent: GeofenceEvent | null;
   currentFenceId: string | null; // Track which fence user is physically inside
+  manualStopFenceId: string | null; // Fence where user manually stopped — suppress auto-restart
   needsLocationDisclosure: boolean; // True when disclosure modal should be shown
 
   // Timer configs (from settings)
@@ -212,6 +214,7 @@ export const useLocationStore = create<LocationState>((set, get) => ({
   permissionStatus: 'unknown',
   lastGeofenceEvent: null,
   currentFenceId: null, // NEW
+  manualStopFenceId: null,
   needsLocationDisclosure: false,
   entryTimeout: 120,
   exitTimeout: 60,
@@ -326,27 +329,42 @@ export const useLocationStore = create<LocationState>((set, get) => ({
       await AsyncStorage.setItem(LOCATION_DISCLOSURE_KEY, 'true');
       set({ needsLocationDisclosure: false });
 
-      // Request foreground first if needed
-      const existing = await checkPermissions();
-      if (!existing.foreground) {
-        await requestForegroundPermission();
+      // Enable and start SDK — it handles native permission dialogs
+      // (locationAuthorizationRequest: 'Always' triggers OS prompts)
+      set({ permissionStatus: 'granted' });
+      useSettingsStore.getState().updateSetting('autoLoggingEnabled', true);
+
+      const { locations } = get();
+      if (locations.length > 0) {
+        logger.info('geofence', '🚀 Starting monitoring after disclosure acceptance');
+        await get().startMonitoring();
       }
 
-      // Now request background permission
-      const granted = await requestBackgroundPermission();
-      set({ permissionStatus: granted ? 'granted' : 'restricted' });
+      // Verify permissions AFTER SDK start (user may have denied native dialog)
+      const actual = await checkPermissions();
+      if (!actual.background) {
+        // User denied — revert everything
+        logger.warn('geofence', 'Background permission denied after disclosure — reverting');
+        useSettingsStore.getState().updateSetting('autoLoggingEnabled', false);
+        set({ permissionStatus: 'restricted' });
+        await get().stopMonitoring();
 
-      // If granted, enable auto-logging and start monitoring
-      if (granted) {
-        useSettingsStore.getState().updateSetting('autoLoggingEnabled', true);
-        const { locations } = get();
-        if (locations.length > 0) {
-          logger.info('geofence', '🚀 Starting monitoring after disclosure acceptance');
-          await get().startMonitoring();
-        }
+        Alert.alert(
+          'Location Access Required',
+          'Auto-logging needs "Always Allow" location access to detect when you arrive at or leave your saved locations.\n\nGo to Settings to enable it.',
+          [
+            { text: 'Later', style: 'cancel' },
+            {
+              text: 'Open Settings',
+              onPress: () => Linking.openSettings(),
+            },
+          ]
+        );
+        return;
       }
 
-      logger.info('geofence', `Location disclosure completed — background: ${granted ? 'granted' : 'denied'}`);
+      set({ permissionStatus: 'granted' });
+      logger.info('geofence', '✅ Location disclosure completed — permissions granted');
     } catch (error) {
       logger.error('geofence', 'Error completing location disclosure', { error: String(error) });
     }
@@ -364,55 +382,49 @@ export const useLocationStore = create<LocationState>((set, get) => ({
   // ============================================
   enableAutoLogging: async () => {
     try {
-      // Check existing permissions first
-      const existing = await checkPermissions();
-
-      if (existing.background) {
-        // Already have all permissions — just enable
-        set({ permissionStatus: 'granted' });
-        useSettingsStore.getState().updateSetting('autoLoggingEnabled', true);
-
-        const { locations } = get();
-        if (locations.length > 0) {
-          await get().startMonitoring();
-        }
-        logger.info('geofence', '✅ Auto-logging enabled (permissions already granted)');
-        return true;
-      }
-
-      // Need to request permissions — show disclosure first
+      // Google Play requires prominent disclosure BEFORE background location prompt
       const disclosureShown = await AsyncStorage.getItem(LOCATION_DISCLOSURE_KEY);
 
       if (!disclosureShown) {
-        // Show disclosure modal and wait for user action
+        // First time — show disclosure modal and wait for user action
         set({ needsLocationDisclosure: true });
         logger.info('geofence', 'Showing location disclosure before enabling auto-logging');
         // completeLocationDisclosure() will finish the flow
         return false; // Not yet enabled — waiting for disclosure
       }
 
-      // Disclosure was shown before — request permissions directly
-      if (!existing.foreground) {
-        const foreground = await requestForegroundPermission();
-        if (!foreground) {
-          logger.warn('geofence', 'Foreground permission denied during auto-logging enable');
-          return false;
-        }
-      }
-
-      const background = await requestBackgroundPermission();
-      if (!background) {
-        set({ permissionStatus: 'restricted' });
-        logger.warn('geofence', 'Background permission denied during auto-logging enable');
-        return false;
-      }
-
+      // Enable setting and start SDK.
+      // The SDK (locationAuthorizationRequest: 'Always') handles native
+      // OS authorization dialogs automatically when start() is called.
       set({ permissionStatus: 'granted' });
       useSettingsStore.getState().updateSetting('autoLoggingEnabled', true);
 
       const { locations } = get();
       if (locations.length > 0) {
         await get().startMonitoring();
+      }
+
+      // Verify permissions AFTER SDK start (user may have revoked in Settings)
+      const actual = await checkPermissions();
+      if (!actual.background) {
+        // Permission not granted — revert
+        logger.warn('geofence', 'Background permission not granted — reverting auto-logging');
+        useSettingsStore.getState().updateSetting('autoLoggingEnabled', false);
+        set({ permissionStatus: 'restricted' });
+        await get().stopMonitoring();
+
+        Alert.alert(
+          'Location Access Required',
+          'Auto-logging needs "Always Allow" location access to detect when you arrive at or leave your saved locations.\n\nGo to Settings to enable it.',
+          [
+            { text: 'Later', style: 'cancel' },
+            {
+              text: 'Open Settings',
+              onPress: () => Linking.openSettings(),
+            },
+          ]
+        );
+        return false;
       }
 
       await cancelAutoLoggingNudge();
@@ -796,12 +808,17 @@ export const useLocationStore = create<LocationState>((set, get) => ({
           }
 
           if (insideFence && !isTracking) {
-            logger.info('geofence', `🚀 Post-start: inside "${insideFence.name}" → injecting ENTER`);
-            get().handleGeofenceEvent({
-              type: 'enter',
-              regionIdentifier: insideFence.id,
-              timestamp: new Date().toISOString(), // Synthetic — no SDK timestamp
-            });
+            // Skip if user manually stopped inside this fence
+            if (get().manualStopFenceId === insideFence.id) {
+              logger.info('geofence', `🚀 Post-start: inside "${insideFence.name}" but manual stop suppressed — skipping ENTER`);
+            } else {
+              logger.info('geofence', `🚀 Post-start: inside "${insideFence.name}" → injecting ENTER`);
+              get().handleGeofenceEvent({
+                type: 'enter',
+                regionIdentifier: insideFence.id,
+                timestamp: new Date().toISOString(), // Synthetic — no SDK timestamp
+              });
+            }
           }
         }
       } catch {
@@ -902,13 +919,18 @@ export const useLocationStore = create<LocationState>((set, get) => ({
           }
 
           if (insideFence && !isTracking) {
-            // Inside fence but no tracking → ENTER was dropped during re-registration
-            logger.info('geofence', `🔄 Post-restart: inside "${insideFence.name}" but no tracking → injecting ENTER`);
-            get().handleGeofenceEvent({
-              type: 'enter',
-              regionIdentifier: insideFence.id,
-              timestamp: new Date().toISOString(), // Synthetic — no SDK timestamp
-            });
+            // Skip if user manually stopped inside this fence
+            if (get().manualStopFenceId === insideFence.id) {
+              logger.info('geofence', `🔄 Post-restart: inside "${insideFence.name}" but manual stop suppressed — skipping ENTER`);
+            } else {
+              // Inside fence but no tracking → ENTER was dropped during re-registration
+              logger.info('geofence', `🔄 Post-restart: inside "${insideFence.name}" but no tracking → injecting ENTER`);
+              get().handleGeofenceEvent({
+                type: 'enter',
+                regionIdentifier: insideFence.id,
+                timestamp: new Date().toISOString(), // Synthetic — no SDK timestamp
+              });
+            }
           } else if (!insideFence && isTracking) {
             // Outside all fences but tracking active → EXIT was dropped
             const tracking = getActiveTrackingState();
@@ -950,9 +972,12 @@ export const useLocationStore = create<LocationState>((set, get) => ({
       set({ lastGeofenceEvent: event, currentFenceId: event.regionIdentifier });
     } else if (event.type === 'exit') {
       const current = get().currentFenceId;
+      const suppressedFence = get().manualStopFenceId;
       set({
         lastGeofenceEvent: event,
         currentFenceId: current === event.regionIdentifier ? null : current,
+        // Clear suppression when user physically leaves the fence
+        manualStopFenceId: suppressedFence === event.regionIdentifier ? null : suppressedFence,
       });
     }
 
@@ -963,6 +988,12 @@ export const useLocationStore = create<LocationState>((set, get) => ({
     }
 
     logger.info('geofence', `[3/6] locationStore→exitHandler: ${event.type.toUpperCase()} "${location.name}" | ts=${event.timestamp}`);
+
+    // Suppression: if user manually stopped inside this fence, skip auto-enter
+    if (event.type === 'enter' && get().manualStopFenceId === event.regionIdentifier) {
+      logger.info('geofence', `[3/6] ⏸️ Suppressed auto-enter: user manually stopped inside "${location.name}"`);
+      return;
+    }
 
     // Get current GPS for audit
     let coords: LocationResult | null = null;
@@ -1044,7 +1075,8 @@ export const useLocationStore = create<LocationState>((set, get) => ({
     }
 
     // V3: Update state from active_tracking
-    set({ activeSession: getActiveTrackingState(), currentFenceId: location.id });
+    // Clear manualStopFenceId — user explicitly chose to start again
+    set({ activeSession: getActiveTrackingState(), currentFenceId: location.id, manualStopFenceId: null });
 
     logger.info('geofence', `✅ Manual entry: ${location.name}`);
     return location.id; // Return location ID instead of session ID
@@ -1073,9 +1105,13 @@ export const useLocationStore = create<LocationState>((set, get) => ({
     // V3: Update state from active_tracking
     // Keep currentFenceId — user is still physically inside the fence
     // It only clears on actual geofence EXIT event (handleGeofenceEvent)
-    set({ activeSession: getActiveTrackingState() });
+    // Set manualStopFenceId to suppress auto-restart while still inside
+    set({
+      activeSession: getActiveTrackingState(),
+      manualStopFenceId: locationId,
+    });
 
-    logger.info('geofence', `✅ Manual exit: ${location.name}`);
+    logger.info('geofence', `✅ Manual exit: ${location.name} (auto-restart suppressed)`);
 
     // GPS audit is fire-and-forget (best effort, non-blocking)
     getCurrentLocation().then(coords => {
@@ -1164,7 +1200,8 @@ export const useLocationStore = create<LocationState>((set, get) => ({
       permissionStatus: state.permissionStatus,
       activeSession: state.activeSession?.location_name || null,
       lastEvent: state.lastGeofenceEvent?.type || null,
-      currentFenceId: state.currentFenceId, // NEW
+      currentFenceId: state.currentFenceId,
+      manualStopFenceId: state.manualStopFenceId,
       currentLocation: state.currentLocation ? {
         lat: state.currentLocation.latitude.toFixed(6),
         lng: state.currentLocation.longitude.toFixed(6),

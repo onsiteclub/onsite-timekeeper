@@ -193,6 +193,7 @@ export interface BusinessProfileDB {
   gst_hst_number: string | null;
   default_hourly_rate: number | null;
   tax_rate: number | null;
+  next_invoice_number: number;
   created_at: string;
   updated_at: string;
   synced_at: string | null;
@@ -447,6 +448,22 @@ export async function initDatabase(): Promise<void> {
     try {
       db.execSync(`ALTER TABLE active_tracking ADD COLUMN pause_seconds INTEGER DEFAULT 0`);
       logger.debug('database', 'Added pause_seconds column to active_tracking');
+    } catch {
+      // Column already exists, ignore
+    }
+
+    // Migration: Add pause_start column to active_tracking (ISO timestamp when paused, NULL when running)
+    try {
+      db.execSync(`ALTER TABLE active_tracking ADD COLUMN pause_start TEXT DEFAULT NULL`);
+      logger.debug('database', 'Added pause_start column to active_tracking');
+    } catch {
+      // Column already exists, ignore
+    }
+
+    // Migration: Add next_invoice_number to business_profile
+    try {
+      db.execSync(`ALTER TABLE business_profile ADD COLUMN next_invoice_number INTEGER DEFAULT 1`);
+      logger.debug('database', 'Added next_invoice_number column to business_profile');
     } catch {
       // Column already exists, ignore
     }

@@ -28,7 +28,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
+import DateTimePicker, { DateTimePickerAndroid, type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { runOnJS } from 'react-native-reanimated';
 
@@ -124,13 +124,14 @@ export default function ReportsScreen() {
     // Timer
     currentSession,
     activeLocation,
+    canRestart,
     timer,
     isPaused,
     pauseTimer,
     cooldownSeconds,
     handlePause,
     handleResume,
-    handleStop,
+    handleRestart,
 
     onRefresh,
 
@@ -276,10 +277,25 @@ export default function ReportsScreen() {
   // HANDLERS
   // ============================================
 
-  const handleTimePickerChange = (_event: DateTimePickerEvent, selectedDate?: Date) => {
-    if (Platform.OS === 'android') {
-      setActiveTimePicker(null);
-    }
+  // Android: imperative API — opens native dialog that's immune to React re-renders
+  const openAndroidTimePicker = useCallback((picker: 'entry' | 'exit') => {
+    DateTimePickerAndroid.open({
+      value: picker === 'entry' ? entryTime : exitTime,
+      mode: 'time',
+      display: 'spinner',
+      onChange: (event, selectedDate) => {
+        if (event.type === 'set' && selectedDate) {
+          const newTime = new Date();
+          newTime.setHours(selectedDate.getHours(), selectedDate.getMinutes(), 0, 0);
+          if (picker === 'entry') setEntryTime(newTime);
+          else setExitTime(newTime);
+        }
+      },
+    });
+  }, [entryTime, exitTime]);
+
+  // iOS: spinner updates in real-time inside modal
+  const handleTimePickerChange = (event: DateTimePickerEvent, selectedDate?: Date) => {
     if (selectedDate) {
       if (activeTimePicker === 'entry') {
         setEntryTime(selectedDate);
@@ -319,8 +335,8 @@ export default function ReportsScreen() {
       setManualExitM(String(xM).padStart(2, '0'));
       setManualPause(breakMinutes > 0 ? String(breakMinutes) : '');
 
-      // Pass 24h values directly to avoid state race condition
-      await handleSaveManual({ entryH: eH, exitH: xH });
+      // Pass all values directly to avoid state race condition
+      await handleSaveManual({ entryH: eH, entryM: eM, exitH: xH, exitM: xM, pauseMinutes: breakMinutes });
     } finally {
       setIsSaving(false);
     }
@@ -466,7 +482,7 @@ export default function ReportsScreen() {
               <Text style={logStyles.timeLabel}>ENTRY</Text>
               <PressableOpacity
                 style={logStyles.timePill}
-                onPress={() => setActiveTimePicker('entry')}
+                onPress={() => Platform.OS === 'android' ? openAndroidTimePicker('entry') : setActiveTimePicker('entry')}
                 activeOpacity={0.7}
               >
                 <Text style={logStyles.timeValue}>
@@ -478,7 +494,7 @@ export default function ReportsScreen() {
               <Text style={logStyles.timeLabel}>EXIT</Text>
               <PressableOpacity
                 style={logStyles.timePill}
-                onPress={() => setActiveTimePicker('exit')}
+                onPress={() => Platform.OS === 'android' ? openAndroidTimePicker('exit') : setActiveTimePicker('exit')}
                 activeOpacity={0.7}
               >
                 <Text style={logStyles.timeValue}>
@@ -562,25 +578,68 @@ export default function ReportsScreen() {
             ) : (
               <>
                 <View style={quickLogStyles.loggedCard}>
-                  <View style={quickLogStyles.loggedRow}>
-                    <Ionicons name="checkmark-circle" size={20} color={colors.success} />
-                    <Text style={quickLogStyles.loggedText}>
-                      <Text style={quickLogStyles.loggedHours}>
-                        {formatDuration(todayLog.totalMinutes)}
-                      </Text>
-                      {' logged today'}
-                    </Text>
+                  <View style={quickLogStyles.loggedCardInner}>
+                    <View style={{ flex: 1 }}>
+                      <View style={quickLogStyles.loggedRow}>
+                        <Ionicons name="checkmark-circle" size={20} color={colors.success} />
+                        <Text style={quickLogStyles.loggedText}>
+                          <Text style={quickLogStyles.loggedHours}>
+                            {formatDuration(todayLog.totalMinutes)}
+                          </Text>
+                          {' logged today'}
+                        </Text>
+                      </View>
+                      {todayLog.firstEntry && todayLog.lastExit ? (
+                        <Text style={quickLogStyles.loggedMeta}>
+                          {todayLog.firstEntry} – {todayLog.lastExit}
+                        </Text>
+                      ) : (
+                        <Text style={quickLogStyles.loggedMeta}>Manual entry</Text>
+                      )}
+                    </View>
+                    <PressableOpacity
+                      style={quickLogStyles.editArrow}
+                      onPress={() => router.push({ pathname: '/(tabs)/history', params: { date: getToday() } })}
+                      activeOpacity={0.5}
+                    >
+                      <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+                    </PressableOpacity>
                   </View>
-                  {todayLog.firstEntry && todayLog.lastExit ? (
-                    <Text style={quickLogStyles.loggedMeta}>
-                      {todayLog.firstEntry} – {todayLog.lastExit}
-                    </Text>
-                  ) : (
-                    <Text style={quickLogStyles.loggedMeta}>Manual entry</Text>
-                  )}
                 </View>
 
-                {/* Yesterday fallback */}
+                {/* Yesterday: show logged card OR "Log yesterday?" link */}
+                {yesterdayChecked && yesterdayLog && (
+                  <View style={[quickLogStyles.loggedCard, { marginTop: 10 }]}>
+                    <View style={quickLogStyles.loggedCardInner}>
+                      <View style={{ flex: 1 }}>
+                        <View style={quickLogStyles.loggedRow}>
+                          <Ionicons name="checkmark-circle" size={20} color={colors.success} />
+                          <Text style={quickLogStyles.loggedText}>
+                            <Text style={quickLogStyles.loggedHours}>
+                              {formatDuration(yesterdayLog.total_minutes)}
+                            </Text>
+                            {' logged yesterday'}
+                          </Text>
+                        </View>
+                        {yesterdayLog.first_entry && yesterdayLog.last_exit ? (
+                          <Text style={quickLogStyles.loggedMeta}>
+                            {yesterdayLog.first_entry} – {yesterdayLog.last_exit}
+                          </Text>
+                        ) : (
+                          <Text style={quickLogStyles.loggedMeta}>Manual entry</Text>
+                        )}
+                      </View>
+                      <PressableOpacity
+                        style={quickLogStyles.editArrow}
+                        onPress={() => router.push({ pathname: '/(tabs)/history', params: { date: yesterdayDate } })}
+                        activeOpacity={0.5}
+                      >
+                        <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+                      </PressableOpacity>
+                    </View>
+                  </View>
+                )}
+
                 {yesterdayChecked && !yesterdayLog && quickLogTarget !== 'yesterday' && (
                   <PressableOpacity
                     style={quickLogStyles.yesterdayLink}
@@ -763,50 +822,43 @@ export default function ReportsScreen() {
           </Pressable>
         </Modal>
 
-        {/* ===== TIME PICKER MODAL ===== */}
-        {activeTimePicker !== null && (
-          Platform.OS === 'ios' ? (
-            <Modal
-              visible
-              transparent
-              animationType="fade"
-              statusBarTranslucent
-              onRequestClose={() => setActiveTimePicker(null)}
+        {/* ===== TIME PICKER ===== */}
+        {/* iOS time picker — Android uses imperative DateTimePickerAndroid.open() */}
+        {Platform.OS === 'ios' && activeTimePicker !== null && (
+          <Modal
+            visible
+            transparent
+            animationType="fade"
+            statusBarTranslucent
+            onRequestClose={() => setActiveTimePicker(null)}
+          >
+            <Pressable
+              style={modalStyles.overlay}
+              onPress={() => setActiveTimePicker(null)}
             >
-              <Pressable
-                style={modalStyles.overlay}
-                onPress={() => setActiveTimePicker(null)}
-              >
-                <Pressable style={timePickerStyles.sheet}>
-                  <Text style={modalStyles.sheetTitle}>
-                    {activeTimePicker === 'entry' ? 'Entry Time' : 'Exit Time'}
-                  </Text>
-                  <DateTimePicker
-                    value={activeTimePicker === 'entry' ? entryTime : exitTime}
-                    mode="time"
-                    display="spinner"
-                    onChange={handleTimePickerChange}
-                    minuteInterval={5}
-                    style={{ height: 180, width: '100%' }}
-                  />
-                  <PressableOpacity
-                    style={timePickerStyles.doneBtn}
-                    onPress={() => setActiveTimePicker(null)}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={timePickerStyles.doneBtnText}>Done</Text>
-                  </PressableOpacity>
-                </Pressable>
+              <Pressable style={timePickerStyles.sheet}>
+                <Text style={modalStyles.sheetTitle}>
+                  {activeTimePicker === 'entry' ? 'Entry Time' : 'Exit Time'}
+                </Text>
+                <DateTimePicker
+                  value={activeTimePicker === 'entry' ? entryTime : exitTime}
+                  mode="time"
+                  display="spinner"
+                  themeVariant="light"
+                  onChange={handleTimePickerChange}
+                  minuteInterval={5}
+                  style={{ height: 180, width: '100%' }}
+                />
+                <PressableOpacity
+                  style={timePickerStyles.doneBtn}
+                  onPress={() => setActiveTimePicker(null)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={timePickerStyles.doneBtnText}>Done</Text>
+                </PressableOpacity>
               </Pressable>
-            </Modal>
-          ) : (
-            <DateTimePicker
-              value={activeTimePicker === 'entry' ? entryTime : exitTime}
-              mode="time"
-              display="default"
-              onChange={handleTimePickerChange}
-            />
-          )
+            </Pressable>
+          </Modal>
         )}
 
         {/* ===== TIMER MODAL (overlay) — swipe down to minimize ===== */}
@@ -897,10 +949,6 @@ export default function ReportsScreen() {
                             <Text style={heroStyles.btnTextLight}>PAUSE</Text>
                           </PressableOpacity>
                         )}
-                        <PressableOpacity style={heroStyles.stopBtn} onPress={handleStop} activeOpacity={0.8}>
-                          <Ionicons name="stop" size={16} color={colors.error} />
-                          <Text style={heroStyles.stopBtnText}>STOP</Text>
-                        </PressableOpacity>
                       </View>
                     )}
 
@@ -919,10 +967,28 @@ export default function ReportsScreen() {
 
         {/* ===== TIMER BAR (bottom) — swipe up to expand ===== */}
         {!currentSession ? (
-          <View style={timerBarStyles.bar}>
-            <Ionicons name="time-outline" size={16} color={colors.iconMuted} />
-            <Text style={timerBarStyles.inactiveText}>No active timer</Text>
-          </View>
+          canRestart ? (
+            <View style={timerBarStyles.barInsideFence}>
+              <Ionicons name="location" size={16} color={colors.primary} />
+              <Text style={timerBarStyles.insideFenceText} numberOfLines={1}>
+                {activeLocation?.name || 'Location'}
+              </Text>
+              {todayLog && todayLog.totalMinutes > 0 && (
+                <Text style={timerBarStyles.todayHoursText}>
+                  {formatDuration(todayLog.totalMinutes)}
+                </Text>
+              )}
+              <PressableOpacity style={timerBarStyles.playBtn} onPress={handleRestart} activeOpacity={0.7}>
+                <Ionicons name="play" size={16} color={colors.white} />
+                <Text style={timerBarStyles.playBtnText}>START</Text>
+              </PressableOpacity>
+            </View>
+          ) : (
+            <View style={timerBarStyles.barInactive}>
+              <Ionicons name="time-outline" size={16} color={colors.iconMuted} />
+              <Text style={timerBarStyles.inactiveText}>No active timer</Text>
+            </View>
+          )
         ) : (
           <GestureDetector gesture={timerBarGesture}>
             <View>
@@ -944,7 +1010,7 @@ export default function ReportsScreen() {
                 <Text style={timerBarStyles.locationText} numberOfLines={1}>
                   {currentSession?.location_name || activeLocation?.name || 'Timer'}
                 </Text>
-                <Ionicons name="chevron-up" size={16} color={colors.textSecondary} />
+                <Ionicons name="chevron-up" size={20} color={isPaused ? colors.amber : colors.primary} />
               </PressableOpacity>
             </View>
           </GestureDetector>
@@ -1010,7 +1076,7 @@ const logStyles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: colors.darkSurface,
+    backgroundColor: '#2E3033',
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 12,
@@ -1127,7 +1193,7 @@ const logStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: colors.darkSurface,
+    backgroundColor: '#2E3033',
     borderRadius: 14,
     paddingVertical: 16,
     paddingHorizontal: 20,
@@ -1252,6 +1318,14 @@ const quickLogStyles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: 14,
     padding: 16,
+  },
+  loggedCardInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  editArrow: {
+    paddingLeft: 12,
+    paddingVertical: 4,
   },
   loggedRow: {
     flexDirection: 'row',
@@ -1402,27 +1476,70 @@ const modalStyles = StyleSheet.create({
 
 const timerBarStyles = StyleSheet.create({
   dragHandle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    width: 48,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.5)',
     alignSelf: 'center',
-    marginTop: 6,
-    marginBottom: 2,
+    marginTop: 8,
+    marginBottom: 4,
   },
   bar: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     paddingHorizontal: 16,
+    paddingVertical: 14,
+    backgroundColor: '#2E3033',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+  },
+  barInactive: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
     paddingVertical: 10,
-    backgroundColor: colors.darkSurface,
-    borderTopWidth: 0,
+    backgroundColor: '#2E3033',
   },
   inactiveText: {
     fontSize: 13,
     color: withOpacity(colors.white, 0.5),
     fontWeight: '500',
+  },
+  barInsideFence: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: '#2E3033',
+  },
+  insideFenceText: {
+    flex: 1,
+    fontSize: 13,
+    color: withOpacity(colors.white, 0.7),
+    fontWeight: '500',
+  },
+  todayHoursText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: withOpacity(colors.white, 0.8),
+    fontVariant: ['tabular-nums'] as any,
+  },
+  playBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: colors.primary,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  playBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.white,
   },
   dot: {
     width: 8,
@@ -1633,23 +1750,6 @@ const heroStyles = StyleSheet.create({
     backgroundColor: colors.amber,
     borderRadius: 14,
   },
-  stopBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-    paddingVertical: 11,
-    paddingHorizontal: 20,
-    backgroundColor: colors.white,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: withOpacity(colors.error, 0.2),
-  },
-  stopBtnText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.error,
-  },
   btnTextLight: {
     fontSize: 14,
     fontWeight: '600',
@@ -1666,7 +1766,7 @@ const iosKbStyles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'flex-end',
     alignItems: 'center',
-    backgroundColor: '#1C1C1E',
+    backgroundColor: '#2E3033',
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,
     paddingHorizontal: 12,

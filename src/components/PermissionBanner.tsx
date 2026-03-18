@@ -94,8 +94,8 @@ export function ForegroundServiceKilledBanner() {
   return (
     <PermissionBanner
       type="error"
-      title="⚠️ Tracking paused"
-      message="Keep this notification active to track your hours automatically. Dismissing it stops time tracking. Tap Restart to resume."
+      title="⚠️ Logging paused"
+      message="Keep this notification active to log your hours automatically. Dismissing it stops time logging. Tap Restart to resume."
       actionLabel="Restart"
       onAction={restartMonitoring}
       icon="notifications-off"
@@ -118,7 +118,7 @@ export function NotificationDisabledBanner() {
     <PermissionBanner
       type="error"
       title="Notifications disabled"
-      message="Enable notifications for automatic time tracking reminders. Without this, background features may not work reliably."
+      message="Enable notifications for time log updates. Without this, auto-logging reminders may not reach you."
       actionLabel="Enable"
       onAction={openAppSettings}
       icon="notifications-off"
@@ -141,7 +141,7 @@ export function LocationPermissionBanner() {
     <PermissionBanner
       type="warning"
       title="Location access limited"
-      message="Set location to 'Always Allow' for automatic time tracking when you arrive or leave your saved locations."
+      message="Set location to 'Always Allow' for automatic time logging when you arrive or leave your saved locations."
       actionLabel="Allow"
       onAction={async () => {
         const granted = await requestLocationPermission();

@@ -74,7 +74,7 @@ export default function CompleteProfileScreen() {
         />
         <Text style={styles.title}>Complete Your Profile</Text>
         <Text style={styles.subtitle}>
-          We need your name so your timesheets and reports show the right info.
+          We need your name so your time reports and invoices show the right info.
         </Text>
       </View>
 

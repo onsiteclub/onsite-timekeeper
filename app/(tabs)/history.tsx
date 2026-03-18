@@ -20,14 +20,13 @@ import {
   TextInput,
   Animated,
   Platform,
-  InputAccessoryView,
-  Keyboard,
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import DateTimePicker, { DateTimePickerAndroid, type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 
 import { Card } from '../../src/components/ui/Button';
 import { colors, withOpacity, shadows } from '../../src/constants/colors';
@@ -72,6 +71,26 @@ const CALENDAR_GAP = 2;
 const DAYS_PER_WEEK = 7;
 const CALENDAR_WIDTH = Platform.OS === 'web' ? Math.min(SCREEN_WIDTH, 500) : SCREEN_WIDTH;
 const DAY_SIZE = Math.floor((CALENDAR_WIDTH - CALENDAR_PADDING - (CALENDAR_GAP * 6)) / DAYS_PER_WEEK);
+
+const BREAK_PRESETS = [
+  { label: 'No break', value: 0 },
+  { label: '15 min', value: 15 },
+  { label: '30 min', value: 30 },
+  { label: '45 min', value: 45 },
+  { label: '1 hour', value: 60 },
+];
+
+// ============================================
+// TIME DISPLAY FORMAT (12h)
+// ============================================
+function formatTimeDisplay(date: Date): string {
+  const hours = date.getHours();
+  const minutes = date.getMinutes();
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  const h = hours % 12 || 12;
+  const m = minutes.toString().padStart(2, '0');
+  return `${h}:${m} ${ampm}`;
+}
 
 // ============================================
 // COMPACT DURATION FORMAT
@@ -152,6 +171,7 @@ function Last7DaysChart({ getSessionsForDay, getTotalMinutesForDay, isToday }: {
 
 export default function HistoryScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ date?: string }>();
 
   const {
     userName,
@@ -188,13 +208,9 @@ export default function HistoryScreen() {
     // Manual entry form state (used inline in day card)
     manualLocationId,
     setManualLocationId,
-    manualEntryH,
     setManualEntryH,
-    manualEntryM,
     setManualEntryM,
-    manualExitH,
     setManualExitH,
-    manualExitM,
     setManualExitM,
     manualPause,
     setManualPause,
@@ -224,117 +240,96 @@ export default function HistoryScreen() {
     }, [])
   );
 
+  // Auto-open day modal when navigated with ?date=YYYY-MM-DD
+  useEffect(() => {
+    if (params.date) {
+      const [y, m, d] = params.date.split('-').map(Number);
+      if (y && m && d) {
+        const target = new Date(y, m - 1, d);
+        openDayModal(target);
+      }
+      // Clear param so it doesn't re-trigger
+      router.setParams({ date: undefined as any });
+    }
+  }, [params.date]);
+
   // ============================================
-  // AM/PM STATE FOR MANUAL ENTRY MODAL
+  // TIME PICKER STATE (DateTimePicker spinner)
   // ============================================
-  const [entryPeriod, setEntryPeriod] = useState<'AM' | 'PM'>('AM');
-  const [exitPeriod, setExitPeriod] = useState<'AM' | 'PM'>('PM');
+  const [entryTime, setEntryTime] = useState(() => {
+    const d = new Date();
+    d.setHours(8, 0, 0, 0);
+    return d;
+  });
+  const [exitTime, setExitTime] = useState(() => {
+    const d = new Date();
+    d.setHours(17, 0, 0, 0);
+    return d;
+  });
+  const [activeTimePicker, setActiveTimePicker] = useState<'entry' | 'exit' | null>(null);
 
-  // Shared hour handler - allows leading "0" for typing "02", converts 24h to 12h
-  const handleHourChange = (
-    cleaned: string,
-    setHour: (h: string) => void,
-    setPeriod: (p: 'AM' | 'PM') => void,
-  ) => {
-    const hour = parseInt(cleaned, 10);
-    if (cleaned === '0') {
-      setHour('0');
-      return;
-    }
-    if (cleaned === '00') {
-      setHour('12');
-      setPeriod('AM');
-      return;
-    }
-    if (!isNaN(hour) && hour >= 13 && hour <= 23) {
-      setHour(String(hour - 12).padStart(2, '0'));
-      setPeriod('PM');
-      return;
-    }
-    if (!isNaN(hour) && hour === 12) {
-      setHour('12');
-      setPeriod('PM');
-      return;
-    }
-    setHour(cleaned);
-  };
+  // Android: imperative API — opens native dialog immune to React re-renders
+  const openAndroidTimePicker = useCallback((picker: 'entry' | 'exit') => {
+    DateTimePickerAndroid.open({
+      value: picker === 'entry' ? entryTime : exitTime,
+      mode: 'time',
+      display: 'spinner',
+      onChange: (event, selectedDate) => {
+        if (event.type === 'set' && selectedDate) {
+          const newTime = new Date();
+          newTime.setHours(selectedDate.getHours(), selectedDate.getMinutes(), 0, 0);
+          if (picker === 'entry') setEntryTime(newTime);
+          else setExitTime(newTime);
+        }
+      },
+    });
+  }, [entryTime, exitTime]);
 
-  const handleEntryHourChange = (text: string) => {
-    const cleaned = text.replace(/[^0-9]/g, '').slice(0, 2);
-    handleHourChange(cleaned, setManualEntryH, setEntryPeriod);
-  };
-  const handleExitHourChange = (text: string) => {
-    const cleaned = text.replace(/[^0-9]/g, '').slice(0, 2);
-    handleHourChange(cleaned, setManualExitH, setExitPeriod);
-  };
-
-  // Arrow helpers for time adjustment
-  const adjustHour = (current: string, dir: 'up' | 'down', setH: (h: string) => void, period: 'AM' | 'PM', setP: (p: 'AM' | 'PM') => void) => {
-    let h = parseInt(current, 10) || 12;
-    h = dir === 'up' ? h + 1 : h - 1;
-    if (h > 12) { h = 1; }
-    if (h < 1) { h = 12; }
-    if (h === 12 && dir === 'up') setP(period === 'AM' ? 'PM' : 'AM');
-    if (h === 11 && dir === 'down') setP(period === 'AM' ? 'PM' : 'AM');
-    setH(String(h).padStart(2, '0'));
-  };
-
-  const adjustMinute = (current: string, dir: 'up' | 'down', setM: (m: string) => void) => {
-    let m = parseInt(current, 10) || 0;
-    m = dir === 'up' ? m + 1 : m - 1;
-    if (m >= 60) m = 0;
-    if (m < 0) m = 59;
-    setM(String(m).padStart(2, '0'));
-  };
-
-  // Convert 12h to 24h for saving
-  const get24Hour = (hour12: string, period: 'AM' | 'PM'): number => {
-    const h = parseInt(hour12, 10) || 0;
-    if (h >= 13 && h <= 23) {
-      return h;
-    }
-    if (h === 0) {
-      return 0;
-    }
-    if (period === 'AM') {
-      return h === 12 ? 0 : h;
-    } else {
-      return h === 12 ? 12 : h + 12;
+  // iOS: spinner updates in real-time inside modal
+  const handleTimePickerChange = (_event: DateTimePickerEvent, selectedDate?: Date) => {
+    if (selectedDate) {
+      if (activeTimePicker === 'entry') {
+        setEntryTime(selectedDate);
+      } else if (activeTimePicker === 'exit') {
+        setExitTime(selectedDate);
+      }
     }
   };
 
-  // Wrapper for save that converts to 24h format
-  const handleSaveManualWithAmPm = async () => {
-    const entryH24 = get24Hour(manualEntryH, entryPeriod);
-    const exitH24 = get24Hour(manualExitH, exitPeriod);
-    await handleSaveManual({ entryH: entryH24, exitH: exitH24 });
+  // Wrapper for save that extracts 24h from Date objects — pass all values directly to avoid state race
+  const handleSaveManualFromPicker = async () => {
+    const eH = entryTime.getHours();
+    const eM = entryTime.getMinutes();
+    const xH = exitTime.getHours();
+    const xM = exitTime.getMinutes();
+    const pause = parseInt(manualPause, 10) || 0;
+    setManualEntryH(String(eH).padStart(2, '0'));
+    setManualEntryM(String(eM).padStart(2, '0'));
+    setManualExitH(String(xH).padStart(2, '0'));
+    setManualExitM(String(xM).padStart(2, '0'));
+    await handleSaveManual({ entryH: eH, entryM: eM, exitH: xH, exitM: xM, pauseMinutes: pause });
   };
 
   // ============================================
   // INLINE EDIT HELPERS (unified day card)
   // ============================================
 
-  const toDisplay12 = (h24: number) => {
-    if (h24 === 0) return { h: '12', period: 'AM' as const };
-    if (h24 === 12) return { h: '12', period: 'PM' as const };
-    if (h24 > 12) return { h: String(h24 - 12).padStart(2, '0'), period: 'PM' as const };
-    return { h: String(h24).padStart(2, '0'), period: 'AM' as const };
-  };
-
   const startInlineAdd = () => {
     if (!selectedDayForModal) return;
     setManualDate(selectedDayForModal);
     setManualLocationId(locations[0]?.id || '');
+    const entry = new Date(); entry.setHours(8, 0, 0, 0);
+    const exit = new Date(); exit.setHours(17, 0, 0, 0);
+    setEntryTime(entry);
+    setExitTime(exit);
     setManualEntryH('08');
     setManualEntryM('00');
-    setManualExitH('05');
+    setManualExitH('17');
     setManualExitM('00');
     setManualPause('');
     setManualEntryMode('hours');
     setManualAbsenceType(null);
     setEditingSessionId(null);
-    setEntryPeriod('AM');
-    setExitPeriod('PM');
     setIsEditingInline(true);
     setShowAbsenceOptions(false);
   };
@@ -346,15 +341,12 @@ export default function HistoryScreen() {
     setManualDate(entryDate);
     setManualLocationId(session.location_id || locations[0]?.id || '');
 
-    const entry12 = toDisplay12(entryDate.getHours());
-    const exit12 = toDisplay12(exitDate.getHours());
-
-    setManualEntryH(entry12.h);
+    setEntryTime(entryDate);
+    setExitTime(exitDate);
+    setManualEntryH(String(entryDate.getHours()).padStart(2, '0'));
     setManualEntryM(String(entryDate.getMinutes()).padStart(2, '0'));
-    setEntryPeriod(entry12.period);
-    setManualExitH(exit12.h);
+    setManualExitH(String(exitDate.getHours()).padStart(2, '0'));
     setManualExitM(String(exitDate.getMinutes()).padStart(2, '0'));
-    setExitPeriod(exit12.period);
     setManualPause(session.pause_minutes ? String(session.pause_minutes) : '');
     setManualEntryMode('hours');
     setManualAbsenceType(null);
@@ -372,16 +364,49 @@ export default function HistoryScreen() {
   // Live total calculation while editing
   const liveEditTotal = useMemo(() => {
     if (!isEditingInline) return '';
-    const entryH24 = get24Hour(manualEntryH, entryPeriod);
-    const entryMins = parseInt(manualEntryM, 10) || 0;
-    const exitH24 = get24Hour(manualExitH, exitPeriod);
-    const exitMins = parseInt(manualExitM, 10) || 0;
+    const entryMins = entryTime.getHours() * 60 + entryTime.getMinutes();
+    const exitMins = exitTime.getHours() * 60 + exitTime.getMinutes();
     const pause = parseInt(manualPause, 10) || 0;
 
-    const totalMins = (exitH24 * 60 + exitMins) - (entryH24 * 60 + entryMins) - pause;
+    const totalMins = exitMins - entryMins - pause;
     if (totalMins <= 0 || isNaN(totalMins)) return '--';
     return formatDuration(totalMins);
-  }, [isEditingInline, manualEntryH, manualEntryM, manualExitH, manualExitM, manualPause, entryPeriod, exitPeriod]);
+  }, [isEditingInline, entryTime, exitTime, manualPause]);
+
+  // Break picker state & label (matches Log screen UX)
+  const [showBreakPicker, setShowBreakPicker] = useState(false);
+  const [showCustomBreak, setShowCustomBreak] = useState(false);
+  const [customBreakText, setCustomBreakText] = useState('');
+
+  const editBreakMinutes = parseInt(manualPause, 10) || 0;
+  const editBreakLabel = useMemo(() => {
+    const mins = parseInt(manualPause, 10) || 0;
+    if (mins === 0) return 'No break';
+    if (mins === 60) return '1 hour';
+    if (mins > 60) {
+      const h = Math.floor(mins / 60);
+      const m = mins % 60;
+      return m > 0 ? `${h}h ${m}m` : `${h} hour${h > 1 ? 's' : ''}`;
+    }
+    return `${mins} min`;
+  }, [manualPause]);
+
+  const handleSelectBreak = (value: number) => {
+    setManualPause(value > 0 ? String(value) : '');
+    setShowBreakPicker(false);
+    setShowCustomBreak(false);
+    setCustomBreakText('');
+  };
+
+  const handleCustomBreakSave = () => {
+    const val = parseInt(customBreakText, 10);
+    if (!isNaN(val) && val >= 0 && val <= 480) {
+      setManualPause(val > 0 ? String(val) : '');
+    }
+    setShowBreakPicker(false);
+    setShowCustomBreak(false);
+    setCustomBreakText('');
+  };
 
   // ============================================
   // AGGREGATE SESSIONS BY LOCATION FOR DAY MODAL
@@ -399,6 +424,7 @@ export default function HistoryScreen() {
   // PDF export loading state
   const [isExporting, setIsExporting] = useState(false);
   const businessProfile = useBusinessProfileStore(s => s.profile);
+  const incrementInvoiceNumber = useBusinessProfileStore(s => s.incrementInvoiceNumber);
 
   // Absence options toggle (for inline day card)
   const [showAbsenceOptions, setShowAbsenceOptions] = useState(false);
@@ -547,13 +573,21 @@ export default function HistoryScreen() {
       setIsExporting(true);
       setShowExportModal(false);
 
+      const invoiceNumber = businessProfile?.next_invoice_number ?? undefined;
+
       await generateAndShareTimesheetPDF(sessions, {
-        employeeName: userName || 'Employee',
+        employeeName: userName || 'User',
         employeeId: userId || undefined,
         periodStart: rangeStartDate,
         periodEnd: rangeEndDate,
         ...getBusinessOptions(),
+        invoiceNumber,
       });
+
+      // Auto-increment invoice number after successful generation
+      if (userId && invoiceNumber) {
+        incrementInvoiceNumber(userId);
+      }
 
       cancelDateRange();
     } catch (error: any) {
@@ -593,79 +627,36 @@ export default function HistoryScreen() {
       <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
 
       <View style={historyStyles.container}>
-      {/* CALENDAR CARD - Hidden in date range mode */}
-      {!dateRangeMode && (
-        <Card style={historyStyles.calendarCard}>
-          <View style={styles.calendarHeader}>
-            <PressableOpacity
-              style={historyStyles.navBtn}
-              onPress={goToPreviousMonth}
-            >
-              <Ionicons name="chevron-back" size={22} color={colors.textSecondary} />
-            </PressableOpacity>
+      {/* CALENDAR CARD - Always visible */}
+      <Card style={[historyStyles.calendarCard, dateRangeMode && historyStyles.calendarCardRange]}>
+        <View style={styles.calendarHeader}>
+          <PressableOpacity
+            style={historyStyles.navBtn}
+            onPress={goToPreviousMonth}
+          >
+            <Ionicons name="chevron-back" size={22} color={dateRangeMode ? colors.primary : colors.textSecondary} />
+          </PressableOpacity>
 
-            <PressableOpacity
-              onPress={goToCurrentMonth}
-              style={styles.calendarCenter}
-            >
-              <Text style={historyStyles.calendarTitle}>
-                {formatMonthYear(currentMonth)}
-              </Text>
-              <Text style={historyStyles.calendarTotal}>
-                Monthly Total: {formatDuration(monthTotalMinutes)}
-              </Text>
-            </PressableOpacity>
-
-            <PressableOpacity
-              style={historyStyles.navBtn}
-              onPress={goToNextMonth}
-            >
-              <Ionicons name="chevron-forward" size={22} color={colors.textSecondary} />
-            </PressableOpacity>
-          </View>
-        </Card>
-      )}
-
-      {/* DATE RANGE MODE HEADER */}
-      {dateRangeMode && (
-        <View style={historyStyles.dateRangeHeader}>
-          {/* Month navigation */}
-          <View style={historyStyles.dateRangeMonthNav}>
-            <PressableOpacity
-              style={historyStyles.dateRangeNavBtn}
-              onPress={goToPreviousMonth}
-            >
-              <Ionicons name="chevron-back" size={24} color={colors.primary} />
-            </PressableOpacity>
-
-            <Text style={historyStyles.dateRangeMonthName}>
+          <PressableOpacity
+            onPress={goToCurrentMonth}
+            style={styles.calendarCenter}
+          >
+            <Text style={historyStyles.calendarTitle}>
               {formatMonthYear(currentMonth)}
             </Text>
-
-            <PressableOpacity
-              style={historyStyles.dateRangeNavBtn}
-              onPress={goToNextMonth}
-            >
-              <Ionicons name="chevron-forward" size={24} color={colors.primary} />
-            </PressableOpacity>
-          </View>
-
-          {/* Selection hint + cancel */}
-          <View style={historyStyles.dateRangeHintRow}>
-            <Ionicons name="calendar" size={16} color={colors.primary} />
-            <Text style={historyStyles.dateRangeHintText}>
-              {!rangeStartDate
-                ? 'Tap start date'
-                : !rangeEndDate
-                ? 'Now tap end date'
-                : 'Range selected!'}
+            <Text style={historyStyles.calendarTotal}>
+              {dateRangeMode ? 'Select date range' : `Monthly Total: ${formatDuration(monthTotalMinutes)}`}
             </Text>
-            <PressableOpacity style={historyStyles.dateRangeCancelBtn} onPress={cancelDateRange}>
-              <Text style={historyStyles.dateRangeCancelBtnText}>Cancel</Text>
-            </PressableOpacity>
-          </View>
+          </PressableOpacity>
+
+          <PressableOpacity
+            style={historyStyles.navBtn}
+            onPress={goToNextMonth}
+          >
+            <Ionicons name="chevron-forward" size={22} color={dateRangeMode ? colors.primary : colors.textSecondary} />
+          </PressableOpacity>
         </View>
-      )}
+      </Card>
 
       {/* CALENDAR CONTENT AREA - Scrollable */}
       <ScrollView
@@ -760,23 +751,75 @@ export default function HistoryScreen() {
               </View>
             </View>
 
-            {/* LAST 7 DAYS BAR CHART */}
-            <Last7DaysChart
-              getSessionsForDay={getSessionsForDay}
-              getTotalMinutesForDay={getTotalMinutesForDay}
-              isToday={isToday}
-            />
-
-            {/* Export My Hours button inside calendar scroll */}
+            {/* LAST 7 DAYS BAR CHART - Hidden in date range mode */}
             {!dateRangeMode && (
-              <PressableOpacity
-                style={historyStyles.exportBtn}
-                activeOpacity={0.7}
-                onPress={() => setDateRangeMode(true)}
-              >
-                <Ionicons name="document-text-outline" size={18} color={colors.primary} />
-                <Text style={historyStyles.exportBtnText}>Export My Hours</Text>
-              </PressableOpacity>
+              <Last7DaysChart
+                getSessionsForDay={getSessionsForDay}
+                getTotalMinutesForDay={getTotalMinutesForDay}
+                isToday={isToday}
+              />
+            )}
+
+            {/* DATE RANGE SUMMARY - Below calendar */}
+            {dateRangeMode && (
+              <View style={historyStyles.dateRangeSummary}>
+                <View style={historyStyles.dateRangeSummaryRow}>
+                  <View style={historyStyles.dateRangeSummaryBox}>
+                    <Text style={historyStyles.dateRangeSummaryLabel}>FROM</Text>
+                    <Text style={[historyStyles.dateRangeSummaryValue, rangeStartDate && { color: colors.primary }]}>
+                      {rangeStartDate
+                        ? rangeStartDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                        : 'Tap a day'}
+                    </Text>
+                  </View>
+
+                  <View style={historyStyles.dateRangeSummaryArrow}>
+                    <Ionicons name="arrow-forward" size={18} color={colors.textSecondary} />
+                  </View>
+
+                  <View style={historyStyles.dateRangeSummaryBox}>
+                    <Text style={historyStyles.dateRangeSummaryLabel}>TO</Text>
+                    <Text style={[historyStyles.dateRangeSummaryValue, rangeEndDate && { color: colors.primary }]}>
+                      {rangeEndDate
+                        ? rangeEndDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                        : rangeStartDate ? 'Tap end date' : '—'}
+                    </Text>
+                  </View>
+                </View>
+
+                <PressableOpacity style={historyStyles.dateRangeCancelBtn} onPress={cancelDateRange}>
+                  <Ionicons name="close-outline" size={18} color={colors.textSecondary} />
+                  <Text style={historyStyles.dateRangeCancelBtnText}>Cancel export</Text>
+                </PressableOpacity>
+              </View>
+            )}
+
+            {/* Export My Hours + Business Profile */}
+            {!dateRangeMode && (
+              <>
+                <PressableOpacity
+                  style={historyStyles.exportBtn}
+                  activeOpacity={0.7}
+                  onPress={() => setDateRangeMode(true)}
+                >
+                  <Ionicons name="document-text-outline" size={18} color={colors.white} />
+                  <Text style={historyStyles.exportBtnText}>Generate Invoice</Text>
+                </PressableOpacity>
+
+                <PressableOpacity
+                  style={historyStyles.businessProfileBtn}
+                  activeOpacity={0.7}
+                  onPress={() => router.push('/business-profile' as any)}
+                >
+                  <Ionicons name="briefcase-outline" size={16} color={colors.textSecondary} />
+                  <Text style={historyStyles.businessProfileBtnText}>
+                    {businessProfile?.business_name
+                      ? `${businessProfile.business_name}${businessProfile.default_hourly_rate ? ` · $${businessProfile.default_hourly_rate}/hr` : ''}`
+                      : 'Personalize your invoice'}
+                  </Text>
+                  <Ionicons name="chevron-forward" size={14} color={colors.textSecondary} />
+                </PressableOpacity>
+              </>
             )}
 
       </ScrollView>
@@ -834,7 +877,7 @@ export default function HistoryScreen() {
                   <PressableOpacity style={historyStyles.ucFooterBtnSecondary} onPress={cancelInlineEdit}>
                     <Text style={historyStyles.ucFooterBtnSecondaryText}>Cancel</Text>
                   </PressableOpacity>
-                  <PressableOpacity style={historyStyles.ucFooterBtnPrimary} onPress={handleSaveManualWithAmPm}>
+                  <PressableOpacity style={historyStyles.ucFooterBtnPrimary} onPress={handleSaveManualFromPicker}>
                     <Text style={historyStyles.ucFooterBtnPrimaryText}>Save</Text>
                   </PressableOpacity>
                 </>
@@ -914,149 +957,54 @@ export default function HistoryScreen() {
                     )}
                   </View>
 
-                  {/* Time Inputs */}
-                  <View style={historyStyles.ucTimesGrid}>
-                    {/* Entry */}
-                    <View style={historyStyles.ucTimeCol}>
-                      <Text style={historyStyles.ucTimeLabel}>Entry</Text>
-                      <View style={historyStyles.ucTimeInputRow}>
-                        <View style={historyStyles.ucTimeInputWithArrows}>
-                          <PressableOpacity style={historyStyles.ucArrowBtn} onPress={() => adjustHour(manualEntryH, 'up', setManualEntryH, entryPeriod, setEntryPeriod)}>
-                            <Ionicons name="chevron-up" size={20} color={colors.textSecondary} />
-                          </PressableOpacity>
-                          <TextInput
-                            style={historyStyles.ucTimeInput}
-                            value={manualEntryH}
-                            onChangeText={handleEntryHourChange}
-                            keyboardType="number-pad"
-                            placeholder="HH"
-                            maxLength={2}
-                            placeholderTextColor={colors.textMuted}
-                            selectTextOnFocus
-                            {...(Platform.OS === 'ios' ? { inputAccessoryViewID: 'historyTimeInputDone' } : {})}
-                          />
-                          <PressableOpacity style={historyStyles.ucArrowBtn} onPress={() => adjustHour(manualEntryH, 'down', setManualEntryH, entryPeriod, setEntryPeriod)}>
-                            <Ionicons name="chevron-down" size={20} color={colors.textSecondary} />
-                          </PressableOpacity>
-                        </View>
-                        <Text style={historyStyles.ucTimeSep}>:</Text>
-                        <View style={historyStyles.ucTimeInputWithArrows}>
-                          <PressableOpacity style={historyStyles.ucArrowBtn} onPress={() => adjustMinute(manualEntryM, 'up', setManualEntryM)}>
-                            <Ionicons name="chevron-up" size={20} color={colors.textSecondary} />
-                          </PressableOpacity>
-                          <TextInput
-                            style={historyStyles.ucTimeInput}
-                            value={manualEntryM}
-                            onChangeText={(t) => setManualEntryM(t.replace(/[^0-9]/g, '').slice(0, 2))}
-                            keyboardType="number-pad"
-                            placeholder="MM"
-                            maxLength={2}
-                            placeholderTextColor={colors.textMuted}
-                            selectTextOnFocus
-                            {...(Platform.OS === 'ios' ? { inputAccessoryViewID: 'historyTimeInputDone' } : {})}
-                          />
-                          <PressableOpacity style={historyStyles.ucArrowBtn} onPress={() => adjustMinute(manualEntryM, 'down', setManualEntryM)}>
-                            <Ionicons name="chevron-down" size={20} color={colors.textSecondary} />
-                          </PressableOpacity>
-                        </View>
-                      </View>
-                      <View style={historyStyles.ucAmPmRow}>
-                        <PressableOpacity
-                          style={[historyStyles.ucAmPmBtn, entryPeriod === 'AM' && historyStyles.ucAmPmBtnActive]}
-                          onPress={() => setEntryPeriod('AM')}
-                        >
-                          <Text style={[historyStyles.ucAmPmText, entryPeriod === 'AM' && historyStyles.ucAmPmTextActive]}>AM</Text>
-                        </PressableOpacity>
-                        <PressableOpacity
-                          style={[historyStyles.ucAmPmBtn, entryPeriod === 'PM' && historyStyles.ucAmPmBtnActive]}
-                          onPress={() => setEntryPeriod('PM')}
-                        >
-                          <Text style={[historyStyles.ucAmPmText, entryPeriod === 'PM' && historyStyles.ucAmPmTextActive]}>PM</Text>
-                        </PressableOpacity>
-                      </View>
+                  {/* Time Inputs — same layout as Log screen */}
+                  <View style={editStyles.timeRow}>
+                    <View style={editStyles.timeCol}>
+                      <Text style={editStyles.timeLabel}>ENTRY</Text>
+                      <PressableOpacity
+                        style={editStyles.timePill}
+                        onPress={() => Platform.OS === 'android' ? openAndroidTimePicker('entry') : setActiveTimePicker('entry')}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={editStyles.timeValue}>
+                          {formatTimeDisplay(entryTime)}
+                        </Text>
+                      </PressableOpacity>
                     </View>
-
-                    {/* Exit */}
-                    <View style={historyStyles.ucTimeCol}>
-                      <Text style={historyStyles.ucTimeLabel}>Exit</Text>
-                      <View style={historyStyles.ucTimeInputRow}>
-                        <View style={historyStyles.ucTimeInputWithArrows}>
-                          <PressableOpacity style={historyStyles.ucArrowBtn} onPress={() => adjustHour(manualExitH, 'up', setManualExitH, exitPeriod, setExitPeriod)}>
-                            <Ionicons name="chevron-up" size={20} color={colors.textSecondary} />
-                          </PressableOpacity>
-                          <TextInput
-                            style={historyStyles.ucTimeInput}
-                            value={manualExitH}
-                            onChangeText={handleExitHourChange}
-                            keyboardType="number-pad"
-                            placeholder="HH"
-                            maxLength={2}
-                            placeholderTextColor={colors.textMuted}
-                            selectTextOnFocus
-                            {...(Platform.OS === 'ios' ? { inputAccessoryViewID: 'historyTimeInputDone' } : {})}
-                          />
-                          <PressableOpacity style={historyStyles.ucArrowBtn} onPress={() => adjustHour(manualExitH, 'down', setManualExitH, exitPeriod, setExitPeriod)}>
-                            <Ionicons name="chevron-down" size={20} color={colors.textSecondary} />
-                          </PressableOpacity>
-                        </View>
-                        <Text style={historyStyles.ucTimeSep}>:</Text>
-                        <View style={historyStyles.ucTimeInputWithArrows}>
-                          <PressableOpacity style={historyStyles.ucArrowBtn} onPress={() => adjustMinute(manualExitM, 'up', setManualExitM)}>
-                            <Ionicons name="chevron-up" size={20} color={colors.textSecondary} />
-                          </PressableOpacity>
-                          <TextInput
-                            style={historyStyles.ucTimeInput}
-                            value={manualExitM}
-                            onChangeText={(t) => setManualExitM(t.replace(/[^0-9]/g, '').slice(0, 2))}
-                            keyboardType="number-pad"
-                            placeholder="MM"
-                            maxLength={2}
-                            placeholderTextColor={colors.textMuted}
-                            selectTextOnFocus
-                            {...(Platform.OS === 'ios' ? { inputAccessoryViewID: 'historyTimeInputDone' } : {})}
-                          />
-                          <PressableOpacity style={historyStyles.ucArrowBtn} onPress={() => adjustMinute(manualExitM, 'down', setManualExitM)}>
-                            <Ionicons name="chevron-down" size={20} color={colors.textSecondary} />
-                          </PressableOpacity>
-                        </View>
-                      </View>
-                      <View style={historyStyles.ucAmPmRow}>
-                        <PressableOpacity
-                          style={[historyStyles.ucAmPmBtn, exitPeriod === 'AM' && historyStyles.ucAmPmBtnActive]}
-                          onPress={() => setExitPeriod('AM')}
-                        >
-                          <Text style={[historyStyles.ucAmPmText, exitPeriod === 'AM' && historyStyles.ucAmPmTextActive]}>AM</Text>
-                        </PressableOpacity>
-                        <PressableOpacity
-                          style={[historyStyles.ucAmPmBtn, exitPeriod === 'PM' && historyStyles.ucAmPmBtnActive]}
-                          onPress={() => setExitPeriod('PM')}
-                        >
-                          <Text style={[historyStyles.ucAmPmText, exitPeriod === 'PM' && historyStyles.ucAmPmTextActive]}>PM</Text>
-                        </PressableOpacity>
-                      </View>
-                    </View>
-
-                    {/* Break */}
-                    <View style={historyStyles.ucTimeCol}>
-                      <Text style={historyStyles.ucTimeLabel}>Break</Text>
-                      <TextInput
-                        style={historyStyles.ucBreakInput}
-                        value={manualPause}
-                        onChangeText={setManualPause}
-                        keyboardType="number-pad"
-                        placeholder="0"
-                        placeholderTextColor={colors.textMuted}
-                        selectTextOnFocus
-                        {...(Platform.OS === 'ios' ? { inputAccessoryViewID: 'historyTimeInputDone' } : {})}
-                      />
-                      <Text style={historyStyles.ucBreakUnit}>min</Text>
+                    <View style={editStyles.timeCol}>
+                      <Text style={editStyles.timeLabel}>EXIT</Text>
+                      <PressableOpacity
+                        style={editStyles.timePill}
+                        onPress={() => Platform.OS === 'android' ? openAndroidTimePicker('exit') : setActiveTimePicker('exit')}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={editStyles.timeValue}>
+                          {formatTimeDisplay(exitTime)}
+                        </Text>
+                      </PressableOpacity>
                     </View>
                   </View>
 
-                  {/* Live Total */}
-                  <View style={historyStyles.ucTotalRow}>
-                    <Text style={historyStyles.ucTotalLabel}>Total</Text>
-                    <Text style={historyStyles.ucTotalValue}>{liveEditTotal}</Text>
+                  {/* Break — tappable pill with preset modal */}
+                  <PressableOpacity
+                    style={editStyles.breakPill}
+                    onPress={() => setShowBreakPicker(true)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={editStyles.breakLeft}>
+                      <Ionicons name="cafe-outline" size={18} color={colors.textSecondary} />
+                      <Text style={editStyles.breakLabelText}>Break</Text>
+                    </View>
+                    <View style={editStyles.breakRight}>
+                      <Text style={editStyles.breakValue}>{editBreakLabel}</Text>
+                      <Ionicons name="chevron-down" size={16} color={colors.textSecondary} />
+                    </View>
+                  </PressableOpacity>
+
+                  {/* Total */}
+                  <View style={editStyles.totalPill}>
+                    <Text style={editStyles.totalLabel}>TOTAL</Text>
+                    <Text style={editStyles.totalValue}>{liveEditTotal || '--'}</Text>
                   </View>
                 </View>
               ) : daySession ? (
@@ -1147,7 +1095,7 @@ export default function HistoryScreen() {
                               ))
                             ) : (
                               <Text style={historyStyles.detailsEmpty}>
-                                No geofence events recorded for this day.
+                                No automatic entries recorded for this day.
                               </Text>
                             )}
                             {detailSegments.length > 0 && (
@@ -1324,16 +1272,114 @@ export default function HistoryScreen() {
         </View>
       </Modal>
 
-      {/* iOS: Done button above number-pad keyboard */}
-      {Platform.OS === 'ios' && (
-        <InputAccessoryView nativeID="historyTimeInputDone">
-          <View style={iosKbStyles.bar}>
-            <View style={{ flex: 1 }} />
-            <PressableOpacity onPress={() => Keyboard.dismiss()} style={iosKbStyles.doneBtn}>
-              <Text style={iosKbStyles.doneText}>Done</Text>
+      {/* ===== BREAK PICKER MODAL ===== */}
+      <Modal
+        visible={showBreakPicker}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => { setShowBreakPicker(false); setShowCustomBreak(false); }}
+      >
+        <Pressable
+          style={timePickerModalStyles.overlay}
+          onPress={() => { setShowBreakPicker(false); setShowCustomBreak(false); }}
+        >
+          <View style={timePickerModalStyles.sheet}>
+            <Text style={timePickerModalStyles.sheetTitle}>Break Duration</Text>
+            {BREAK_PRESETS.map((preset) => (
+              <PressableOpacity
+                key={preset.value}
+                style={[
+                  breakPickerStyles.option,
+                  editBreakMinutes === preset.value && breakPickerStyles.optionSelected,
+                ]}
+                onPress={() => handleSelectBreak(preset.value)}
+                activeOpacity={0.7}
+              >
+                <Text style={[
+                  breakPickerStyles.optionText,
+                  editBreakMinutes === preset.value && breakPickerStyles.optionTextSelected,
+                ]}>
+                  {preset.label}
+                </Text>
+                {editBreakMinutes === preset.value && (
+                  <Ionicons name="checkmark" size={20} color={colors.primary} />
+                )}
+              </PressableOpacity>
+            ))}
+            {!showCustomBreak ? (
+              <PressableOpacity
+                style={breakPickerStyles.option}
+                onPress={() => setShowCustomBreak(true)}
+                activeOpacity={0.7}
+              >
+                <Text style={breakPickerStyles.optionText}>Custom...</Text>
+              </PressableOpacity>
+            ) : (
+              <View style={breakPickerStyles.customRow}>
+                <TextInput
+                  style={breakPickerStyles.customInput}
+                  value={customBreakText}
+                  onChangeText={(t) => setCustomBreakText(t.replace(/[^0-9]/g, '').slice(0, 3))}
+                  keyboardType="number-pad"
+                  placeholder="Minutes"
+                  placeholderTextColor={colors.inputPlaceholder}
+                  autoFocus
+                />
+                <PressableOpacity
+                  style={breakPickerStyles.customSave}
+                  onPress={handleCustomBreakSave}
+                >
+                  <Text style={breakPickerStyles.customSaveText}>Set</Text>
+                </PressableOpacity>
+              </View>
+            )}
+            <PressableOpacity
+              style={breakPickerStyles.cancel}
+              onPress={() => { setShowBreakPicker(false); setShowCustomBreak(false); }}
+            >
+              <Text style={breakPickerStyles.cancelText}>Cancel</Text>
             </PressableOpacity>
           </View>
-        </InputAccessoryView>
+        </Pressable>
+      </Modal>
+
+      {/* iOS time picker — Android uses imperative DateTimePickerAndroid.open() */}
+      {Platform.OS === 'ios' && activeTimePicker !== null && (
+        <Modal
+          visible
+          transparent
+          animationType="fade"
+          statusBarTranslucent
+          onRequestClose={() => setActiveTimePicker(null)}
+        >
+          <Pressable
+            style={timePickerModalStyles.overlay}
+            onPress={() => setActiveTimePicker(null)}
+          >
+            <Pressable style={timePickerModalStyles.sheet}>
+              <Text style={timePickerModalStyles.sheetTitle}>
+                {activeTimePicker === 'entry' ? 'Entry Time' : 'Exit Time'}
+              </Text>
+              <DateTimePicker
+                value={activeTimePicker === 'entry' ? entryTime : exitTime}
+                mode="time"
+                display="spinner"
+                themeVariant="light"
+                onChange={handleTimePickerChange}
+                minuteInterval={5}
+                style={{ height: 180, width: '100%' }}
+              />
+              <PressableOpacity
+                style={timePickerModalStyles.doneBtn}
+                onPress={() => setActiveTimePicker(null)}
+                activeOpacity={0.8}
+              >
+                <Text style={timePickerModalStyles.doneBtnText}>Done</Text>
+              </PressableOpacity>
+            </Pressable>
+          </Pressable>
+        </Modal>
       )}
       </View>
     </SafeAreaView>
@@ -1341,27 +1387,203 @@ export default function HistoryScreen() {
 }
 
 // ============================================
-// IOS KEYBOARD "DONE" BUTTON STYLES
+// TIME PICKER MODAL STYLES
 // ============================================
-const iosKbStyles = StyleSheet.create({
-  bar: {
-    flexDirection: 'row',
+const timePickerModalStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: colors.overlay,
     justifyContent: 'flex-end',
-    alignItems: 'center',
-    backgroundColor: '#1C1C1E',
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+  },
+  sheet: {
+    backgroundColor: colors.white,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 20,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+    paddingHorizontal: 20,
+    width: '100%',
+  },
+  sheetTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 16,
+    textAlign: 'center',
   },
   doneBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    backgroundColor: colors.primary,
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 52,
+    marginTop: 12,
   },
-  doneText: {
+  doneBtnText: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: colors.white,
+  },
+});
+
+// ============================================
+// EDIT MODE STYLES (matches Log screen UX)
+// ============================================
+const editStyles = StyleSheet.create({
+  timeRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 16,
+  },
+  timeCol: {
+    flex: 1,
+  },
+  timeLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    letterSpacing: 0.8,
+    marginBottom: 8,
+  },
+  timePill: {
+    backgroundColor: colors.card,
+    borderWidth: 0.5,
+    borderColor: colors.border,
+    borderRadius: 14,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    ...shadows.sm,
+  },
+  timeValue: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  breakPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.card,
+    borderWidth: 0.5,
+    borderColor: colors.border,
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginBottom: 16,
+    ...shadows.sm,
+  },
+  breakLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  breakLabelText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  breakRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  breakValue: {
+    fontSize: 15,
+    fontWeight: '600',
     color: colors.primary,
+  },
+  totalPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#2E3033',
+    borderRadius: 14,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    marginBottom: 8,
+  },
+  totalLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: withOpacity(colors.white, 0.7),
+    letterSpacing: 0.5,
+  },
+  totalValue: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: colors.white,
+  },
+});
+
+// ============================================
+// BREAK PICKER MODAL STYLES
+// ============================================
+const breakPickerStyles = StyleSheet.create({
+  option: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    marginBottom: 4,
+  },
+  optionSelected: {
+    backgroundColor: colors.primarySoft,
+  },
+  optionText: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '500',
+    color: colors.text,
+  },
+  optionTextSelected: {
+    fontWeight: '700',
+    color: colors.primary,
+  },
+  cancel: {
+    marginTop: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    borderRadius: 12,
+    backgroundColor: colors.surfaceMuted,
+  },
+  cancelText: {
     fontSize: 16,
     fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  customRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 12,
+    marginBottom: 4,
+  },
+  customInput: {
+    flex: 1,
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.text,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  customSave: {
+    backgroundColor: colors.primary,
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+  },
+  customSaveText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.white,
   },
 });
 
@@ -1404,14 +1626,14 @@ const chartStyles = StyleSheet.create({
   },
   bar: {
     width: '100%',
-    backgroundColor: colors.graphBar,
+    backgroundColor: '#9E9E9E',
     borderRadius: 4,
   },
   barEmpty: {
     backgroundColor: colors.graphBarMuted,
   },
   barToday: {
-    backgroundColor: colors.primaryStrong,
+    backgroundColor: '#6B6B6B',
   },
   dayLabel: {
     fontSize: 10,
@@ -1420,7 +1642,7 @@ const chartStyles = StyleSheet.create({
     marginTop: 4,
   },
   dayLabelToday: {
-    color: colors.primary,
+    color: colors.text,
     fontWeight: '700',
   },
 });
@@ -1597,71 +1819,81 @@ const historyStyles = StyleSheet.create({
     marginBottom: 4,
     paddingVertical: 12,
     borderRadius: 12,
-    borderWidth: 0.5,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
+    backgroundColor: colors.primary,
   },
   exportBtnText: {
     fontSize: 15,
     fontWeight: '600',
-    color: colors.primary,
+    color: colors.white,
+  },
+  businessProfileBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 4,
+    paddingVertical: 10,
+  },
+  businessProfileBtnText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: colors.textSecondary,
   },
 
-  // Date Range Mode Header
-  dateRangeHeader: {
+  // Calendar card variant for date range mode
+  calendarCardRange: {
+    borderColor: colors.primary,
+    borderWidth: 1,
+  },
+
+  // Date Range Summary (below calendar)
+  dateRangeSummary: {
     backgroundColor: colors.card,
-    borderRadius: 16,
-    marginBottom: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    borderRadius: 14,
+    padding: 16,
+    marginTop: 16,
     borderWidth: 1,
     borderColor: colors.primary,
     ...shadows.sm,
   },
-  dateRangeMonthNav: {
+  dateRangeSummaryRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 10,
   },
-  dateRangeNavBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: withOpacity(colors.primary, 0.1),
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  dateRangeMonthName: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: colors.text,
-    textAlign: 'center',
-  },
-  dateRangeHintRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  dateRangeHintText: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: colors.primary,
+  dateRangeSummaryBox: {
     flex: 1,
+    alignItems: 'center',
+  },
+  dateRangeSummaryLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    textTransform: 'uppercase' as const,
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  dateRangeSummaryValue: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: colors.textSecondary,
+  },
+  dateRangeSummaryArrow: {
+    paddingHorizontal: 12,
+    paddingTop: 14,
   },
   dateRangeCancelBtn: {
-    paddingVertical: 6,
-    paddingHorizontal: 14,
-    backgroundColor: colors.surfaceMuted,
-    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    marginTop: 10,
   },
   dateRangeCancelBtnText: {
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: '500',
     color: colors.textSecondary,
   },
 
@@ -1960,59 +2192,20 @@ const historyStyles = StyleSheet.create({
     letterSpacing: 0.5,
     marginBottom: 6,
   },
-  ucTimeInputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  ucTimeInputWithArrows: {
-    alignItems: 'center',
-  },
-  ucArrowBtn: {
-    padding: 6,
-    backgroundColor: `${colors.primary}12`,
-    borderRadius: 6,
-  },
-  ucTimeInput: {
-    width: 38,
-    paddingVertical: 8,
-    fontSize: 18,
-    fontWeight: '600',
-    textAlign: 'center',
+  ucTimePill: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
     backgroundColor: colors.card,
-    borderRadius: 8,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.border,
-    color: colors.text,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  ucTimeSep: {
+  ucTimePillText: {
     fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: '700',
     color: colors.text,
-    marginHorizontal: 2,
-  },
-  ucAmPmRow: {
-    flexDirection: 'row',
-    marginTop: 6,
-    borderRadius: 6,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  ucAmPmBtn: {
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    backgroundColor: colors.card,
-  },
-  ucAmPmBtnActive: {
-    backgroundColor: colors.primary,
-  },
-  ucAmPmText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: colors.textSecondary,
-  },
-  ucAmPmTextActive: {
-    color: colors.buttonPrimaryText,
   },
   ucBreakInput: {
     width: 52,

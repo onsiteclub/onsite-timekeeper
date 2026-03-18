@@ -53,6 +53,7 @@ export default function BusinessProfileScreen() {
   const [gstHstNumber, setGstHstNumber] = useState('');
   const [hourlyRate, setHourlyRate] = useState('');
   const [taxRate, setTaxRate] = useState('');
+  const [nextInvoiceNumber, setNextInvoiceNumber] = useState('1');
   const [hasChanges, setHasChanges] = useState(false);
 
   // Load profile on mount
@@ -76,6 +77,7 @@ export default function BusinessProfileScreen() {
       setGstHstNumber(profile.gst_hst_number || '');
       setHourlyRate(profile.default_hourly_rate?.toString() || '');
       setTaxRate(profile.tax_rate?.toString() || '');
+      setNextInvoiceNumber(profile.next_invoice_number?.toString() || '1');
       setHasChanges(false);
     }
   }, [profile]);
@@ -100,6 +102,7 @@ export default function BusinessProfileScreen() {
       gstHstNumber: gstHstNumber.trim() || null,
       defaultHourlyRate: hourlyRate ? parseFloat(hourlyRate) : null,
       taxRate: taxRate ? parseFloat(taxRate) : null,
+      nextInvoiceNumber: nextInvoiceNumber ? parseInt(nextInvoiceNumber, 10) : 1,
     });
 
     if (success) {
@@ -131,6 +134,7 @@ export default function BusinessProfileScreen() {
             setGstHstNumber('');
             setHourlyRate('');
             setTaxRate('');
+            setNextInvoiceNumber('1');
             setHasChanges(false);
             Alert.alert('Deleted', 'Business profile cleared.');
           },
@@ -282,13 +286,23 @@ export default function BusinessProfileScreen() {
               suffix="%"
               hint="e.g. 13 for Ontario HST, 5 for GST only"
             />
+            <Divider />
+            <FormField
+              label="Next Invoice #"
+              value={nextInvoiceNumber}
+              onChangeText={markChanged(setNextInvoiceNumber)}
+              placeholder="1"
+              keyboardType="number-pad"
+              prefix="#"
+              hint="Auto-increments after each invoice"
+            />
           </View>
 
           {/* Info note */}
           <View style={styles.infoBox}>
             <Ionicons name="information-circle-outline" size={18} color={colors.info} />
             <Text style={styles.infoText}>
-              This information appears on your exported timesheets and reports. It stays on your device and syncs securely to your account.
+              This information appears on your exported time reports and invoices. It stays on your device and syncs securely to your account.
             </Text>
           </View>
 

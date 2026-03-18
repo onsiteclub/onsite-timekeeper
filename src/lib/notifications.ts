@@ -99,7 +99,7 @@ export async function requestNotificationPermission(): Promise<boolean> {
       await Notifications.deleteNotificationChannelAsync('geofence').catch(() => {});
 
       await Notifications.setNotificationChannelAsync('geofence_v2', {
-        name: 'Location Alerts',
+        name: 'Time Log Updates',
         importance: Notifications.AndroidImportance.HIGH,
         vibrationPattern: [0, 250, 250, 250],
         enableVibrate: true,
@@ -256,7 +256,7 @@ export async function showArrivalNotification(locationName: string): Promise<str
     const notificationId = await Notifications.scheduleNotificationAsync({
       content: {
         title: `📍 ${locationName}`,
-        body: 'You arrived at work. Timer started. Have a great day!',
+        body: 'Timer started — your hours are being logged. Have a great day!',
         data: {
           type: 'geofence_enter',
           locationName,
@@ -331,7 +331,7 @@ export async function showSessionGuardNotification(
     const notificationId = await Notifications.scheduleNotificationAsync({
       content: {
         title: `⏰ Timer running ${hoursRunning}h`,
-        body: `Your timer at ${locationName} has been running for ${hoursRunning} hours. Still working?`,
+        body: `Your timer at ${locationName} has been running for ${hoursRunning} hours. Still there?`,
         categoryIdentifier: 'session_guard',
         data: {
           type: 'session_guard',
@@ -371,8 +371,8 @@ export async function scheduleAutoLoggingNudge(): Promise<string> {
     const notificationId = await Notifications.scheduleNotificationAsync({
       identifier: AUTO_LOGGING_NUDGE_ID,
       content: {
-        title: 'Save time with Auto-Logging',
-        body: 'Turn on automatic time tracking and never forget to log your hours. Tap to activate.',
+        title: 'Auto-Logging available',
+        body: 'Your saved location can log hours for you automatically when you arrive and leave. Enable it in Locations.',
         data: {
           type: 'auto_logging_nudge',
         },

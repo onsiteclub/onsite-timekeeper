@@ -23,11 +23,11 @@ export default function MapScreenWeb() {
     <View style={wStyles.container}>
       <View style={wStyles.header}>
         <Ionicons name="location-outline" size={24} color={colors.primary} />
-        <Text style={wStyles.headerTitle}>Work Sites</Text>
+        <Text style={wStyles.headerTitle}>Saved Locations</Text>
       </View>
 
       <Text style={wStyles.subtitle}>
-        Geofencing is only available on the mobile app. You can view your saved sites below.
+        Auto-logging is only available on the mobile app. You can view your saved locations below.
       </Text>
 
       <ScrollView style={wStyles.list} contentContainerStyle={wStyles.listContent}>
@@ -36,7 +36,7 @@ export default function MapScreenWeb() {
             <Ionicons name="map-outline" size={48} color={colors.textMuted} />
             <Text style={wStyles.emptyText}>No locations added yet</Text>
             <Text style={wStyles.emptyHint}>
-              Add locations from the mobile app to enable auto-tracking.
+              Add your frequent locations from the mobile app to log hours automatically.
             </Text>
           </View>
         ) : (

@@ -304,7 +304,7 @@ export function VoiceCommandSheet({ visible, onClose }: VoiceCommandSheetProps) 
         if (finished.length === 0) {
           addMessage('ai', 'No completed sessions found for this period.');
         } else {
-          const employeeName = useAuthStore.getState().getUserName() || 'Employee';
+          const employeeName = useAuthStore.getState().getUserName() || 'User';
           await generateAndShareTimesheetPDF(finished, {
             employeeName,
             employeeId: userId,

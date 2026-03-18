@@ -33,7 +33,7 @@ export function LocationDisclosureModal({ visible, onAccept, onDecline }: Props)
       visible={visible}
       transparent
       animationType="fade"
-      onRequestClose={onDecline}
+      onRequestClose={onAccept}
     >
       <View style={styles.overlay}>
         <View style={styles.card}>
@@ -62,7 +62,7 @@ export function LocationDisclosureModal({ visible, onAccept, onDecline }: Props)
             <Text style={styles.privacyLinkText}>Privacy Policy</Text>
           </TouchableOpacity>
 
-          {/* Primary button */}
+          {/* Single action — no decline option (Apple compliance) */}
           <TouchableOpacity
             style={styles.primaryButton}
             onPress={onAccept}
@@ -70,15 +70,6 @@ export function LocationDisclosureModal({ visible, onAccept, onDecline }: Props)
           >
             <Ionicons name="location" size={20} color={colors.white} />
             <Text style={styles.primaryButtonText}>{PERMISSION_STRINGS.prominentDisclosure.accept}</Text>
-          </TouchableOpacity>
-
-          {/* Secondary button */}
-          <TouchableOpacity
-            style={styles.secondaryButton}
-            onPress={onDecline}
-            activeOpacity={0.6}
-          >
-            <Text style={styles.secondaryButtonText}>{PERMISSION_STRINGS.prominentDisclosure.decline}</Text>
           </TouchableOpacity>
         </View>
       </View>
