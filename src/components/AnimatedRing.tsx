@@ -1,10 +1,10 @@
 /**
  * AnimatedRing - Spinning ring indicator for timer
  *
- * States (v3.0 - Enterprise Theme):
- * - idle: Neutral gray (#98A2B3), no animation
- * - active: Green (#0F766E), smooth spinning
- * - paused: Amber (#C58B1B), slower spinning
+ * States (v4.0 - Warm Amber Theme):
+ * - idle: Neutral gray, no animation
+ * - active: Amber (#C58B1B), smooth spinning
+ * - paused: Light amber (#D4A43A), slower spinning
  */
 
 import React, { useEffect, useRef } from 'react';
@@ -21,9 +21,9 @@ interface AnimatedRingProps {
 }
 
 const COLORS = {
-  idle: colors.timerIdle,      // Neutral gray - IDLE/STOPPED (#98A2B3)
-  active: colors.timerActive,  // Green - RUNNING (#0F766E)
-  paused: colors.timerPaused,  // Amber - PAUSED (#C58B1B)
+  idle: colors.timerIdle,      // Neutral gray - IDLE/STOPPED
+  active: colors.timerActive,  // Amber - RUNNING (#C58B1B)
+  paused: colors.timerPaused,  // Light amber - PAUSED (#D4A43A)
 };
 
 const SPEEDS = {

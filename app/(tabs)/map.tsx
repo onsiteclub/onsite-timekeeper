@@ -44,6 +44,7 @@ export default function MapScreen() {
     selectedRadius, setSelectedRadius, isAdding,
     currentLocation,
     autoLoggingEnabled, isTogglingAutoLog, handleToggleAutoLogging,
+    triggerMode, handleTriggerModeChange,
     handleMapReady, handleMapPress, handleRegionChange,
     handleSelectSearchResult, handleGoToMyLocation,
     handleAddFence, handleDeleteFence, handleChangeRadius,
@@ -224,6 +225,37 @@ export default function MapScreen() {
 
               {/* Radius slider (saves immediately on change) */}
               <RadiusSlider value={fence!.radius} onValueChange={handleChangeRadius} />
+
+              {/* Trigger mode radio buttons */}
+              {autoLoggingEnabled && (
+                <View style={styles.radioGroup}>
+                  {([
+                    { key: 'arrive' as const, label: 'When I arrive' },
+                    { key: 'leave' as const, label: 'When I leave' },
+                    { key: 'both' as const, label: 'Both' },
+                  ]).map(({ key, label }) => (
+                    <TouchableOpacity
+                      key={key}
+                      style={styles.radioRow}
+                      onPress={() => handleTriggerModeChange(key)}
+                      activeOpacity={0.7}
+                    >
+                      <View style={[
+                        styles.radioOuter,
+                        triggerMode === key && styles.radioOuterSelected,
+                      ]}>
+                        {triggerMode === key && <View style={styles.radioInner} />}
+                      </View>
+                      <Text style={[
+                        styles.radioLabel,
+                        triggerMode !== key && styles.radioLabelMuted,
+                      ]}>
+                        {label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
             </View>
 
             {/* Delete button */}
@@ -247,8 +279,8 @@ const autoLogStyles = StyleSheet.create({
     backgroundColor: colors.card,
     paddingHorizontal: 16,
     paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    borderBottomWidth: 0.5,
+    borderBottomColor: colors.borderLight,
   },
   row: {
     flexDirection: 'row',

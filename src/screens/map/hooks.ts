@@ -55,7 +55,18 @@ export function useMapScreen() {
 
   // Auto-logging state
   const autoLoggingEnabled = useSettingsStore(s => s.autoLoggingEnabled);
+  const autoStartEnabled = useSettingsStore(s => s.autoStartEnabled);
+  const autoStopEnabled = useSettingsStore(s => s.autoStopEnabled);
+  const updateSetting = useSettingsStore(s => s.updateSetting);
   const [isTogglingAutoLog, setIsTogglingAutoLog] = useState(false);
+
+  // Trigger mode derived from autoStart/autoStop
+  type TriggerMode = 'arrive' | 'leave' | 'both';
+  const triggerMode: TriggerMode = autoStartEnabled && autoStopEnabled
+    ? 'both'
+    : autoStartEnabled
+      ? 'arrive'
+      : 'leave';
 
   // ============================================
   // DERIVED STATE
@@ -348,6 +359,24 @@ export function useMapScreen() {
     }
   }, [enableAutoLogging, disableAutoLogging]);
 
+  const handleTriggerModeChange = useCallback((mode: TriggerMode) => {
+    switch (mode) {
+      case 'arrive':
+        updateSetting('autoStartEnabled', true);
+        updateSetting('autoStopEnabled', false);
+        break;
+      case 'leave':
+        updateSetting('autoStartEnabled', false);
+        updateSetting('autoStopEnabled', true);
+        break;
+      case 'both':
+        updateSetting('autoStartEnabled', true);
+        updateSetting('autoStopEnabled', true);
+        break;
+    }
+    logger.info('ui', `Trigger mode changed: ${mode}`);
+  }, [updateSetting]);
+
   // ============================================
   // RETURN
   // ============================================
@@ -385,6 +414,10 @@ export function useMapScreen() {
     autoLoggingEnabled,
     isTogglingAutoLog,
     handleToggleAutoLogging,
+
+    // Trigger mode
+    triggerMode,
+    handleTriggerModeChange,
 
     // Handlers
     handleMapReady,

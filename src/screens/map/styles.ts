@@ -241,11 +241,11 @@ export const styles = StyleSheet.create({
 
   // Name input (State A)
   nameInput: {
-    borderWidth: 1,
+    borderWidth: 0.5,
     borderColor: colors.border,
-    borderRadius: 10,
+    borderRadius: 14,
     paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingVertical: 12,
     fontSize: 15,
     color: colors.text,
     backgroundColor: colors.backgroundTertiary,
@@ -262,8 +262,8 @@ export const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     gap: 8,
-    paddingVertical: 13,
-    borderRadius: 12,
+    minHeight: 52,
+    borderRadius: 14,
     backgroundColor: colors.buttonPrimary,
   },
   addButtonDisabled: {
@@ -281,9 +281,9 @@ export const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     gap: 8,
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 1.5,
+    minHeight: 48,
+    borderRadius: 14,
+    borderWidth: 0.5,
     borderColor: withOpacity(colors.error, 0.3),
     backgroundColor: 'transparent',
   },
@@ -291,5 +291,45 @@ export const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: colors.error,
+  },
+
+  // ============================================
+  // RADIO BUTTONS (trigger mode)
+  // ============================================
+  radioGroup: {
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  radioRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    gap: 10,
+  },
+  radioOuter: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: colors.border,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  radioOuterSelected: {
+    borderColor: colors.primary,
+  },
+  radioInner: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: colors.primary,
+  },
+  radioLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: colors.text,
+  },
+  radioLabelMuted: {
+    color: colors.textSecondary,
   },
 });

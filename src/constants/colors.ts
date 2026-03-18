@@ -1,61 +1,64 @@
 /**
- * OnSite Club - Color Tokens (Enterprise Theme v3.0)
+ * OnSite Club - Color Tokens (v4.0 — Warm Amber)
  *
- * Design direction: Professional, enterprise-grade, modern
- * Principles: Clean neutrals, utility green, muted amber accents
+ * Design direction: Warm, worker-first, minimal
+ * Principles: Warm neutrals, amber-only accent
  *
- * Ratio: 85-90% neutrals / 8-12% green / 2-5% amber
+ * Ratio: 90% warm neutrals / 10% amber
  *
- * Timer states: idle = neutral, running = green, paused = amber
- * Tab bar: active = amber, inactive = iconMuted
- * Primary buttons = green filled, secondary = neutral outline
+ * Timer states: idle = neutral, running = amber, paused = amber (dimmer)
+ * Tab bar: active = dark text + amber dot, inactive = muted gray
+ * Primary buttons = amber filled, secondary = neutral outline
  */
 
 export const colors = {
   // ============================================
-  // NEUTRALS (Structure - 85-90%)
+  // NEUTRALS (Structure - 90%)
   // ============================================
 
   // Backgrounds
-  background: '#F6F7F9',           // App canvas (bg)
-  backgroundSecondary: '#FFFFFF',  // Cards, modals (surface)
-  backgroundTertiary: '#F2F4F7',   // Inputs, muted sections (surface2)
+  background: '#F5F5F4',           // Warm stone canvas
+  backgroundSecondary: '#FFFFFF',  // Cards, modals
+  backgroundTertiary: '#F5F5F4',   // Inputs, muted sections
   backgroundElevated: '#FFFFFF',   // Elevated elements
 
   // Surfaces
   surface: '#FFFFFF',              // Card background
-  surface2: '#F2F4F7',             // Secondary surface
-  surfaceMuted: '#F6F7F9',         // Input fields, placeholders
+  surface2: '#F5F5F4',             // Secondary surface
+  surfaceMuted: '#F5F5F4',         // Input fields, placeholders
+
+  // Dark surface (timer bar, total pill)
+  darkSurface: '#2A2A2A',
 
   // Text
-  text: '#101828',                 // Primary text (near black)
-  textSecondary: '#667085',        // Labels, descriptions
-  textTertiary: '#667085',         // Subtle text (alias)
-  textMuted: '#667085',            // Muted text
+  text: '#1A1A1A',                 // Primary text
+  textSecondary: '#888884',        // Labels, descriptions
+  textTertiary: '#888884',         // Subtle text (alias)
+  textMuted: '#888884',            // Muted text
 
   // Icons
-  iconMuted: '#98A2B3',            // Inactive icons, placeholders
+  iconMuted: '#B0AFA9',            // Inactive icons, placeholders
 
   // Borders
-  border: '#E3E7EE',               // Dividers, card borders
-  borderLight: '#F2F4F7',          // Subtle borders
-  borderFocus: '#0F766E',          // Focus state (green for inputs)
+  border: '#D1D0CE',               // Dividers, card borders
+  borderLight: '#E5E5E3',          // Subtle borders
+  borderFocus: '#C58B1B',          // Focus state (amber)
 
   // Base colors
-  black: '#101828',                // For text
+  black: '#1A1A1A',                // For text
   white: '#FFFFFF',
 
   // ============================================
-  // BRAND ACCENT - MUTED AMBER (2-5%)
+  // BRAND ACCENT - AMBER (10%)
   // ============================================
 
-  // Amber (use sparingly - tab active, paused state, warnings)
+  // Amber (primary accent — buttons, active states, highlights)
   primary: '#C58B1B',              // Muted amber
   primaryStrong: '#A67516',        // Darker amber
   primaryPressed: '#8F6513',       // Pressed state
-  primarySoft: '#FFF3D6',          // Soft amber background (amberSoft)
+  primarySoft: '#FFF3D6',          // Soft amber background
   primaryLight: '#FFF3D6',         // Light amber tint
-  primaryLine: '#F2D28B',          // Amber line/border (amberLine)
+  primaryLine: '#F2D28B',          // Amber line/border
   primaryDark: '#A67516',          // Alias
 
   // Amber semantic aliases
@@ -64,23 +67,23 @@ export const colors = {
   amberLine: '#F2D28B',
 
   // ============================================
-  // UTILITY GREEN (8-12%)
+  // UTILITY GREEN (kept for success feedback only)
   // ============================================
 
-  // Green (primary actions, active states, success)
-  accent: '#0F766E',               // Deep teal/green - ACTIVE state
-  accentLight: '#14B8A6',          // Lighter green
-  accentSoft: '#D1FAE5',           // Soft green background (greenSoft)
+  // Green (success states only — NOT for primary UI)
+  accent: '#C58B1B',               // Redirected to amber
+  accentLight: '#D4A43A',          // Lighter amber
+  accentSoft: '#FFF3D6',           // Soft amber background
 
-  // Green semantic aliases
-  green: '#0F766E',
-  greenSoft: '#D1FAE5',
+  // Green semantic aliases (redirected to amber for consistency)
+  green: '#16A34A',                // Pure green — only for success icons
+  greenSoft: '#D1FAE5',            // Soft green — only for success bg
 
   // ============================================
   // FEEDBACK / STATES
   // ============================================
-  success: '#0F766E',              // Green for success
-  successLight: '#14B8A6',
+  success: '#16A34A',              // Green for success feedback
+  successLight: '#22C55E',
   successSoft: '#D1FAE5',
 
   warning: '#C58B1B',              // Amber for warnings
@@ -98,13 +101,13 @@ export const colors = {
   // TIMER STATES
   // ============================================
 
-  // Timer (idle = neutral, running = green, paused = amber)
-  timerIdle: '#98A2B3',            // Neutral gray (iconMuted)
-  timerActive: '#0F766E',          // Green for running
-  timerPaused: '#C58B1B',          // Amber for paused
+  // Timer (idle = neutral, running = amber, paused = amber dimmer)
+  timerIdle: '#B0AFA9',            // Neutral gray
+  timerActive: '#C58B1B',          // Amber for running
+  timerPaused: '#D4A43A',          // Lighter amber for paused
   timerBackground: '#FFFFFF',
-  timerRing: 'rgba(15, 118, 110, 0.15)',  // Green ring (subtle)
-  timerRingTrack: '#E3E7EE',       // Neutral gray track
+  timerRing: 'rgba(197, 139, 27, 0.15)',   // Amber ring (subtle)
+  timerRingTrack: '#E5E5E3',       // Warm gray track
 
   // ============================================
   // COMPONENT-SPECIFIC
@@ -112,34 +115,35 @@ export const colors = {
 
   // Cards
   card: '#FFFFFF',
-  cardBorder: '#E3E7EE',
-  cardPressed: '#F6F7F9',
-  cardAccent: '#0F766E',           // Left accent bar (green)
+  cardBorder: '#D1D0CE',
+  cardPressed: '#F5F5F4',
+  cardAccent: '#C58B1B',           // Left accent bar (amber)
 
   // Tab Bar
   tabBar: '#FFFFFF',
-  tabBarBorder: '#E3E7EE',
-  tabActive: '#C58B1B',            // Amber for active tab
-  tabInactive: '#98A2B3',          // iconMuted for inactive
+  tabBarBorder: '#E5E5E3',
+  tabActive: '#1A1A1A',            // Dark text for active tab
+  tabActiveDot: '#C58B1B',         // Amber dot below active label
+  tabInactive: '#9CA3AF',          // Muted gray for inactive
 
   // Header
-  header: '#F6F7F9',
-  headerText: '#101828',
+  header: '#F5F5F4',
+  headerText: '#1A1A1A',
 
   // Inputs
-  input: '#F2F4F7',                // surface2
-  inputBorder: '#E3E7EE',
-  inputPlaceholder: '#98A2B3',     // iconMuted
-  inputFocus: '#0F766E',           // Green focus ring
+  input: '#F5F5F4',                // Warm stone
+  inputBorder: '#D1D0CE',
+  inputPlaceholder: '#B0AFA9',     // Warm muted
+  inputFocus: '#C58B1B',           // Amber focus ring
 
-  // Buttons (primary = green, secondary = neutral outline)
-  buttonPrimary: '#0F766E',        // Green filled
+  // Buttons (primary = amber, secondary = neutral outline)
+  buttonPrimary: '#C58B1B',        // Amber filled
   buttonPrimaryText: '#FFFFFF',    // White text
   buttonSecondary: '#FFFFFF',      // Neutral surface
-  buttonSecondaryBorder: '#E3E7EE', // Border
-  buttonSecondaryText: '#101828',  // Dark text
-  buttonDisabled: '#F2F4F7',       // surface2
-  buttonDisabledText: '#98A2B3',   // iconMuted
+  buttonSecondaryBorder: '#D1D0CE', // Border
+  buttonSecondaryText: '#888884',  // Muted text
+  buttonDisabled: '#F5F5F4',       // Surface
+  buttonDisabledText: '#B0AFA9',   // Muted
 
   // Danger button
   buttonDanger: '#DC2626',
@@ -147,25 +151,26 @@ export const colors = {
   buttonDangerText: '#FFFFFF',
 
   // Map
-  mapCircle: 'rgba(15, 118, 110, 0.2)',
-  mapCircleBorder: '#0F766E',
+  mapCircle: 'rgba(197, 139, 27, 0.2)',
+  mapCircleBorder: '#C58B1B',
 
   // Badges
-  badgeActive: '#0F766E',          // Green for ACTIVE
+  badgeActive: '#C58B1B',          // Amber for ACTIVE
   badgeActiveText: '#FFFFFF',
-  badgeSuccess: '#0F766E',
+  badgeSuccess: '#16A34A',
   badgeWarning: '#C58B1B',
   badgeError: '#DC2626',
   badgeInfo: '#3B82F6',
 
   // Overlay
-  overlay: 'rgba(16, 24, 40, 0.6)',      // Near black with opacity
-  overlayLight: 'rgba(16, 24, 40, 0.4)',
+  overlay: 'rgba(26, 26, 26, 0.6)',       // Warm dark with opacity
+  overlayLight: 'rgba(26, 26, 26, 0.4)',
 
   // Graph styles
-  graphite: '#F6F7F9',             // Background for graphs
-  steel: '#E3E7EE',                // Grid lines
-  graphBar: '#0F766E',             // Bar chart color (green)
+  graphite: '#F5F5F4',             // Background for graphs
+  steel: '#E5E5E3',                // Grid lines
+  graphBar: '#C58B1B',             // Bar chart color (amber)
+  graphBarMuted: '#E5E5E3',        // Empty/no-data bar
 };
 
 /**
@@ -175,12 +180,12 @@ export function withOpacity(color: string, opacity: number): string {
   if (color.startsWith('rgba')) {
     return color.replace(/[\d.]+\)$/, `${opacity})`);
   }
-  
+
   const hex = color.replace('#', '');
   const r = parseInt(hex.substring(0, 2), 16);
   const g = parseInt(hex.substring(2, 4), 16);
   const b = parseInt(hex.substring(4, 6), 16);
-  
+
   return `rgba(${r}, ${g}, ${b}, ${opacity})`;
 }
 
@@ -223,10 +228,10 @@ export const spacing = {
  * Border radius tokens
  */
 export const borderRadius = {
-  sm: 8,
-  md: 12,
-  lg: 16,
-  xl: 20,
+  sm: 10,
+  md: 14,
+  lg: 18,
+  xl: 24,
   full: 9999,
 };
 
@@ -235,21 +240,21 @@ export const borderRadius = {
  */
 export const shadows = {
   sm: {
-    shadowColor: '#111827',
+    shadowColor: '#1A1A1A',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.06,
     shadowRadius: 6,
     elevation: 2,
   },
   md: {
-    shadowColor: '#111827',
+    shadowColor: '#1A1A1A',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.08,
     shadowRadius: 10,
     elevation: 3,
   },
   lg: {
-    shadowColor: '#111827',
+    shadowColor: '#1A1A1A',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.10,
     shadowRadius: 14,

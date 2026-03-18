@@ -1,11 +1,12 @@
 /**
  * Tabs Layout - OnSite Timekeeper
  *
- * v1.2: Added floating mic button + voice command sheet (IA Voz)
+ * v2.0: Redesigned tab bar — Log / History / Locations / More
+ *       Amber dot active indicator, warm color palette
  */
 
 import React, { useState } from 'react';
-import { Platform } from 'react-native';
+import { Platform, View, Text } from 'react-native';
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -15,6 +16,30 @@ import { FloatingMicButton } from '../../src/components/FloatingMicButton';
 import { VoiceCommandSheet } from '../../src/components/VoiceCommandSheet';
 
 const isWeb = Platform.OS === 'web';
+
+/** Custom tab label with amber dot below active tab */
+function TabLabel({ title, focused }: { title: string; focused: boolean }) {
+  return (
+    <View style={{ alignItems: 'center' }}>
+      <Text style={{
+        fontSize: 11,
+        fontWeight: focused ? '600' : '500',
+        color: focused ? colors.tabActive : colors.tabInactive,
+      }}>
+        {title}
+      </Text>
+      {focused && (
+        <View style={{
+          width: 4,
+          height: 4,
+          borderRadius: 2,
+          backgroundColor: colors.tabActiveDot,
+          marginTop: 2,
+        }} />
+      )}
+    </View>
+  );
+}
 
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
@@ -38,18 +63,14 @@ export default function TabsLayout() {
           headerShown: false,
           tabBarStyle: {
             backgroundColor: colors.card,
-            borderTopColor: colors.border,
-            borderTopWidth: 1,
+            borderTopColor: colors.borderLight,
+            borderTopWidth: 0.5,
             height: tabBarHeight,
             paddingBottom: bottomPadding,
             paddingTop: 8,
           },
-          tabBarActiveTintColor: colors.tabActive,      // Amber (#C58B1B)
-          tabBarInactiveTintColor: colors.tabInactive,  // iconMuted (#98A2B3)
-          tabBarLabelStyle: {
-            fontSize: 12,
-            fontWeight: '500',
-          },
+          tabBarActiveTintColor: colors.tabActive,
+          tabBarInactiveTintColor: colors.tabInactive,
         }}
       >
         <Tabs.Screen
@@ -61,28 +82,34 @@ export default function TabsLayout() {
         <Tabs.Screen
           name="reports"
           options={{
-            title: 'Home',
             tabBarIcon: ({ color, size }) => (
-              <Ionicons name="home" size={size} color={color} />
+              <Ionicons name="time-outline" size={size} color={color} />
             ),
+            tabBarLabel: ({ focused }) => <TabLabel title="Log" focused={focused} />,
+          }}
+        />
+        <Tabs.Screen
+          name="history"
+          options={{
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="calendar-outline" size={size} color={color} />
+            ),
+            tabBarLabel: ({ focused }) => <TabLabel title="History" focused={focused} />,
           }}
         />
         <Tabs.Screen
           name="map"
           options={{
-            title: 'Locations',
             tabBarIcon: ({ color, size }) => (
-              <Ionicons name="map" size={size} color={color} />
+              <Ionicons name="location-outline" size={size} color={color} />
             ),
+            tabBarLabel: ({ focused }) => <TabLabel title="Locations" focused={focused} />,
           }}
         />
         <Tabs.Screen
           name="invoice"
           options={{
-            title: 'Invoice',
-            tabBarIcon: ({ color, size }) => (
-              <Ionicons name="document-text" size={size} color={color} />
-            ),
+            href: null,
           }}
         />
         <Tabs.Screen
@@ -94,10 +121,10 @@ export default function TabsLayout() {
         <Tabs.Screen
           name="settings"
           options={{
-            title: 'Settings',
             tabBarIcon: ({ color, size }) => (
-              <Ionicons name="settings" size={size} color={color} />
+              <Ionicons name="ellipsis-horizontal" size={size} color={color} />
             ),
+            tabBarLabel: ({ focused }) => <TabLabel title="More" focused={focused} />,
           }}
         />
       </Tabs>

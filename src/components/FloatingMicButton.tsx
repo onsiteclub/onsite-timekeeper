@@ -127,7 +127,7 @@ const fabStyles = StyleSheet.create({
     width: BUTTON_SIZE,
     height: BUTTON_SIZE,
     borderRadius: BUTTON_SIZE / 2,
-    backgroundColor: colors.green,
+    backgroundColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
