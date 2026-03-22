@@ -35,11 +35,18 @@ import { useHomeScreen, type ComputedSession } from '../../src/screens/home/hook
 import { styles } from '../../src/screens/home/styles';
 import { WEEKDAYS_SHORT, getDayKey } from '../../src/screens/home/helpers';
 import { generateSimpleHTML, filterSessionsInPeriod, generatePDFFileUri, sharePDFFile, type TimesheetOptions } from '../../src/lib/timesheetPdf';
-import { WebView } from 'react-native-webview';
 import { getSessionBreakdown, type SessionSegment } from '../../src/lib/eventLog';
 import { useBusinessProfileStore } from '../../src/stores/businessProfileStore';
 import { logger } from '../../src/lib/logger';
 import { Alert } from 'react-native';
+
+// Lazy-load WebView — native module may not be linked until next prebuild
+let WebView: any = null;
+try {
+  WebView = require('react-native-webview').WebView;
+} catch {
+  // Will fall back to direct PDF share if WebView unavailable
+}
 
 // ============================================
 // PRESSABLE OPACITY - Drop-in replacement for TouchableOpacity
@@ -588,10 +595,29 @@ export default function HistoryScreen() {
     const filteredSessions = filterSessionsInPeriod(sessions, options);
     const html = generateSimpleHTML(filteredSessions, options);
 
-    setPreviewOptions(options);
-    setPreviewHTML(html);
-    setShowExportModal(false);
-    setShowPreviewModal(true);
+    if (WebView) {
+      // Show preview modal with WebView
+      setPreviewOptions(options);
+      setPreviewHTML(html);
+      setShowExportModal(false);
+      setShowPreviewModal(true);
+    } else {
+      // Fallback: generate PDF and share directly (WebView not linked)
+      try {
+        setIsExporting(true);
+        setShowExportModal(false);
+        const fileUri = await generatePDFFileUri(html, options.employeeName, options.periodStart);
+        await sharePDFFile(fileUri);
+        if (userId && options.invoiceNumber) {
+          incrementInvoiceNumber(userId);
+        }
+        cancelDateRange();
+      } catch (error: any) {
+        Alert.alert('Export Error', error.message || 'Failed to generate PDF');
+      } finally {
+        setIsExporting(false);
+      }
+    }
   };
 
   // Save PDF to device
@@ -1312,7 +1338,7 @@ export default function HistoryScreen() {
       </Modal>
 
       {/* ===== PDF PREVIEW MODAL ===== */}
-      <Modal
+      {WebView && <Modal
         visible={showPreviewModal}
         animationType="slide"
         statusBarTranslucent
@@ -1367,7 +1393,7 @@ export default function HistoryScreen() {
             </PressableOpacity>
           </View>
         </SafeAreaView>
-      </Modal>
+      </Modal>}
 
       {/* ===== BREAK PICKER MODAL ===== */}
       <Modal
