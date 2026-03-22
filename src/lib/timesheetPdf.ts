@@ -571,13 +571,23 @@ export async function generatePDFFileUri(
     throw new Error('PDF generation requires app rebuild with expo-print');
   }
 
-  const { uri } = await Print.printToFileAsync({
+  let { uri } = await Print.printToFileAsync({
     html,
     base64: false,
   });
 
-  const fileName = `TimeReport_${employeeName.replace(/\s+/g, '_')}_${toLocalDateString(periodStart)}.pdf`;
-  const newUri = `${FileSystem.cacheDirectory}${fileName}`;
+  // Normalize URI — iOS may return path without file:// prefix
+  if (!uri.startsWith('file://')) {
+    uri = `file://${uri}`;
+  }
+
+  // Sanitize filename — remove chars invalid on iOS (APFS)
+  const sanitized = employeeName.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const fileName = `TimeReport_${sanitized}_${toLocalDateString(periodStart)}.pdf`;
+
+  // Ensure path separator — cacheDirectory may or may not end with /
+  const cacheDir = FileSystem.cacheDirectory?.replace(/\/$/, '') || '';
+  const newUri = `${cacheDir}/${fileName}`;
 
   await FileSystem.moveAsync({
     from: uri,
@@ -595,7 +605,6 @@ export async function sharePDFFile(fileUri: string): Promise<void> {
     await Sharing.shareAsync(fileUri, {
       mimeType: 'application/pdf',
       dialogTitle: 'Share Time Report',
-      UTI: 'com.adobe.pdf',
     });
   }
 }
