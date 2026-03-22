@@ -34,7 +34,8 @@ import { colors, withOpacity, shadows } from '../../src/constants/colors';
 import { useHomeScreen, type ComputedSession } from '../../src/screens/home/hooks';
 import { styles } from '../../src/screens/home/styles';
 import { WEEKDAYS_SHORT, getDayKey } from '../../src/screens/home/helpers';
-import { generateAndShareTimesheetPDF } from '../../src/lib/timesheetPdf';
+import { generateSimpleHTML, filterSessionsInPeriod, generatePDFFileUri, sharePDFFile, type TimesheetOptions } from '../../src/lib/timesheetPdf';
+import { WebView } from 'react-native-webview';
 import { getSessionBreakdown, type SessionSegment } from '../../src/lib/eventLog';
 import { useBusinessProfileStore } from '../../src/stores/businessProfileStore';
 import { logger } from '../../src/lib/logger';
@@ -440,6 +441,11 @@ export default function HistoryScreen() {
   const [showExportModal, setShowExportModal] = useState(false);
   const [rangeSessions, setRangeSessions] = useState<ComputedSession[]>([]);
 
+  // PDF preview modal state
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [previewHTML, setPreviewHTML] = useState('');
+  const [previewOptions, setPreviewOptions] = useState<TimesheetOptions | null>(null);
+
   // Handle date range selection (Airbnb style)
   const handleDateRangeSelect = async (date: Date) => {
     logger.debug('ui', 'handleDateRangeSelect called', {
@@ -556,7 +562,7 @@ export default function HistoryScreen() {
     };
   };
 
-  // Export to PDF - Professional Timesheet
+  // Export to PDF - Generate HTML preview first
   const handleExportPDF = async () => {
     const sessions = getSessionsInRange();
     if (sessions.length === 0) {
@@ -569,29 +575,62 @@ export default function HistoryScreen() {
       return;
     }
 
+    const invoiceNumber = businessProfile?.next_invoice_number ?? undefined;
+    const options: TimesheetOptions = {
+      employeeName: userName || 'User',
+      employeeId: userId || undefined,
+      periodStart: rangeStartDate,
+      periodEnd: rangeEndDate,
+      ...getBusinessOptions(),
+      invoiceNumber,
+    };
+
+    const filteredSessions = filterSessionsInPeriod(sessions, options);
+    const html = generateSimpleHTML(filteredSessions, options);
+
+    setPreviewOptions(options);
+    setPreviewHTML(html);
+    setShowExportModal(false);
+    setShowPreviewModal(true);
+  };
+
+  // Save PDF to device
+  const handlePreviewSave = async () => {
+    if (!previewOptions) return;
     try {
       setIsExporting(true);
-      setShowExportModal(false);
+      const fileUri = await generatePDFFileUri(previewHTML, previewOptions.employeeName, previewOptions.periodStart);
+      await sharePDFFile(fileUri);
 
-      const invoiceNumber = businessProfile?.next_invoice_number ?? undefined;
-
-      await generateAndShareTimesheetPDF(sessions, {
-        employeeName: userName || 'User',
-        employeeId: userId || undefined,
-        periodStart: rangeStartDate,
-        periodEnd: rangeEndDate,
-        ...getBusinessOptions(),
-        invoiceNumber,
-      });
-
-      // Auto-increment invoice number after successful generation
-      if (userId && invoiceNumber) {
+      if (userId && previewOptions.invoiceNumber) {
         incrementInvoiceNumber(userId);
       }
 
+      setShowPreviewModal(false);
       cancelDateRange();
     } catch (error: any) {
-      Alert.alert('Export Error', error.message || 'Failed to generate PDF');
+      Alert.alert('Error', error.message || 'Failed to save PDF');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  // Send PDF via share sheet
+  const handlePreviewSend = async () => {
+    if (!previewOptions) return;
+    try {
+      setIsExporting(true);
+      const fileUri = await generatePDFFileUri(previewHTML, previewOptions.employeeName, previewOptions.periodStart);
+      await sharePDFFile(fileUri);
+
+      if (userId && previewOptions.invoiceNumber) {
+        incrementInvoiceNumber(userId);
+      }
+
+      setShowPreviewModal(false);
+      cancelDateRange();
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to send PDF');
     } finally {
       setIsExporting(false);
     }
@@ -628,7 +667,7 @@ export default function HistoryScreen() {
 
       <View style={historyStyles.container}>
       {/* CALENDAR CARD - Always visible */}
-      <Card style={[historyStyles.calendarCard, dateRangeMode ? historyStyles.calendarCardRange : undefined]}>
+      <Card style={dateRangeMode ? [historyStyles.calendarCard, historyStyles.calendarCardRange] : historyStyles.calendarCard}>
         <View style={styles.calendarHeader}>
           <PressableOpacity
             style={historyStyles.navBtn}
@@ -1270,6 +1309,64 @@ export default function HistoryScreen() {
             </View>
           </View>
         </View>
+      </Modal>
+
+      {/* ===== PDF PREVIEW MODAL ===== */}
+      <Modal
+        visible={showPreviewModal}
+        animationType="slide"
+        statusBarTranslucent
+        onRequestClose={() => { setShowPreviewModal(false); }}
+      >
+        <SafeAreaView style={previewStyles.container} edges={['top', 'bottom']}>
+          {/* Header */}
+          <View style={previewStyles.header}>
+            <PressableOpacity
+              style={previewStyles.headerBackBtn}
+              onPress={() => { setShowPreviewModal(false); }}
+            >
+              <Ionicons name="arrow-back" size={22} color={colors.text} />
+            </PressableOpacity>
+            <Text style={previewStyles.headerTitle}>Preview</Text>
+            {previewOptions?.invoiceNumber ? (
+              <Text style={previewStyles.headerInvoice}>Invoice #{previewOptions.invoiceNumber}</Text>
+            ) : (
+              <View style={{ width: 80 }} />
+            )}
+          </View>
+
+          {/* WebView Preview */}
+          <View style={previewStyles.webviewContainer}>
+            <WebView
+              source={{ html: previewHTML }}
+              style={previewStyles.webview}
+              scrollEnabled
+              scalesPageToFit
+              showsVerticalScrollIndicator
+              originWhitelist={['*']}
+            />
+          </View>
+
+          {/* Bottom Actions */}
+          <View style={previewStyles.actions}>
+            <PressableOpacity
+              style={previewStyles.saveBtn}
+              onPress={handlePreviewSave}
+              disabled={isExporting}
+            >
+              <Ionicons name="download-outline" size={22} color={colors.primary} />
+              <Text style={previewStyles.saveBtnText}>Save</Text>
+            </PressableOpacity>
+            <PressableOpacity
+              style={[previewStyles.sendBtn, isExporting && { opacity: 0.7 }]}
+              onPress={handlePreviewSend}
+              disabled={isExporting}
+            >
+              <Ionicons name="send-outline" size={20} color={colors.white} />
+              <Text style={previewStyles.sendBtnText}>{isExporting ? 'Sending...' : 'Send'}</Text>
+            </PressableOpacity>
+          </View>
+        </SafeAreaView>
       </Modal>
 
       {/* ===== BREAK PICKER MODAL ===== */}
@@ -2441,5 +2538,95 @@ const historyStyles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: '#EF4444',
+  },
+});
+
+// ============================================
+// PDF PREVIEW MODAL STYLES
+// ============================================
+
+const previewStyles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    backgroundColor: colors.card,
+  },
+  headerBackBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.surfaceMuted,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  headerInvoice: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: colors.textSecondary,
+    width: 80,
+    textAlign: 'right',
+  },
+  webviewContainer: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
+  },
+  webview: {
+    flex: 1,
+    backgroundColor: 'transparent',
+  },
+  actions: {
+    flexDirection: 'row',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    backgroundColor: colors.card,
+  },
+  saveBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    backgroundColor: colors.card,
+  },
+  saveBtnText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.primary,
+  },
+  sendBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: colors.primary,
+  },
+  sendBtnText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.white,
   },
 });

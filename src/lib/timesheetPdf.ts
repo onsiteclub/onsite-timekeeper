@@ -138,7 +138,7 @@ export function aggregateSessionsByDay(sessions: ComputedSession[]): DayRow[] {
 // HTML TEMPLATE FOR PDF
 // ============================================
 
-function generateSimpleHTML(
+export function generateSimpleHTML(
   sessions: ComputedSession[],
   options: TimesheetOptions
 ): string {
@@ -559,6 +559,48 @@ export function filterSessionsInPeriod(
 // ============================================
 
 /**
+ * Generate a PDF file from HTML and return the file URI
+ * Reusable by both Save and Send flows
+ */
+export async function generatePDFFileUri(
+  html: string,
+  employeeName: string,
+  periodStart: Date
+): Promise<string> {
+  if (!Print) {
+    throw new Error('PDF generation requires app rebuild with expo-print');
+  }
+
+  const { uri } = await Print.printToFileAsync({
+    html,
+    base64: false,
+  });
+
+  const fileName = `TimeReport_${employeeName.replace(/\s+/g, '_')}_${toLocalDateString(periodStart)}.pdf`;
+  const newUri = `${FileSystem.cacheDirectory}${fileName}`;
+
+  await FileSystem.moveAsync({
+    from: uri,
+    to: newUri,
+  });
+
+  return newUri;
+}
+
+/**
+ * Share a PDF file via native share dialog
+ */
+export async function sharePDFFile(fileUri: string): Promise<void> {
+  if (await Sharing.isAvailableAsync()) {
+    await Sharing.shareAsync(fileUri, {
+      mimeType: 'application/pdf',
+      dialogTitle: 'Share Time Report',
+      UTI: 'com.adobe.pdf',
+    });
+  }
+}
+
+/**
  * Generate and share a PDF timesheet
  * Falls back to text if expo-print not available
  */
@@ -567,12 +609,9 @@ export async function generateAndShareTimesheetPDF(
   options: TimesheetOptions
 ): Promise<void> {
   try {
-    // Filter only completed sessions within period
     const filteredSessions = filterSessionsInPeriod(sessions, options);
 
-    // Check if expo-print is available
     if (!Print) {
-      // Fallback to text-based sharing
       console.log('expo-print not available, using text fallback');
       const textReport = generateSimpleTable(filteredSessions, options);
 
@@ -601,32 +640,9 @@ export async function generateAndShareTimesheetPDF(
       });
     }
 
-    // Generate HTML
     const html = generateSimpleHTML(filteredSessions, options);
-
-    // Generate PDF
-    const { uri } = await Print.printToFileAsync({
-      html,
-      base64: false,
-    });
-
-    // Rename file
-    const fileName = `TimeReport_${options.employeeName.replace(/\s+/g, '_')}_${toLocalDateString(options.periodStart)}.pdf`;
-    const newUri = `${FileSystem.cacheDirectory}${fileName}`;
-
-    await FileSystem.moveAsync({
-      from: uri,
-      to: newUri,
-    });
-
-    // Share the PDF
-    if (await Sharing.isAvailableAsync()) {
-      await Sharing.shareAsync(newUri, {
-        mimeType: 'application/pdf',
-        dialogTitle: 'Share Time Report',
-        UTI: 'com.adobe.pdf',
-      });
-    }
+    const fileUri = await generatePDFFileUri(html, options.employeeName, options.periodStart);
+    await sharePDFFile(fileUri);
   } catch (error) {
     console.error('Error generating PDF:', error);
     throw error;
