@@ -238,6 +238,13 @@ export default function ReportsScreen() {
     }, [])
   );
 
+  // Auto-select first location when locations load (async from SQLite)
+  useEffect(() => {
+    if (locations.length > 0 && !manualLocationId) {
+      setManualLocationId(locations[0].id);
+    }
+  }, [locations]);
+
   // Check yesterday's log (only when today IS logged)
   useEffect(() => {
     if (todayLog && userId && !yesterdayChecked) {
