@@ -124,17 +124,15 @@ export default function MapScreen() {
         </View>
 
         {/* SEARCH BOX — shows address in display mode, search on tap */}
-        <View pointerEvents={!autoLoggingEnabled && panelState === 'configured' ? 'none' : 'auto'} style={!autoLoggingEnabled && panelState === 'configured' ? { opacity: 0.4 } : undefined}>
-          <SearchBox
-            address={address}
-            isGeocoding={isGeocoding}
-            latitude={fence ? fence.latitude : mapCenter?.lat}
-            longitude={fence ? fence.longitude : mapCenter?.lng}
-            currentLatitude={currentLocation?.latitude}
-            currentLongitude={currentLocation?.longitude}
-            onSelectResult={handleSelectSearchResult}
-          />
-        </View>
+        <SearchBox
+          address={address}
+          isGeocoding={isGeocoding}
+          latitude={fence ? fence.latitude : mapCenter?.lat}
+          longitude={fence ? fence.longitude : mapCenter?.lng}
+          currentLatitude={currentLocation?.latitude}
+          currentLongitude={currentLocation?.longitude}
+          onSelectResult={handleSelectSearchResult}
+        />
 
         {/* PERMISSION BANNER */}
         <View style={styles.permissionBannerWrapper} pointerEvents="box-none">
