@@ -345,7 +345,7 @@ interface FormFieldProps {
   placeholder?: string;
   hint?: string;
   required?: boolean;
-  keyboardType?: 'default' | 'email-address' | 'phone-pad' | 'decimal-pad' | 'numeric';
+  keyboardType?: 'default' | 'email-address' | 'phone-pad' | 'decimal-pad' | 'numeric' | 'number-pad';
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
   maxLength?: number;
   prefix?: string;

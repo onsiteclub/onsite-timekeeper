@@ -628,7 +628,7 @@ export default function HistoryScreen() {
 
       <View style={historyStyles.container}>
       {/* CALENDAR CARD - Always visible */}
-      <Card style={[historyStyles.calendarCard, dateRangeMode && historyStyles.calendarCardRange]}>
+      <Card style={[historyStyles.calendarCard, dateRangeMode ? historyStyles.calendarCardRange : undefined]}>
         <View style={styles.calendarHeader}>
           <PressableOpacity
             style={historyStyles.navBtn}

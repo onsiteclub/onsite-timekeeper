@@ -732,6 +732,7 @@ async function syncBusinessProfile(userId: string): Promise<{ count: number; err
         gst_hst_number: data.gst_hst_number,
         default_hourly_rate: data.default_hourly_rate,
         tax_rate: data.tax_rate,
+        next_invoice_number: data.next_invoice_number ?? 1,
         created_at: data.created_at,
         updated_at: data.updated_at,
         synced_at: new Date().toISOString(),
