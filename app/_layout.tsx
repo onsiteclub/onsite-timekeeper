@@ -6,12 +6,13 @@
  */
 
 import React, { useEffect, useState, useRef } from 'react';
-import { View, ActivityIndicator, Platform, StyleSheet } from 'react-native';
+import { View, Image, ActivityIndicator, Platform, StyleSheet } from 'react-native';
 import { Stack, useRouter, useSegments, useRootNavigationState } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { colors } from '../src/constants/colors';
 import { logger } from '../src/lib/logger';
 import { initSentry, setUser as setSentryUser, clearUser as clearSentryUser } from '../src/lib/sentry';
+import { installFetchInterceptor } from '../src/lib/sslPinning';
 import { initDatabase } from '../src/lib/database';
 import { ErrorBoundary } from '../src/components/ErrorBoundary';
 import { useAuthStore } from '../src/stores/authStore';
@@ -35,6 +36,7 @@ import {
   onUserLogin,
   onUserLogout,
 } from '../src/lib/bootstrap';
+import { OfflineBanner } from '../src/components/ui/OfflineBanner';
 import { BatteryOptimizationModal } from '../src/components/BatteryOptimizationModal';
 import { LocationDisclosureModal } from '../src/components/LocationDisclosureModal';
 import { isIgnoringBatteryOptimizations } from '../src/lib/bgGeo';
@@ -49,8 +51,10 @@ export default function RootLayout() {
 
   const isAuthenticated = useAuthStore(s => s.isAuthenticated());
   const authLoading = useAuthStore(s => s.isLoading);
+  const authInitialized = useAuthStore(s => s.isInitialized);
   const user = useAuthStore(s => s.user);
   const profileComplete = useAuthStore(s => s.profileComplete);
+  const pendingPhoneVerification = useAuthStore(s => s.pendingPhoneVerification);
   const initAuth = useAuthStore(s => s.initialize);
   
   // Refs for singleton control
@@ -166,6 +170,9 @@ export default function RootLayout() {
         // 0. Sentry (as early as possible, before any async ops)
         initSentry();
 
+        // 0.5. SSL Pinning: Install fetch interceptor before any network calls
+        installFetchInterceptor();
+
         // 1. Database
         await initDatabase();
         logger.info('boot', '✅ Database initialized');
@@ -245,9 +252,11 @@ export default function RootLayout() {
       return;
     }
     
-    logger.info('boot', '🔑 Login detected - checking profile + initializing stores...');
+    logger.info('boot', '🔑 Login detected - initializing stores...');
 
-    useAuthStore.getState().checkProfile().then(() => {}).catch(() => {});
+    // NOTE: checkProfile is now called inside signIn() before isLoading=false,
+    // so profileComplete is already set correctly by the time we get here.
+    // No need for a separate fire-and-forget call.
 
     initializeStores().then(async () => {
       // Get user fresh from store after init completes
@@ -303,11 +312,20 @@ export default function RootLayout() {
   useEffect(() => {
     if (!isReady || authLoading || !navigationState?.key) return;
 
+    // OTP: Skip all redirects while user is verifying phone
+    if (pendingPhoneVerification) return;
+
     const inAuthGroup = segments[0] === '(auth)';
 
     const timer = setTimeout(() => {
       if (!isAuthenticated && !inAuthGroup) {
-        router.replace('/(auth)/login');
+        // UX5: Pass expired param if user was previously logged in (session expiry)
+        const wasLoggedIn = userSessionRef.current !== null;
+        if (wasLoggedIn) {
+          router.replace({ pathname: '/(auth)/login', params: { expired: 'true' } });
+        } else {
+          router.replace('/(auth)/login');
+        }
       } else if (isAuthenticated && !profileComplete && (segments as string[])[1] !== 'complete-profile') {
         router.replace('/(auth)/complete-profile');
       } else if (isAuthenticated && profileComplete && inAuthGroup) {
@@ -316,17 +334,27 @@ export default function RootLayout() {
     }, 0);
 
     return () => clearTimeout(timer);
-  }, [isReady, authLoading, isAuthenticated, profileComplete, segments, navigationState?.key]);
+  }, [isReady, authLoading, isAuthenticated, profileComplete, pendingPhoneVerification, segments, navigationState?.key]);
 
   // ============================================
   // RENDER
   // ============================================
 
-  if (!isReady || authLoading) {
+  // FIX: Use authInitialized instead of authLoading for the render guard.
+  // authLoading is true during signIn/signUp, which unmounts AuthScreen and
+  // causes state loss (step resets to 'email' → infinite loop on "already registered").
+  // authInitialized is false only during initial bootstrap → safe full-screen spinner.
+  // UX1: Boot splash with logo above spinner (no native splash package needed)
+  if (!isReady || !authInitialized) {
     return (
       <View style={styles.loadingContainer}>
         <StatusBar style="light" />
-        <ActivityIndicator size="large" color={colors.primary} />
+        <Image
+          source={require('../logo.png')}
+          style={styles.splashLogo}
+          resizeMode="contain"
+        />
+        <ActivityIndicator size="small" color={colors.primary} />
       </View>
     );
   }
@@ -334,6 +362,7 @@ export default function RootLayout() {
   return (
     <ErrorBoundary>
       <StatusBar style="light" />
+      <OfflineBanner />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(tabs)" />
@@ -366,5 +395,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: colors.background,
+  },
+  // UX1: Boot splash logo
+  splashLogo: {
+    width: 180,
+    height: 62,
+    marginBottom: 32,
   },
 });

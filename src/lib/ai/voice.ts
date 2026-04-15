@@ -261,7 +261,7 @@ async function executeVoiceAction(
         logger.error('voice', `update_record: marking voice edit failed`, { error: String(e) });
       }
 
-      console.log(`[VOICE] update_record: SUCCESS ${action.date} → ${totalMinutes}min (entry=${firstEntry}, exit=${lastExit})`);
+      if (__DEV__) console.log(`[VOICE] update_record: SUCCESS ${action.date} → ${totalMinutes}min (entry=${firstEntry}, exit=${lastExit})`);
       logger.info('voice', `update_record: SUCCESS ${action.date} → ${totalMinutes}min`);
       break;
     }
@@ -314,15 +314,15 @@ async function executeVoiceAction(
 
       // Use current GPS location as bias so geocoding prioritizes nearby results
       const userCoords = useLocationStore.getState().currentLocation;
-      console.log(`[VOICE] create_location: geocoding "${action.address}" (bias: ${userCoords ? `${userCoords.latitude.toFixed(2)},${userCoords.longitude.toFixed(2)}` : 'none'})`);
+      if (__DEV__) console.log(`[VOICE] create_location: geocoding "${action.address}" (bias: ${userCoords ? `${userCoords.latitude.toFixed(2)},${userCoords.longitude.toFixed(2)}` : 'none'})`);
       const geoResults = await buscarEnderecoAutocomplete(
         action.address,
         userCoords?.latitude,
         userCoords?.longitude,
       );
       if (!geoResults || geoResults.length === 0) {
-        console.log(`[VOICE] create_location: geocoding FAILED for "${action.address}"`);
-        logger.warn('voice', `create_location: geocoding failed for "${action.address}"`);
+        if (__DEV__) console.log(`[VOICE] create_location: geocoding FAILED for "${action.address}"`);
+        logger.warn('voice', `create_location: geocoding failed`);
         break;
       }
 
@@ -332,15 +332,15 @@ async function executeVoiceAction(
       const locationName = action.site_name || shortAddress || action.address;
       const locationRadius = action.radius || 100;
 
-      console.log(`[VOICE] create_location: "${locationName}" at (${geo.latitude}, ${geo.longitude}), radius=${locationRadius}`);
+      if (__DEV__) console.log(`[VOICE] create_location: "${locationName}" at (${geo.latitude}, ${geo.longitude}), radius=${locationRadius}`);
       try {
         await useLocationStore.getState().addLocation(
           locationName, geo.latitude, geo.longitude, locationRadius
         );
-        console.log(`[VOICE] create_location: SUCCESS "${locationName}"`);
-        logger.info('voice', `create_location: SUCCESS "${locationName}" at (${geo.latitude.toFixed(2)}, ${geo.longitude.toFixed(2)})`);
+        if (__DEV__) console.log(`[VOICE] create_location: SUCCESS "${locationName}"`);
+        logger.info('voice', `create_location: SUCCESS (radius=${locationRadius}m)`);
       } catch (e) {
-        console.log(`[VOICE] create_location: FAILED`, String(e));
+        if (__DEV__) console.log(`[VOICE] create_location: FAILED`, String(e));
         logger.error('voice', `create_location: failed`, { error: String(e) });
       }
       break;

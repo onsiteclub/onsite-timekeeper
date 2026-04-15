@@ -21,6 +21,7 @@
 import { create } from 'zustand';
 import NetInfo from '@react-native-community/netinfo';
 import { logger } from '../lib/logger';
+import { addSentryBreadcrumb } from '../lib/sentry';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import {
   // Locations
@@ -292,6 +293,7 @@ export const useSyncStore = create<SyncState>((set, get) => ({
         down: `${stats.downloadedLocations}L/${stats.downloadedDailyHours}D`,
         errors: stats.errors.length,
       });
+      addSentryBreadcrumb('sync', 'Sync completed', { direction: 'full', errors: stats.errors.length });
 
       const { useLocationStore } = require('./locationStore');
       await useLocationStore.getState().reloadLocations();

@@ -11,6 +11,7 @@ import { Share, Alert } from 'react-native';
 // V3: ComputedSession now comes from hooks.ts (was removed from database)
 import { type ComputedSession } from '../screens/home/hooks';
 import { toLocalDateString } from './database/core';
+import { addSentryBreadcrumb } from './sentry';
 
 // Dynamic import for expo-print (may not be available without rebuild)
 let Print: typeof import('expo-print') | null = null;
@@ -40,6 +41,9 @@ export interface TimesheetOptions {
   hourlyRate?: number;
   taxRate?: number;
   invoiceNumber?: number;
+  // Client (Bill To) fields (optional)
+  clientName?: string;
+  clientAddress?: string;
 }
 
 export interface DayRow {
@@ -244,6 +248,32 @@ export function generateSimpleHTML(
       line-height: 1.6;
     }
 
+    /* ===== BILL TO ===== */
+    .bill-to {
+      margin: 20px 0;
+      padding: 12px 16px;
+      border-left: 3px solid #1a365d;
+      background: #f8f9fa;
+    }
+    .bill-to-label {
+      font-size: 8px;
+      font-weight: 600;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 4px;
+    }
+    .bill-to-name {
+      font-size: 12px;
+      font-weight: 600;
+      color: #1a365d;
+    }
+    .bill-to-address {
+      font-size: 9px;
+      color: #555;
+      margin-top: 2px;
+    }
+
     /* ===== DOCUMENT TITLE ===== */
     .doc-title {
       text-align: center;
@@ -352,6 +382,15 @@ export function generateSimpleHTML(
       ].filter(Boolean).join(' &nbsp;|&nbsp; ')}
     </div>
   </div>
+
+  ${options.clientName ? `
+  <!-- BILL TO -->
+  <div class="bill-to">
+    <div class="bill-to-label">Bill To</div>
+    <div class="bill-to-name">${options.clientName}</div>
+    ${options.clientAddress ? `<div class="bill-to-address">${options.clientAddress}</div>` : ''}
+  </div>
+  ` : ''}
 
   <!-- DOCUMENT TITLE -->
   <div class="doc-title">
@@ -652,6 +691,7 @@ export async function generateAndShareTimesheetPDF(
     const html = generateSimpleHTML(filteredSessions, options);
     const fileUri = await generatePDFFileUri(html, options.employeeName, options.periodStart);
     await sharePDFFile(fileUri);
+    addSentryBreadcrumb('invoice', 'Timesheet PDF generated', { type: 'timesheet', sessions: filteredSessions.length });
   } catch (error) {
     console.error('Error generating PDF:', error);
     throw error;

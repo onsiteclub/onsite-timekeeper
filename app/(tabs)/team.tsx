@@ -818,7 +818,7 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
   archivedLocation: {
-    fontSize: 11,
+    fontSize: 12,
     color: colors.textMuted,
     maxWidth: 80,
   },

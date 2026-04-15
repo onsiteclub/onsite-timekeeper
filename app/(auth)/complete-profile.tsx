@@ -15,6 +15,8 @@ import {
   ScrollView,
   ActivityIndicator,
   Image,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -61,8 +63,12 @@ export default function CompleteProfileScreen() {
   }, [firstName, lastName, updateProfile, router]);
 
   return (
-    <ScrollView
+    <KeyboardAvoidingView
       style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
+    <ScrollView
+      style={{ flex: 1 }}
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
     >
@@ -145,6 +151,7 @@ export default function CompleteProfileScreen() {
         </TouchableOpacity>
       </View>
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -170,7 +177,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 22,
-    fontWeight: 'bold',
+    fontWeight: '700',
     color: colors.text,
     marginBottom: 8,
   },

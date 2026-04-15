@@ -216,9 +216,10 @@ export async function cancelRecording(): Promise<void> {
     });
 
     if (uri) {
-      await FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {});
+      await FileSystem.deleteAsync(uri, { idempotent: true }).catch((e) => logger.warn('ui', 'Failed to clean up recording file', { error: String(e) }));
     }
-  } catch {
+  } catch (e) {
+    logger.warn('ui', 'Error stopping recording', { error: String(e) });
     currentRecording = null;
   }
 }

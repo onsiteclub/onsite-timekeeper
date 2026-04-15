@@ -195,7 +195,7 @@ const sliderStyles = StyleSheet.create({
     marginTop: 4,
   },
   label: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '500',
     color: colors.textSecondary,
     textAlign: 'center',

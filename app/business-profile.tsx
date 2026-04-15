@@ -1,8 +1,9 @@
 /**
  * Business Profile Screen - OnSite Timekeeper
  *
- * Form to manage business details (name, address, tax info).
- * Data used in PDF report exports and future invoicing.
+ * Form to manage personal + business details (name, address, tax info).
+ * Data used in PDF report exports and invoicing.
+ * Organized into collapsible accordion cards.
  */
 
 import React, { useState, useEffect } from 'react';
@@ -23,6 +24,8 @@ import { useRouter } from 'expo-router';
 import { colors, spacing, borderRadius } from '../src/constants/colors';
 import { useBusinessProfileStore } from '../src/stores/businessProfileStore';
 import { useAuthStore } from '../src/stores/authStore';
+import { CollapsibleCard } from '../src/components/CollapsibleCard';
+import { logger } from '../src/lib/logger';
 
 // ============================================
 // CANADIAN PROVINCES
@@ -39,22 +42,30 @@ const PROVINCES = [
 export default function BusinessProfileScreen() {
   const router = useRouter();
   const { user } = useAuthStore();
+  const updateAuthProfile = useAuthStore(s => s.updateProfile);
   const { profile, loadProfile, saveProfile, deleteProfile } = useBusinessProfileStore();
 
-  // Form state
-  const [businessName, setBusinessName] = useState('');
+  // Form state — Card 1 (Personal Info)
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+
+  // Form state — Card 2 (Address)
   const [addressStreet, setAddressStreet] = useState('');
   const [addressCity, setAddressCity] = useState('');
   const [addressProvince, setAddressProvince] = useState('');
   const [addressPostalCode, setAddressPostalCode] = useState('');
-  const [phone, setPhone] = useState('');
-  const [email, setEmail] = useState('');
+
+  // Form state — Card 3 (Tax & Billing)
   const [businessNumber, setBusinessNumber] = useState('');
   const [gstHstNumber, setGstHstNumber] = useState('');
   const [hourlyRate, setHourlyRate] = useState('');
   const [taxRate, setTaxRate] = useState('');
   const [nextInvoiceNumber, setNextInvoiceNumber] = useState('1');
+
   const [hasChanges, setHasChanges] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Load profile on mount
   useEffect(() => {
@@ -63,16 +74,36 @@ export default function BusinessProfileScreen() {
     }
   }, [user?.id]);
 
+  // Pre-fill from auth (name + email)
+  useEffect(() => {
+    if (user && !profile) {
+      const meta = user.user_metadata;
+      if (meta?.first_name) setFirstName(meta.first_name);
+      if (meta?.last_name) setLastName(meta.last_name);
+      if (user.email) setEmail(user.email);
+    }
+  }, [user?.id]);
+
   // Populate form when profile loads
   useEffect(() => {
     if (profile) {
-      setBusinessName(profile.business_name || '');
+      // Name: prefer auth metadata, fallback to splitting business_name
+      const meta = user?.user_metadata;
+      if (meta?.first_name || meta?.last_name) {
+        setFirstName(meta.first_name || '');
+        setLastName(meta.last_name || '');
+      } else if (profile.business_name) {
+        const parts = profile.business_name.split(' ');
+        setFirstName(parts[0] || '');
+        setLastName(parts.slice(1).join(' ') || '');
+      }
+
+      setEmail(profile.email || user?.email || '');
+      setPhone(profile.phone || '');
       setAddressStreet(profile.address_street || '');
       setAddressCity(profile.address_city || '');
       setAddressProvince(profile.address_province || '');
       setAddressPostalCode(profile.address_postal_code || '');
-      setPhone(profile.phone || '');
-      setEmail(profile.email || '');
       setBusinessNumber(profile.business_number || '');
       setGstHstNumber(profile.gst_hst_number || '');
       setHourlyRate(profile.default_hourly_rate?.toString() || '');
@@ -87,11 +118,21 @@ export default function BusinessProfileScreen() {
     setHasChanges(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!user?.id) return;
 
+    const fullName = `${firstName.trim()} ${lastName.trim()}`.trim();
+
+    if (!fullName) {
+      Alert.alert('Required', 'Please enter your name.');
+      return;
+    }
+
+    setIsSaving(true);
+
+    // Step 1: Save to SQLite (business_name = fullName for backward compat)
     const success = saveProfile(user.id, {
-      businessName: businessName.trim(),
+      businessName: fullName,
       addressStreet: addressStreet.trim() || null,
       addressCity: addressCity.trim() || null,
       addressProvince: addressProvince.trim().toUpperCase() || null,
@@ -106,16 +147,28 @@ export default function BusinessProfileScreen() {
     });
 
     if (success) {
+      // Step 2: Sync name to auth (non-blocking, tolerates offline)
+      try {
+        const authResult = await updateAuthProfile(firstName.trim(), lastName.trim());
+        if (!authResult.success) {
+          logger.warn('ui', 'Auth profile sync failed after save', { error: authResult.error });
+        }
+      } catch {
+        logger.warn('ui', 'Auth profile sync error (saved locally)');
+      }
+
       setHasChanges(false);
-      Alert.alert('Saved', 'Business profile updated successfully.');
+      Alert.alert('Saved', 'Profile updated successfully.');
     }
+
+    setIsSaving(false);
   };
 
   const handleDelete = () => {
     if (!user?.id) return;
     Alert.alert(
-      'Delete Business Profile',
-      'This will clear all business profile information. This cannot be undone.',
+      'Delete Profile',
+      'This will clear all profile information. This cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -123,7 +176,8 @@ export default function BusinessProfileScreen() {
           style: 'destructive',
           onPress: () => {
             deleteProfile(user.id);
-            setBusinessName('');
+            setFirstName('');
+            setLastName('');
             setAddressStreet('');
             setAddressCity('');
             setAddressProvince('');
@@ -136,7 +190,7 @@ export default function BusinessProfileScreen() {
             setTaxRate('');
             setNextInvoiceNumber('1');
             setHasChanges(false);
-            Alert.alert('Deleted', 'Business profile cleared.');
+            Alert.alert('Deleted', 'Profile cleared.');
           },
         },
       ]
@@ -158,6 +212,19 @@ export default function BusinessProfileScreen() {
     }
   };
 
+  // Subtitles for collapsed cards
+  const personalSubtitle = firstName || lastName
+    ? `${firstName} ${lastName}`.trim()
+    : 'Not set';
+
+  const addressSubtitle = addressCity && addressProvince
+    ? `${addressCity}, ${addressProvince}`
+    : addressCity || addressProvince || 'Not set';
+
+  const billingSubtitle = hourlyRate || taxRate
+    ? [hourlyRate && `$${hourlyRate}/hr`, taxRate && `${taxRate}% tax`].filter(Boolean).join(', ')
+    : 'Not set';
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header */}
@@ -165,7 +232,7 @@ export default function BusinessProfileScreen() {
         <TouchableOpacity style={styles.headerButton} onPress={handleBack}>
           <Ionicons name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Business Profile</Text>
+        <Text style={styles.headerTitle}>My Profile</Text>
         <View style={{ width: 40 }} />
       </View>
 
@@ -178,125 +245,162 @@ export default function BusinessProfileScreen() {
           contentContainerStyle={styles.contentContainer}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Business Info Section */}
-          <Text style={styles.sectionTitle}>Business Info</Text>
-          <View style={styles.card}>
-            <FormField
-              label="Business Name"
-              value={businessName}
-              onChangeText={markChanged(setBusinessName)}
-              placeholder="Your business or personal name"
-              required
-            />
-            <Divider />
-            <FormField
-              label="Phone"
-              value={phone}
-              onChangeText={markChanged(setPhone)}
-              placeholder="(416) 555-1234"
-              keyboardType="phone-pad"
-            />
-            <Divider />
-            <FormField
-              label="Email"
-              value={email}
-              onChangeText={markChanged(setEmail)}
-              placeholder="you@example.com"
-              keyboardType="email-address"
-              autoCapitalize="none"
-            />
-          </View>
-
-          {/* Address Section */}
-          <Text style={styles.sectionTitle}>Address</Text>
-          <View style={styles.card}>
-            <FormField
-              label="Street"
-              value={addressStreet}
-              onChangeText={markChanged(setAddressStreet)}
-              placeholder="123 Main Street"
-            />
-            <Divider />
-            <FormField
-              label="City"
-              value={addressCity}
-              onChangeText={markChanged(setAddressCity)}
-              placeholder="Toronto"
-            />
-            <Divider />
-            <View style={styles.row}>
-              <View style={styles.rowHalf}>
+          {/* Card 1: Personal Info */}
+          <CollapsibleCard
+            title="Personal Info"
+            subtitle={personalSubtitle}
+            icon="person-outline"
+            defaultExpanded
+          >
+            <View style={styles.cardContent}>
+              <FormField
+                label="First Name"
+                value={firstName}
+                onChangeText={markChanged(setFirstName)}
+                placeholder="John"
+                autoCapitalize="words"
+                required
+              />
+              <Divider />
+              <FormField
+                label="Last Name"
+                value={lastName}
+                onChangeText={markChanged(setLastName)}
+                placeholder="Doe"
+                autoCapitalize="words"
+              />
+              <Divider />
+              <FormField
+                label="Email"
+                value={email}
+                onChangeText={markChanged(setEmail)}
+                placeholder="you@example.com"
+                keyboardType="email-address"
+                autoCapitalize="none"
+              />
+              <Divider />
+              <FormField
+                label="Phone"
+                value={phone}
+                onChangeText={markChanged(setPhone)}
+                placeholder="(416) 555-1234"
+                keyboardType="phone-pad"
+              />
+              <Divider />
+              <View style={styles.rateHighlight}>
                 <FormField
-                  label="Province"
-                  value={addressProvince}
-                  onChangeText={markChanged(setAddressProvince)}
-                  placeholder="ON"
-                  autoCapitalize="characters"
-                  maxLength={2}
-                />
-              </View>
-              <View style={styles.rowHalf}>
-                <FormField
-                  label="Postal Code"
-                  value={addressPostalCode}
-                  onChangeText={markChanged(setAddressPostalCode)}
-                  placeholder="M5V 2T6"
-                  autoCapitalize="characters"
-                  maxLength={7}
+                  label="Hourly Rate"
+                  value={hourlyRate}
+                  onChangeText={markChanged(setHourlyRate)}
+                  placeholder="0.00"
+                  keyboardType="decimal-pad"
+                  prefix="$"
+                  suffix="/hr"
                 />
               </View>
             </View>
-          </View>
+          </CollapsibleCard>
 
-          {/* Tax & Billing Section */}
-          <Text style={styles.sectionTitle}>Tax & Billing</Text>
-          <View style={styles.card}>
-            <FormField
-              label="Business Number (BN)"
-              value={businessNumber}
-              onChangeText={markChanged(setBusinessNumber)}
-              placeholder="123456789"
-              hint="CRA Business Number"
-            />
-            <Divider />
-            <FormField
-              label="GST/HST Number"
-              value={gstHstNumber}
-              onChangeText={markChanged(setGstHstNumber)}
-              placeholder="123456789 RT0001"
-              hint="Leave blank if not registered"
-            />
-            <Divider />
-            <FormField
-              label="Default Hourly Rate"
-              value={hourlyRate}
-              onChangeText={markChanged(setHourlyRate)}
-              placeholder="0.00"
-              keyboardType="decimal-pad"
-              prefix="$"
-              hint="Used in report exports"
-            />
-            <Divider />
-            <FormField
-              label="Tax Rate"
-              value={taxRate}
-              onChangeText={markChanged(setTaxRate)}
-              placeholder="13"
-              keyboardType="decimal-pad"
-              suffix="%"
-              hint="e.g. 13 for Ontario HST, 5 for GST only"
-            />
-            <Divider />
-            <FormField
-              label="Next Invoice #"
-              value={nextInvoiceNumber}
-              onChangeText={markChanged(setNextInvoiceNumber)}
-              placeholder="1"
-              keyboardType="number-pad"
-              prefix="#"
-              hint="Auto-increments after each invoice"
-            />
-          </View>
+          {/* Card 2: Address */}
+          <CollapsibleCard
+            title="Address"
+            subtitle={addressSubtitle}
+            icon="location-outline"
+          >
+            <View style={styles.cardContent}>
+              <FormField
+                label="Street"
+                value={addressStreet}
+                onChangeText={markChanged(setAddressStreet)}
+                placeholder="123 Main Street"
+              />
+              <Divider />
+              <FormField
+                label="City"
+                value={addressCity}
+                onChangeText={markChanged(setAddressCity)}
+                placeholder="Toronto"
+              />
+              <Divider />
+              <View style={styles.row}>
+                <View style={styles.rowHalf}>
+                  <FormField
+                    label="Province"
+                    value={addressProvince}
+                    onChangeText={markChanged(setAddressProvince)}
+                    placeholder="ON"
+                    autoCapitalize="characters"
+                    maxLength={2}
+                  />
+                </View>
+                <View style={styles.rowHalf}>
+                  <FormField
+                    label="Postal Code"
+                    value={addressPostalCode}
+                    onChangeText={markChanged(setAddressPostalCode)}
+                    placeholder="M5V 2T6"
+                    autoCapitalize="characters"
+                    maxLength={7}
+                  />
+                </View>
+              </View>
+            </View>
+          </CollapsibleCard>
+
+          {/* Card 3: Tax & Billing */}
+          <CollapsibleCard
+            title="Tax & Billing"
+            subtitle={billingSubtitle}
+            icon="receipt-outline"
+          >
+            <View style={styles.cardContent}>
+              <FormField
+                label="Business Number (BN)"
+                value={businessNumber}
+                onChangeText={markChanged(setBusinessNumber)}
+                placeholder="123456789"
+                hint="CRA Business Number"
+              />
+              <Divider />
+              <FormField
+                label="GST/HST Number"
+                value={gstHstNumber}
+                onChangeText={markChanged(setGstHstNumber)}
+                placeholder="123456789 RT0001"
+                hint="Leave blank if not registered"
+              />
+              <Divider />
+              <FormField
+                label="Default Hourly Rate"
+                value={hourlyRate}
+                onChangeText={markChanged(setHourlyRate)}
+                placeholder="0.00"
+                keyboardType="decimal-pad"
+                prefix="$"
+                hint="Used in report exports"
+              />
+              <Divider />
+              <FormField
+                label="Tax Rate"
+                value={taxRate}
+                onChangeText={markChanged(setTaxRate)}
+                placeholder="13"
+                keyboardType="decimal-pad"
+                suffix="%"
+                hint="e.g. 13 for Ontario HST, 5 for GST only"
+              />
+              <Divider />
+              <FormField
+                label="Next Invoice #"
+                value={nextInvoiceNumber}
+                onChangeText={markChanged(setNextInvoiceNumber)}
+                placeholder="1"
+                keyboardType="number-pad"
+                prefix="#"
+                hint="Auto-increments after each invoice"
+              />
+            </View>
+          </CollapsibleCard>
 
           {/* Info note */}
           <View style={styles.infoBox}>
@@ -316,13 +420,13 @@ export default function BusinessProfileScreen() {
               <Text style={styles.deleteButtonText}>Delete</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.saveButtonBottom, !hasChanges && styles.saveButtonBottomDisabled]}
+              style={[styles.saveButtonBottom, (!hasChanges || isSaving) && styles.saveButtonBottomDisabled]}
               onPress={handleSave}
-              disabled={!hasChanges}
+              disabled={!hasChanges || isSaving}
             >
-              <Ionicons name="checkmark" size={18} color={hasChanges ? colors.white : colors.textTertiary} />
-              <Text style={[styles.saveButtonBottomText, !hasChanges && styles.saveButtonBottomTextDisabled]}>
-                Save
+              <Ionicons name="checkmark" size={18} color={hasChanges && !isSaving ? colors.white : colors.textTertiary} />
+              <Text style={[styles.saveButtonBottomText, (!hasChanges || isSaving) && styles.saveButtonBottomTextDisabled]}>
+                {isSaving ? 'Saving...' : 'Save'}
               </Text>
             </TouchableOpacity>
           </View>
@@ -427,22 +531,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.text,
   },
-  saveButton: {
-    width: 'auto',
-    paddingHorizontal: 16,
-    backgroundColor: colors.accent,
-  },
-  saveButtonDisabled: {
-    backgroundColor: colors.border,
-  },
-  saveButtonText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: colors.white,
-  },
-  saveButtonTextDisabled: {
-    color: colors.textTertiary,
-  },
 
   // Content
   content: {
@@ -452,23 +540,19 @@ const styles = StyleSheet.create({
     padding: 16,
   },
 
-  // Sections
-  sectionTitle: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: colors.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginTop: 20,
-    marginBottom: 8,
-    marginLeft: 4,
+  // Card content (inside CollapsibleCard)
+  cardContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 12,
   },
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: borderRadius.lg,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
+  rateHighlight: {
+    backgroundColor: colors.primarySoft,
+    marginHorizontal: -16,
+    paddingHorizontal: 16,
+    paddingVertical: 4,
+    marginBottom: -12,
+    borderBottomLeftRadius: borderRadius.lg,
+    borderBottomRightRadius: borderRadius.lg,
   },
 
   // Form fields
@@ -477,8 +561,8 @@ const styles = StyleSheet.create({
   },
   fieldLabel: {
     fontSize: 13,
-    fontWeight: '500',
-    color: colors.textSecondary,
+    fontWeight: '700',
+    color: colors.text,
     marginBottom: 6,
   },
   required: {

@@ -63,6 +63,42 @@ export interface UpdateDailyHoursParams {
 }
 
 // ============================================
+// CONFLICT RESOLUTION
+// ============================================
+
+export type ConflictAction = 'write' | 'confirm' | 'ignore' | 'sum';
+
+/**
+ * Determine what to do when writing hours for a day that may already have data.
+ *
+ * RULE: "Last writer wins" — the most recent action (manual or auto-log)
+ * is always the authoritative value shown in UI and PDF.
+ *
+ * Matrix (existing source × writer source):
+ *   No existing data → WRITE freely
+ *   Manual writer → always CONFIRM (ask user before overwriting anything)
+ *   GPS writer + GPS existing → SUM (multi-session day, e.g. lunch break)
+ *   GPS writer + manual/edited existing → WRITE (auto-log completed AFTER manual = overwrite)
+ */
+export function resolveConflict(
+  existing: DailyHoursEntry | null,
+  writerSource: DailyHoursSource
+): ConflictAction {
+  if (!existing || existing.total_minutes === 0) return 'write';
+
+  // Manual/edited always asks for confirmation
+  if (writerSource === 'manual' || writerSource === 'edited') return 'confirm';
+
+  // GPS over GPS → sum (multi-session day, e.g. lunch break)
+  if (writerSource === 'gps' && existing.source === 'gps') return 'sum';
+
+  // GPS over manual/edited → WRITE (last writer wins: auto-log completed after manual)
+  if (writerSource === 'gps') return 'write';
+
+  return 'confirm'; // fallback
+}
+
+// ============================================
 // HELPERS
 // ============================================
 
@@ -275,7 +311,12 @@ export function upsertDailyHours(params: UpsertDailyHoursParams): DailyHoursEntr
           source = ?,
           type = ?,
           first_entry = COALESCE(?, first_entry),
-          last_exit = ?,
+          last_exit = CASE
+            WHEN ? IS NULL THEN last_exit
+            WHEN last_exit IS NULL THEN ?
+            WHEN ? > last_exit THEN ?
+            ELSE last_exit
+          END,
           notes = COALESCE(?, notes),
           updated_at = ?,
           synced_at = NULL
@@ -289,7 +330,10 @@ export function upsertDailyHours(params: UpsertDailyHoursParams): DailyHoursEntr
           source,
           type,
           firstEntry || null,
-          lastExit || null,
+          lastExit || null,  // WHEN ? IS NULL
+          lastExit || null,  // THEN ?
+          lastExit || null,  // WHEN ? > last_exit
+          lastExit || null,  // THEN ?
           notes || null,
           timestamp,
           userId,
@@ -706,6 +750,27 @@ export function upsertDailyHoursFromSync(record: DailyHoursDB): void {
     }
   } catch (error) {
     logger.error('database', '[daily_hours] UPSERT FROM SYNC error', { error: String(error) });
+  }
+}
+
+/**
+ * Get recent unique location names from daily_hours (for dropdown suggestions).
+ * Returns names ordered by most recent usage.
+ */
+export function getRecentLocationNames(userId: string, limit = 10): string[] {
+  try {
+    const results = db.getAllSync<{ location_name: string }>(
+      `SELECT location_name, MAX(date) as last_used
+       FROM daily_hours
+       WHERE user_id = ? AND location_name IS NOT NULL AND location_name != '' AND deleted_at IS NULL
+       GROUP BY location_name
+       ORDER BY last_used DESC
+       LIMIT ?`,
+      [userId, limit]
+    );
+    return results.map(r => r.location_name);
+  } catch {
+    return [];
   }
 }
 

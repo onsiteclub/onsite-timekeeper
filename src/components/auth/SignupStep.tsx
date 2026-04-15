@@ -17,6 +17,9 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../../constants/colors';
+import { ErrorBox } from '../ui/ErrorBox';
+import { validateCanadianPhone } from '../../lib/database/businessProfile';
+import { formatPhoneDisplay, normalizePhoneE164 } from '../../lib/format';
 
 // Logo
 const logoOnsite = require('../../../assets/logo_onsite.png');
@@ -29,8 +32,9 @@ interface SignupStepProps {
     profile: {
       firstName: string;
       lastName: string;
+      phone: string;
     }
-  ) => Promise<{ error: string | null; needsConfirmation?: boolean }>;
+  ) => Promise<{ error: string | null; needsConfirmation?: boolean; needsPhoneVerification?: boolean }>;
   onBack: () => void;
   isLoading: boolean;
   setIsLoading: (loading: boolean) => void;
@@ -43,18 +47,29 @@ export default function SignupStep({
   isLoading,
   setIsLoading,
 }: SignupStepProps) {
+  const [localEmail, setLocalEmail] = useState(email || '');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
+  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showConfirmation, setShowConfirmation] = useState(false);
+
+  const handlePhoneChange = (text: string) => {
+    // Strip to digits only, limit to 10
+    const digits = text.replace(/\D/g, '').slice(0, 10);
+    setPhone(digits);
+  };
 
   const validateForm = (): string | null => {
+    if (!localEmail.trim()) return 'Email is required';
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(localEmail.trim())) return 'Enter a valid email address';
     if (!firstName.trim()) return 'First name is required';
     if (!lastName.trim()) return 'Last name is required';
+    if (!phone) return 'Phone number is required';
+    if (!validateCanadianPhone(phone)) return 'Enter a valid 10-digit Canadian phone number';
     if (!password) return 'Password is required';
-    if (password.length < 6) return 'Password must be at least 6 characters';
+    if (password.length < 8) return 'Password must be at least 8 characters';
     return null;
   };
 
@@ -70,23 +85,23 @@ export default function SignupStep({
     setIsLoading(true);
 
     try {
-      const result = await onSignUp(email, password, {
+      const result = await onSignUp(localEmail.trim(), password, {
         firstName: firstName.trim(),
         lastName: lastName.trim(),
+        phone: normalizePhoneE164(phone),
       });
 
       if (result.error) {
         setError(result.error);
-      } else if (result.needsConfirmation) {
-        setShowConfirmation(true);
       }
+      // Phone verification is handled via needsPhoneVerification in AuthScreen
     } catch (err) {
       setError('Something went wrong. Please try again.');
       console.log('[SignupStep] Error:', err);
     } finally {
       setIsLoading(false);
     }
-  }, [email, firstName, lastName, password, onSignUp, setIsLoading]);
+  }, [localEmail, firstName, lastName, phone, password, onSignUp, setIsLoading]);
 
   const openTerms = () => {
     Linking.openURL('https://www.onsiteclub.ca/legal/timekeeper-terms');
@@ -95,38 +110,6 @@ export default function SignupStep({
   const openPrivacy = () => {
     Linking.openURL('https://www.onsiteclub.ca/legal/timekeeper-privacy');
   };
-
-  // Show confirmation message after signup
-  if (showConfirmation) {
-    return (
-      <ScrollView
-        style={styles.container}
-        contentContainerStyle={styles.content}
-      >
-        <View style={styles.confirmationContainer}>
-          <View style={styles.confirmationIcon}>
-            <Ionicons name="mail-outline" size={64} color={colors.primary} />
-          </View>
-          <Text style={styles.confirmationTitle}>Check Your Email</Text>
-          <Text style={styles.confirmationSubtitle}>
-            We sent a confirmation link to
-          </Text>
-          <Text style={styles.confirmationEmail}>{email}</Text>
-          <Text style={styles.confirmationText}>
-            Click the link in your email to activate your account.
-          </Text>
-
-          <TouchableOpacity
-            style={styles.confirmationButton}
-            onPress={onBack}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.confirmationButtonText}>Got it</Text>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
-    );
-  }
 
   return (
     <ScrollView
@@ -155,12 +138,7 @@ export default function SignupStep({
 
       {/* Form */}
       <View style={styles.form}>
-        {error && (
-          <View style={styles.errorBox}>
-            <Ionicons name="alert-circle" size={18} color={colors.error} />
-            <Text style={styles.errorText}>{error}</Text>
-          </View>
-        )}
+        <ErrorBox message={error} />
 
         {/* Name Row */}
         <View style={styles.nameRow}>
@@ -194,12 +172,41 @@ export default function SignupStep({
           </View>
         </View>
 
-        {/* Email Display (read-only) */}
-        <View style={styles.emailDisplay}>
-          <Text style={styles.emailValue}>{email}</Text>
-          <TouchableOpacity onPress={onBack} disabled={isLoading}>
-            <Text style={styles.changeLink}>Change</Text>
-          </TouchableOpacity>
+        {/* Email Input */}
+        <View style={styles.inputContainer}>
+          <Text style={styles.label}>Email</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="your@email.com"
+            placeholderTextColor={colors.textTertiary}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoComplete="email"
+            value={localEmail}
+            onChangeText={setLocalEmail}
+            editable={!isLoading}
+          />
+        </View>
+
+        {/* Phone Input */}
+        <View style={styles.inputContainer}>
+          <Text style={styles.label}>Phone Number</Text>
+          <View style={styles.phoneContainer}>
+            <View style={styles.phonePrefix}>
+              <Text style={styles.phonePrefixText}>+1</Text>
+            </View>
+            <TextInput
+              style={styles.phoneInput}
+              placeholder="(613) 555-0123"
+              placeholderTextColor={colors.textTertiary}
+              keyboardType="phone-pad"
+              value={formatPhoneDisplay(phone)}
+              onChangeText={handlePhoneChange}
+              editable={!isLoading}
+              maxLength={14}
+            />
+          </View>
+          <Text style={styles.phoneHint}>Used for verification and password reset. Canadian numbers only.</Text>
         </View>
 
         {/* Password Input */}
@@ -208,7 +215,7 @@ export default function SignupStep({
           <View style={styles.passwordContainer}>
             <TextInput
               style={styles.passwordInput}
-              placeholder="Create a password (min. 6 characters)"
+              placeholder="Min. 8 characters"
               placeholderTextColor={colors.textTertiary}
               secureTextEntry={!showPassword}
               autoComplete="new-password"
@@ -232,16 +239,7 @@ export default function SignupStep({
           </View>
         </View>
 
-        {/* Terms */}
-        <Text style={styles.terms}>
-          By clicking Register, you agree to our{' '}
-          <Text style={styles.termsLink} onPress={openTerms}>Terms</Text>
-          {' and '}
-          <Text style={styles.termsLink} onPress={openPrivacy}>Privacy Policy</Text>
-          .
-        </Text>
-
-        {/* Submit Button */}
+        {/* UX3: Submit Button ABOVE terms */}
         <TouchableOpacity
           style={[
             styles.button,
@@ -257,9 +255,17 @@ export default function SignupStep({
               <Text style={styles.buttonText}>Creating account...</Text>
             </>
           ) : (
-            <Text style={styles.buttonText}>Register & Login</Text>
+            <Text style={styles.buttonText}>Register</Text>
           )}
         </TouchableOpacity>
+
+        {/* Terms (below button, smaller) */}
+        <Text style={styles.terms}>
+          By registering, you agree to our{' '}
+          <Text style={styles.termsLink} onPress={openTerms}>Terms</Text>
+          {' '}and{' '}
+          <Text style={styles.termsLink} onPress={openPrivacy}>Privacy Policy</Text>.
+        </Text>
       </View>
     </ScrollView>
   );
@@ -300,8 +306,8 @@ const styles = StyleSheet.create({
     marginBottom: 32,
   },
   logo: {
-    width: 180,
-    height: 62,
+    width: 160,
+    height: 55,
     marginBottom: 16,
   },
   subtitle: {
@@ -314,23 +320,6 @@ const styles = StyleSheet.create({
   form: {
     width: '100%',
   },
-  errorBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: colors.errorSoft,
-    padding: 12,
-    borderRadius: 10,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: colors.error + '30',
-  },
-  errorText: {
-    flex: 1,
-    color: colors.error,
-    fontSize: 14,
-  },
-
   // Name Row
   nameRow: {
     flexDirection: 'row',
@@ -338,30 +327,6 @@ const styles = StyleSheet.create({
   },
   nameInput: {
     flex: 1,
-  },
-
-  // Email Display
-  emailDisplay: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: colors.surface,
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  emailValue: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: colors.text,
-    flex: 1,
-  },
-  changeLink: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.primary,
   },
 
   // Input
@@ -384,6 +349,35 @@ const styles = StyleSheet.create({
     color: colors.text,
     backgroundColor: colors.backgroundTertiary,
   },
+  phoneContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    backgroundColor: colors.backgroundTertiary,
+  },
+  phonePrefix: {
+    paddingLeft: 16,
+    paddingVertical: 14,
+  },
+  phonePrefixText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  phoneInput: {
+    flex: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 14,
+    fontSize: 16,
+    color: colors.text,
+  },
+  phoneHint: {
+    fontSize: 12,
+    color: colors.textMuted,
+    marginTop: 6,
+  },
   passwordContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -404,13 +398,13 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
 
-  // Terms
+  // Terms (UX3: below button, smaller)
   terms: {
-    fontSize: 13,
-    color: colors.textSecondary,
+    fontSize: 12,
+    color: colors.textMuted,
     textAlign: 'center',
-    lineHeight: 20,
-    marginBottom: 20,
+    lineHeight: 18,
+    marginTop: 12,
   },
   termsLink: {
     color: colors.primary,
@@ -436,57 +430,4 @@ const styles = StyleSheet.create({
     color: colors.white,
   },
 
-  // Confirmation
-  confirmationContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-  },
-  confirmationIcon: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: colors.primarySoft,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  confirmationTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: colors.text,
-    marginBottom: 12,
-  },
-  confirmationSubtitle: {
-    fontSize: 16,
-    color: colors.textSecondary,
-    marginBottom: 4,
-  },
-  confirmationEmail: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.text,
-    marginBottom: 16,
-  },
-  confirmationText: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    lineHeight: 22,
-    marginBottom: 32,
-  },
-  confirmationButton: {
-    backgroundColor: colors.surface,
-    paddingVertical: 16,
-    paddingHorizontal: 48,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  confirmationButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.text,
-  },
 });

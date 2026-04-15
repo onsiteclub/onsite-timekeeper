@@ -18,6 +18,7 @@ import { Alert, Share, Linking } from 'react-native';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 
+import { logger } from '../../lib/logger';
 import { useAuthStore } from '../../stores/authStore';
 import {
   useLocationStore,
@@ -29,9 +30,9 @@ import {
 import { useDailyLogStore } from '../../stores/dailyLogStore';
 import { useSyncStore } from '../../stores/syncStore';
 import { useSettingsStore } from '../../stores/settingsStore';
-import { formatDuration, getDailyHoursByPeriod, upsertDailyHours, updateDailyHours, deleteDailyHours, deleteDailyHoursById, getToday, toLocalDateString } from '../../lib/database';
-import type { DailyHoursEntry } from '../../lib/database/daily';
-import { getActiveTrackingState, getPauseSeconds, updatePauseSeconds, getTotalPauseSeconds, setPauseStart, clearPauseStart, getCooldownExpiresAt, type ActiveTracking } from '../../lib/exitHandler';
+import { formatDuration, getDailyHoursByPeriod, upsertDailyHours, updateDailyHours, deleteDailyHours, deleteDailyHoursById, getToday, toLocalDateString, getRecentLocationNames, getDailyHours } from '../../lib/database';
+import { resolveConflict, type DailyHoursEntry } from '../../lib/database/daily';
+import { getActiveTrackingState, getPauseSeconds, updatePauseSeconds, getTotalPauseSeconds, setPauseStart, clearPauseStart, getCooldownExpiresAt, onManualExit, type ActiveTracking } from '../../lib/exitHandler';
 import { generateCompleteReport } from '../../lib/reports';
 
 import {
@@ -169,7 +170,7 @@ export function useHomeScreen() {
     });
   }, [userId, locations]);
 
-  // V3: Create manual record using daily_hours
+  // V3: Create manual record using daily_hours (with conflict resolution)
   const createManualRecord = async (params: {
     locationId: string;
     locationName: string;
@@ -177,6 +178,7 @@ export function useHomeScreen() {
     exit: string;
     pauseMinutes?: number;
     absenceType?: string;
+    notes?: string;
   }) => {
     if (!userId) throw new Error('User not authenticated');
 
@@ -189,7 +191,7 @@ export function useHomeScreen() {
     const firstEntry = `${entryTime.getHours().toString().padStart(2, '0')}:${entryTime.getMinutes().toString().padStart(2, '0')}`;
     const lastExit = `${exitTime.getHours().toString().padStart(2, '0')}:${exitTime.getMinutes().toString().padStart(2, '0')}`;
 
-    upsertDailyHours({
+    const upsertData = {
       userId,
       date,
       totalMinutes: durationMinutes,
@@ -197,13 +199,41 @@ export function useHomeScreen() {
       locationName: params.locationName,
       locationId: params.locationId,
       verified: false,
-      source: 'manual',
+      source: 'manual' as const,
       firstEntry,
       lastExit,
-      notes: params.absenceType || undefined,
-    });
+      notes: params.notes || params.absenceType || undefined,
+    };
 
-    reloadToday();
+    const existing = getDailyHours(userId, date);
+    const action = resolveConflict(existing, 'manual');
+    logger.info('dailyLog', `[Manual Save] date=${date} action=${action} existing=${existing?.total_minutes ?? 'none'}min(${existing?.source ?? '-'}) new=${durationMinutes}min`);
+
+    if (action === 'write') {
+      upsertDailyHours(upsertData);
+      reloadToday();
+    } else if (action === 'confirm') {
+      return new Promise<void>((resolve) => {
+        const existingLabel = existing!.source === 'gps' ? 'auto-logged' : 'manual entry';
+        Alert.alert(
+          'Hours already logged',
+          `You have ${formatDuration(existing!.total_minutes)} for this day (${existingLabel}).\n\nReplace with ${formatDuration(durationMinutes)}?`,
+          [
+            { text: 'Cancel', style: 'cancel', onPress: () => resolve() },
+            {
+              text: 'Replace hours',
+              style: 'destructive',
+              onPress: () => {
+                upsertDailyHours(upsertData);
+                logger.info('dailyLog', `[Manual Save] Confirmed override: ${existing!.total_minutes}min(${existing!.source}) → ${durationMinutes}min(manual)`);
+                reloadToday();
+                resolve();
+              },
+            },
+          ]
+        );
+      });
+    }
   };
 
   // V3: Edit record using daily_hours
@@ -217,6 +247,7 @@ export function useHomeScreen() {
       edit_reason?: string;
       location_id?: string;
       location_name?: string;
+      notes?: string;
     }
   ) => {
     if (!userId) throw new Error('User not authenticated');
@@ -248,6 +279,7 @@ export function useHomeScreen() {
       source: 'edited',
       firstEntry,
       lastExit,
+      notes: updates.notes,
     });
     reloadToday();
   };
@@ -329,6 +361,8 @@ export function useHomeScreen() {
   const [showManualModal, setShowManualModal] = useState(false);
   const [manualDate, setManualDate] = useState<Date>(new Date());
   const [manualLocationId, setManualLocationId] = useState<string>('');
+  const [manualLocationName, setManualLocationName] = useState<string>('');
+  const [recentNames, setRecentNames] = useState<string[]>([]);
   // Separate fields HH:MM for better UX
   const [manualEntryH, setManualEntryH] = useState('');
   const [manualEntryM, setManualEntryM] = useState('');
@@ -339,6 +373,9 @@ export function useHomeScreen() {
   // Manual entry mode: 'hours' or 'absence'
   const [manualEntryMode, setManualEntryMode] = useState<'hours' | 'absence'>('hours');
   const [manualAbsenceType, setManualAbsenceType] = useState<string | null>(null);
+
+  // Day source (from existing record for selected date)
+  const [daySource, setDaySource] = useState<string | null>(null);
 
   // Day Tags (Rain, Snow, Day Off, etc.)
   const [dayTags, setDayTags] = useState<Record<string, DayTagType>>({});
@@ -356,6 +393,8 @@ export function useHomeScreen() {
   // independent of whether there's an active session
   const activeLocation = currentFenceId ? locations.find(l => l.id === currentFenceId) : null;
   const canRestart = activeLocation && !currentSession;
+  const manualStopFenceId = useLocationStore(s => s.manualStopFenceId);
+  const isManuallyStopped = !!(currentFenceId && manualStopFenceId === currentFenceId && !currentSession);
   
   const sessions = viewMode === 'week' ? weekSessions : monthSessions;
   const weekStart = getWeekStart(currentWeek);
@@ -371,45 +410,64 @@ export function useHomeScreen() {
   }, [selectedDayForModal, sessions]);
 
   // ============================================
-  // AUTO-POPULATE FORM FROM TODAY'S DATA
+  // AUTO-POPULATE FORM FROM EXISTING DATA
   // ============================================
-  // When todayLog updates (e.g., geofence exit), populate the read-only viewer
-  // Only when viewing today and not actively editing a session
+  // When manualDate changes or todayLog updates, load the existing record
+  // and populate the form fields with actual data (not defaults).
 
   useEffect(() => {
-    if (!todayLog || editingSessionId) return;
+    if (editingSessionId) return;
 
-    // Only auto-populate when form is showing today
-    if (!isToday(manualDate)) return;
-
-    // Populate entry time from todayLog
-    if (todayLog.firstEntry) {
-      const [h, m] = todayLog.firstEntry.split(':');
-      if (h && m) {
-        setManualEntryH(h);
-        setManualEntryM(m);
+    // For today, use todayLog (reactive to store changes)
+    if (isToday(manualDate) && todayLog) {
+      if (todayLog.firstEntry) {
+        const [h, m] = todayLog.firstEntry.split(':');
+        if (h && m) { setManualEntryH(h); setManualEntryM(m); }
       }
-    }
-
-    // Populate exit time from todayLog
-    if (todayLog.lastExit) {
-      const [h, m] = todayLog.lastExit.split(':');
-      if (h && m) {
-        setManualExitH(h);
-        setManualExitM(m);
+      if (todayLog.lastExit) {
+        const [h, m] = todayLog.lastExit.split(':');
+        if (h && m) { setManualExitH(h); setManualExitM(m); }
       }
+      if (todayLog.breakMinutes > 0) setManualPause(String(todayLog.breakMinutes));
+      if (todayLog.locationId) setManualLocationId(todayLog.locationId);
+      setDaySource(todayLog.source || null);
+      return;
     }
 
-    // Populate break
-    if (todayLog.breakMinutes > 0) {
-      setManualPause(String(todayLog.breakMinutes));
+    // For non-today dates, query the database directly
+    if (!isToday(manualDate) && userId) {
+      const dateStr = toLocalDateString(manualDate);
+      const existing = getDailyHours(userId, dateStr);
+
+      if (existing && existing.total_minutes > 0) {
+        if (existing.first_entry) {
+          const [h, m] = existing.first_entry.split(':');
+          if (h && m) { setManualEntryH(h); setManualEntryM(m); }
+        }
+        if (existing.last_exit) {
+          const [h, m] = existing.last_exit.split(':');
+          if (h && m) { setManualExitH(h); setManualExitM(m); }
+        }
+        setManualPause(existing.break_minutes > 0 ? String(existing.break_minutes) : '');
+        if (existing.location_id) setManualLocationId(existing.location_id);
+        setDaySource(existing.source);
+      } else {
+        // No data for this date — reset form
+        setManualEntryH('');
+        setManualEntryM('');
+        setManualExitH('');
+        setManualExitM('');
+        setManualPause('');
+        setDaySource(null);
+      }
+      return;
     }
 
-    // Populate location
-    if (todayLog.locationId) {
-      setManualLocationId(todayLog.locationId);
+    // Today with no todayLog — clear source
+    if (isToday(manualDate) && !todayLog) {
+      setDaySource(null);
     }
-  }, [todayLog, editingSessionId, manualDate]);
+  }, [todayLog, editingSessionId, manualDate, userId]);
 
   // ============================================
   // PENDING EXPORT EFFECT (from notification)
@@ -605,6 +663,10 @@ export function useHomeScreen() {
     } else {
       await loadMonthSessions();
     }
+    // Load recent location names for dropdown suggestions
+    if (userId) {
+      setRecentNames(getRecentLocationNames(userId));
+    }
     await syncNow();
     setRefreshing(false);
   };
@@ -630,9 +692,28 @@ export function useHomeScreen() {
     setIsPaused(false);
   };
 
-  // STOP removed — only PAUSE exists now.
-  // When user leaves the fence, confirmExit() reads pause_start from SQLite
-  // and calculates the full pause duration automatically.
+  const handleStop = async () => {
+    if (!currentSession || !userId) return;
+    Alert.alert(
+      'Stop Timer',
+      'End this session and save your hours?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Stop',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await onManualExit(userId, currentSession.location_id, currentSession.location_name);
+              onRefresh();
+            } catch (e) {
+              logger.error('session', `handleStop failed: ${e}`);
+            }
+          },
+        },
+      ]
+    );
+  };
 
   const handleRestart = async () => {
     if (!activeLocation) return;
@@ -947,9 +1028,9 @@ export function useHomeScreen() {
 
   /**
    * Save manual entry
-   * @param overrides - Optional 24h format overrides to avoid stale closure issues with AM/PM conversion
+   * @param overrides - Optional overrides to avoid stale closure issues (time values, location, notes)
    */
-  const handleSaveManual = async (overrides?: { entryH?: number; entryM?: number; exitH?: number; exitM?: number; pauseMinutes?: number }) => {
+  const handleSaveManual = async (overrides?: { entryH?: number; entryM?: number; exitH?: number; exitM?: number; pauseMinutes?: number; notes?: string; locationId?: string; locationName?: string }) => {
     // Handle absence mode
     if (manualEntryMode === 'absence') {
       if (!manualAbsenceType) {
@@ -1003,10 +1084,9 @@ export function useHomeScreen() {
     }
 
     // Handle hours mode (original logic)
-    if (!manualLocationId) {
-      Alert.alert('Error', 'Select a location');
-      return;
-    }
+    // Use overrides to avoid stale closure from useEffect sync delay
+    const effectiveLocationId = overrides?.locationId ?? manualLocationId;
+    const effectiveLocationName = overrides?.locationName ?? manualLocationName;
     const hasOverrides = overrides?.entryH !== undefined && overrides?.entryM !== undefined &&
                          overrides?.exitH !== undefined && overrides?.exitM !== undefined;
     if (!hasOverrides && (!manualEntryH || !manualEntryM || !manualExitH || !manualExitM)) {
@@ -1049,28 +1129,30 @@ export function useHomeScreen() {
     try {
       if (editingSessionId) {
         // EDIT MODE: Update existing session
-        const location = locations.find(l => l.id === manualLocationId);
+        const location = locations.find(l => l.id === effectiveLocationId);
         await editRecord(editingSessionId, {
           entry_at: entryDate.toISOString(),
           exit_at: exitDate.toISOString(),
           pause_minutes: pauseMinutes,
           manually_edited: 1,
           edit_reason: 'Edited manually by user',
-          location_id: manualLocationId || undefined,
-          location_name: location?.name || undefined,
+          location_id: effectiveLocationId || undefined,
+          location_name: location?.name || effectiveLocationName || undefined,
+          notes: overrides?.notes,
         });
         setEditingSessionId(null);
       } else {
         // CREATE MODE: V3 uses 1 record per day, upsert handles update/insert
-        const location = locations.find(l => l.id === manualLocationId);
-        const locationName = location?.name || 'Location';
+        const location = effectiveLocationId ? locations.find(l => l.id === effectiveLocationId) : null;
+        const locationName = location?.name || effectiveLocationName || 'Manual';
 
         await createManualRecord({
-          locationId: manualLocationId,
+          locationId: effectiveLocationId || '',
           locationName,
           entry: entryDate.toISOString(),
           exit: exitDate.toISOString(),
           pauseMinutes: pauseMinutes,
+          notes: overrides?.notes || undefined,
         });
       }
 
@@ -1088,6 +1170,7 @@ export function useHomeScreen() {
             setShowManualModal(false);
             setIsEditingInline(false);
             setManualPause('');
+            setManualLocationName('');
             closeDayModal();
           },
         }]
@@ -1443,6 +1526,7 @@ const getSuggestedTimes = useCallback((locationId: string) => {
     currentSession,
     activeLocation,
     canRestart,
+    isManuallyStopped,
     isGeofencingActive,
     
     // Timer
@@ -1502,8 +1586,12 @@ const getSuggestedTimes = useCallback((locationId: string) => {
     showManualModal,
     setShowManualModal,
     manualDate,
+    daySource,
     manualLocationId,
     setManualLocationId,
+    manualLocationName,
+    setManualLocationName,
+    recentNames,
     manualEntryH,
     setManualEntryH,
     manualEntryM,
@@ -1526,6 +1614,7 @@ const getSuggestedTimes = useCallback((locationId: string) => {
     // Timer handlers
     handlePause,
     handleResume,
+    handleStop,
     handleRestart,
     
     // Navigation handlers

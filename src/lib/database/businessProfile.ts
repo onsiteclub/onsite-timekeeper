@@ -130,22 +130,39 @@ export function deleteBusinessProfile(userId: string): void {
 }
 
 /**
- * Increment the invoice number after generating an invoice.
- * Returns the number that was used (before incrementing).
+ * Get the next safe invoice number and increment the counter.
+ * Checks both business_profile.next_invoice_number AND the max existing
+ * invoice in the DB to avoid UNIQUE constraint collisions.
+ * Returns the number to use for the new invoice.
  */
 export function incrementInvoiceNumber(userId: string): number {
   const profile = getBusinessProfile(userId);
-  const current = profile?.next_invoice_number ?? 1;
+  let next = profile?.next_invoice_number ?? 1;
+
+  // Guard: check max existing invoice number in DB to avoid collisions
+  try {
+    const row = db.getFirstSync<{ max_num: number | null }>(
+      `SELECT MAX(CAST(REPLACE(invoice_number, 'INV-', '') AS INTEGER)) as max_num FROM invoices WHERE user_id = ?`,
+      [userId]
+    );
+    if (row?.max_num && row.max_num >= next) {
+      next = row.max_num + 1;
+      logger.warn('database', `[DB:business_profile] Counter was behind, corrected to ${next}`);
+    }
+  } catch {
+    // Non-critical — fall through to profile counter
+  }
+
   try {
     db.runSync(
       `UPDATE business_profile SET next_invoice_number = ?, updated_at = ?, synced_at = NULL WHERE user_id = ?`,
-      [current + 1, now(), userId]
+      [next + 1, now(), userId]
     );
-    logger.info('database', `[DB:business_profile] Invoice number incremented: ${current} → ${current + 1}`);
+    logger.info('database', `[DB:business_profile] Invoice number: ${next} (next will be ${next + 1})`);
   } catch (error) {
     logger.error('database', '[DB:business_profile] INCREMENT INVOICE ERROR', { error: String(error) });
   }
-  return current;
+  return next;
 }
 
 // ============================================

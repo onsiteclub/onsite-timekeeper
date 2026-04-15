@@ -200,6 +200,65 @@ export interface BusinessProfileDB {
 }
 
 // ============================================
+// TYPES - INVOICES
+// ============================================
+
+export type InvoiceType = 'hourly' | 'products_services';
+export type InvoiceStatus = 'pending' | 'paid';
+
+export interface InvoiceDB {
+  id: string;
+  user_id: string;
+  invoice_number: string;
+  type: InvoiceType;
+  client_name: string | null;
+  client_id: string | null;
+  status: InvoiceStatus;
+  subtotal: number;
+  tax_rate: number;
+  tax_amount: number;
+  total: number;
+  hourly_rate: number | null;
+  period_start: string | null;
+  period_end: string | null;
+  due_date: string | null;
+  notes: string | null;
+  pdf_uri: string | null;
+  created_at: string;
+  updated_at: string;
+  synced_at: string | null;
+}
+
+// ============================================
+// TYPES - CLIENTS
+// ============================================
+
+export interface ClientDB {
+  id: string;
+  user_id: string;
+  client_name: string;
+  address_street: string;
+  address_city: string;
+  address_province: string;
+  address_postal_code: string;
+  email: string | null;
+  phone: string | null;
+  created_at: string;
+  updated_at: string;
+  synced_at: string | null;
+}
+
+export interface InvoiceItemDB {
+  id: string;
+  invoice_id: string;
+  description: string;
+  quantity: number;
+  unit_price: number;
+  total: number;
+  sort_order: number;
+}
+
+// ============================================
 // TYPES - ACTIVE TRACKING (Singleton)
 // ============================================
 
@@ -549,6 +608,89 @@ export async function initDatabase(): Promise<void> {
     `);
 
     // ============================================
+    // INVOICES TABLE
+    // ============================================
+
+    db.execSync(`
+      CREATE TABLE IF NOT EXISTS invoices (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        invoice_number TEXT NOT NULL,
+        type TEXT NOT NULL DEFAULT 'hourly',
+        client_name TEXT,
+        status TEXT DEFAULT 'pending',
+        subtotal REAL DEFAULT 0,
+        tax_rate REAL DEFAULT 0,
+        tax_amount REAL DEFAULT 0,
+        total REAL DEFAULT 0,
+        hourly_rate REAL,
+        period_start TEXT,
+        period_end TEXT,
+        notes TEXT,
+        pdf_uri TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        synced_at TEXT,
+        UNIQUE(user_id, invoice_number)
+      )
+    `);
+
+    db.execSync(`
+      CREATE TABLE IF NOT EXISTS invoice_items (
+        id TEXT PRIMARY KEY,
+        invoice_id TEXT NOT NULL,
+        description TEXT NOT NULL,
+        quantity REAL DEFAULT 1,
+        unit_price REAL DEFAULT 0,
+        total REAL DEFAULT 0,
+        sort_order INTEGER DEFAULT 0,
+        FOREIGN KEY (invoice_id) REFERENCES invoices(id)
+      )
+    `);
+
+    // ============================================
+    // CLIENTS TABLE
+    // ============================================
+
+    db.execSync(`
+      CREATE TABLE IF NOT EXISTS clients (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        client_name TEXT NOT NULL,
+        address_street TEXT NOT NULL DEFAULT '',
+        address_city TEXT NOT NULL DEFAULT '',
+        address_province TEXT NOT NULL DEFAULT '',
+        address_postal_code TEXT NOT NULL DEFAULT '',
+        email TEXT,
+        phone TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        synced_at TEXT,
+        UNIQUE(user_id, client_name)
+      )
+    `);
+
+    // ============================================
+    // MIGRATION: Add client_id to invoices
+    // ============================================
+
+    try {
+      db.execSync(`ALTER TABLE invoices ADD COLUMN client_id TEXT`);
+    } catch {
+      // Column already exists — ignore
+    }
+
+    // ============================================
+    // MIGRATION: Add due_date to invoices
+    // ============================================
+
+    try {
+      db.execSync(`ALTER TABLE invoices ADD COLUMN due_date TEXT`);
+    } catch {
+      // Column already exists — ignore
+    }
+
+    // ============================================
     // INDEXES
     // ============================================
 
@@ -574,6 +716,15 @@ export async function initDatabase(): Promise<void> {
     db.execSync(`CREATE INDEX IF NOT EXISTS idx_daily_hours_user ON daily_hours(user_id)`);
     db.execSync(`CREATE INDEX IF NOT EXISTS idx_daily_hours_date ON daily_hours(date)`);
     db.execSync(`CREATE INDEX IF NOT EXISTS idx_daily_hours_synced ON daily_hours(synced_at)`);
+
+    // Clients
+    db.execSync(`CREATE INDEX IF NOT EXISTS idx_clients_user ON clients(user_id)`);
+
+    // Invoices
+    db.execSync(`CREATE INDEX IF NOT EXISTS idx_invoices_user ON invoices(user_id)`);
+    db.execSync(`CREATE INDEX IF NOT EXISTS idx_invoices_status ON invoices(user_id, status)`);
+    db.execSync(`CREATE INDEX IF NOT EXISTS idx_invoices_created ON invoices(user_id, created_at)`);
+    db.execSync(`CREATE INDEX IF NOT EXISTS idx_invoice_items_invoice ON invoice_items(invoice_id)`);
 
     // ============================================
     // MIGRATION: Drop deprecated tables

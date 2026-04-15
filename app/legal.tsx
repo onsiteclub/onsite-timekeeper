@@ -641,7 +641,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 22,
-    fontWeight: 'bold',
+    fontWeight: '700',
     color: colors.text,
     marginBottom: 8,
   },

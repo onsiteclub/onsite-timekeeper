@@ -349,11 +349,15 @@ export const useLocationStore = create<LocationState>((set, get) => ({
         set({ permissionStatus: 'restricted' });
         await get().stopMonitoring();
 
+        const steps = Platform.OS === 'android'
+          ? 'In Settings, tap:\n\n  Permissions → Location → "Allow all the time"'
+          : 'In Settings, tap:\n\n  Location → "Always"';
+
         Alert.alert(
-          'Location Access Required',
-          'Auto-logging needs "Always Allow" location access to detect when you arrive at or leave your saved locations.\n\nGo to Settings to enable it.',
+          'One more step',
+          `To log your hours automatically, the app needs "Always Allow" location access.\n\n${steps}`,
           [
-            { text: 'Later', style: 'cancel' },
+            { text: 'Not now', style: 'cancel' },
             {
               text: 'Open Settings',
               onPress: () => Linking.openSettings(),
@@ -371,7 +375,7 @@ export const useLocationStore = create<LocationState>((set, get) => ({
   },
 
   skipLocationDisclosure: () => {
-    AsyncStorage.setItem(LOCATION_DISCLOSURE_KEY, 'true').catch(() => {});
+    AsyncStorage.setItem(LOCATION_DISCLOSURE_KEY, 'true').catch((e) => logger.warn('database', 'Failed to save disclosure preference', { error: String(e) }));
     set({ needsLocationDisclosure: false });
     logger.info('geofence', 'Location disclosure skipped by user');
   },
@@ -379,6 +383,12 @@ export const useLocationStore = create<LocationState>((set, get) => ({
   // ============================================
   // ENABLE/DISABLE AUTO-LOGGING
   // Called from Locations screen toggle — triggers full permission flow
+  //
+  // LEGAL REQUIREMENT (Apple App Store + Google Play):
+  // When auto-log is OFF, the BackgroundGeolocation SDK MUST be
+  // completely stopped. No background location tracking of any kind.
+  // This is redundant by design — even if one step fails, others execute.
+  // Removing these safeguards risks app store rejection and legal liability.
   // ============================================
   enableAutoLogging: async () => {
     try {
@@ -413,11 +423,15 @@ export const useLocationStore = create<LocationState>((set, get) => ({
         set({ permissionStatus: 'restricted' });
         await get().stopMonitoring();
 
+        const steps = Platform.OS === 'android'
+          ? 'In Settings, tap:\n\n  Permissions → Location → "Allow all the time"'
+          : 'In Settings, tap:\n\n  Location → "Always"';
+
         Alert.alert(
-          'Location Access Required',
-          'Auto-logging needs "Always Allow" location access to detect when you arrive at or leave your saved locations.\n\nGo to Settings to enable it.',
+          'One more step',
+          `To log your hours automatically, the app needs "Always Allow" location access.\n\n${steps}`,
           [
-            { text: 'Later', style: 'cancel' },
+            { text: 'Not now', style: 'cancel' },
             {
               text: 'Open Settings',
               onPress: () => Linking.openSettings(),
@@ -437,8 +451,41 @@ export const useLocationStore = create<LocationState>((set, get) => ({
   },
 
   disableAutoLogging: async () => {
+    // LEGAL REQUIREMENT: Redundant safeguards — each step independently ensures
+    // the SDK is fully stopped. Even if one step throws, the others still execute.
+
+    logger.info('geofence', '🔴 disableAutoLogging: Step 1 — Setting autoLoggingEnabled = false');
     useSettingsStore.getState().updateSetting('autoLoggingEnabled', false);
-    await get().stopMonitoring();
+
+    const activeTracking = getActiveTrackingState();
+    logger.info('geofence', `🔴 disableAutoLogging: Step 2 — Active tracking: ${activeTracking ? 'YES (' + activeTracking.location_name + ')' : 'NO'}`);
+
+    if (activeTracking) {
+      const userId = useAuthStore.getState().getUserId();
+      if (userId) {
+        logger.info('geofence', '🔴 disableAutoLogging: Step 3 — Calling onManualExit...');
+        try {
+          await onManualExit(userId, activeTracking.location_id, activeTracking.location_name);
+          logger.info('geofence', '🔴 disableAutoLogging: Step 3 — onManualExit completed');
+        } catch (e) {
+          logger.error('geofence', `🔴 disableAutoLogging: Step 3 — onManualExit FAILED: ${e}`);
+        }
+
+        logger.info('geofence', '🔴 disableAutoLogging: Step 4 — Calling resetTracking...');
+        useDailyLogStore.getState().resetTracking();
+      }
+    }
+
+    logger.info('geofence', '🔴 disableAutoLogging: Step 5 — Calling stopMonitoring...');
+    try {
+      await get().stopMonitoring();
+      logger.info('geofence', '🔴 disableAutoLogging: Step 5 — stopMonitoring completed');
+    } catch (e) {
+      logger.error('geofence', `🔴 disableAutoLogging: Step 5 — stopMonitoring FAILED: ${e}`);
+    }
+
+    logger.info('geofence', '🔴 disableAutoLogging: Step 6 — Clearing activeSession and currentFenceId');
+    set({ activeSession: null, currentFenceId: null });
 
     // Schedule nudge if fence exists
     const { locations } = get();
@@ -446,7 +493,9 @@ export const useLocationStore = create<LocationState>((set, get) => ({
       scheduleAutoLoggingNudge();
     }
 
-    logger.info('geofence', '⏹️ Auto-logging disabled');
+    // Verify cleanup
+    const postCheck = getActiveTrackingState();
+    logger.info('geofence', `🔴 disableAutoLogging: DONE — active_tracking after cleanup: ${postCheck ? 'STILL EXISTS (BUG!)' : 'cleared'}`);
   },
 
   // ============================================
@@ -486,10 +535,8 @@ export const useLocationStore = create<LocationState>((set, get) => ({
     const userId = useAuthStore.getState().getUserId();
     if (!userId) throw new Error('User not authenticated');
 
-    // Validate radius bounds
-    if (radius < MIN_RADIUS || radius > MAX_RADIUS) {
-      throw new Error(`Minimum radius for reliable tracking: ${MIN_RADIUS}m`);
-    }
+    // Clamp radius to valid bounds (user no longer controls this per-fence)
+    radius = Math.max(MIN_RADIUS, Math.min(MAX_RADIUS, radius));
 
     // Get minimum distance setting
     const minDistance = useSettingsStore.getState().distanciaMinimaLocais;
@@ -1124,7 +1171,7 @@ export const useLocationStore = create<LocationState>((set, get) => ({
           location.id,
           location.name,
           null // No session ID in V3
-        ).catch(() => {});
+        ).catch((e) => logger.warn('geofence', 'Failed to record exit audit', { error: String(e) }));
       }
     }).catch(() => {
       logger.warn('geofence', 'Could not record GPS audit for manual exit');

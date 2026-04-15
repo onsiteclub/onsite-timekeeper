@@ -401,7 +401,9 @@ export async function getAnalyticsSummary(
       try {
         const features = JSON.parse(day.features_used || '[]');
         features.forEach((f: string) => allFeatures.add(f));
-      } catch {}
+      } catch (e) {
+        logger.warn('database', 'Failed to parse features_used JSON', { error: String(e) });
+      }
     });
     
     return {

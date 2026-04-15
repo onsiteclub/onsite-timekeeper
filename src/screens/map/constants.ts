@@ -1,7 +1,7 @@
 /**
  * Map Screen Constants - OnSite Timekeeper
  *
- * Constants, types, and configuration for the Jobsites screen
+ * Constants, types, and configuration for the Locations screen
  */
 
 import type { Region } from 'react-native-maps';
@@ -21,13 +21,18 @@ export const DEFAULT_REGION: Region = {
 // Default radius in meters
 export const DEFAULT_RADIUS = 150;
 
-// Radius stepper constraints
+// Radius stepper constraints (for store validation)
 export const RADIUS_MIN = 50;
 export const RADIUS_MAX = 500;
 export const RADIUS_STEP = 50;
 
-// Available radius options (legacy, kept for reference)
-export const RADIUS_OPTIONS = [150, 200, 300, 500];
+// Slider constraints (UI — detection zone slider)
+export const SLIDER_MIN = 50;
+export const SLIDER_MAX = 300;
+export const SLIDER_STEP = 25;
+
+// Radius chips (adding mode only)
+export const RADIUS_CHIPS = [50, 100, 150, 200, 300];
 
 // Debounce delay for autocomplete (ms)
 export const AUTOCOMPLETE_DELAY = 400;
@@ -45,8 +50,8 @@ export const ZOOM_CLOSE: Pick<Region, 'latitudeDelta' | 'longitudeDelta'> = {
 };
 
 export const ZOOM_DEFAULT: Pick<Region, 'latitudeDelta' | 'longitudeDelta'> = {
-  latitudeDelta: 0.01,
-  longitudeDelta: 0.01,
+  latitudeDelta: 0.02,
+  longitudeDelta: 0.02,
 };
 
 // ============================================

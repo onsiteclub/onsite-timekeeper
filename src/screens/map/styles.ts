@@ -1,11 +1,12 @@
 /**
  * Map Screen Styles - OnSite Timekeeper
  *
- * v2: 75% map + 25% bottom panel layout
+ * v3: 75% map + fixed bottom panel (no drag handle)
+ * Location detail redesign with marketing balloon / detection zone slider
  */
 
 import { StyleSheet, Platform } from 'react-native';
-import { colors, withOpacity } from '../../constants/colors';
+import { colors, withOpacity, spacing, borderRadius } from '../../constants/colors';
 
 export const styles = StyleSheet.create({
   container: {
@@ -13,71 +14,12 @@ export const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
 
-  // Map takes ~70% of screen (flex 2.3 : 1 ratio)
+  // Map fills remaining space above the content-sized panel
   mapContainer: {
-    flex: 2.3,
+    flex: 1,
   },
   map: {
     flex: 1,
-  },
-
-  // ============================================
-  // SEARCH (used by SearchBox.tsx)
-  // ============================================
-  searchContainer: {
-    position: 'absolute',
-    top: Platform.OS === 'ios' ? 12 : 10,
-    left: 16,
-    right: 16,
-    zIndex: 10,
-  },
-  searchBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    shadowColor: colors.black,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 4,
-  },
-  searchIcon: {
-    marginRight: 10,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 16,
-    color: '#1A1A1A',
-    paddingVertical: 0,
-  },
-  searchResults: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    marginTop: 8,
-    shadowColor: colors.black,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 4,
-    overflow: 'hidden',
-  },
-  searchResultItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#EEEEEE',
-  },
-  searchResultIcon: {
-    marginRight: 10,
-  },
-  searchResultText: {
-    flex: 1,
-    fontSize: 14,
-    color: '#1A1A1A',
   },
 
   // ============================================
@@ -86,11 +28,11 @@ export const styles = StyleSheet.create({
   myLocationButton: {
     position: 'absolute',
     top: Platform.OS === 'ios' ? 120 : 100,
-    right: 16,
+    right: spacing.lg,
     width: 48,
     height: 48,
-    borderRadius: 24,
-    backgroundColor: '#FFFFFF',
+    borderRadius: borderRadius.full,
+    backgroundColor: colors.white,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: colors.black,
@@ -109,14 +51,12 @@ export const styles = StyleSheet.create({
     bottom: 0,
     justifyContent: 'center',
     alignItems: 'center',
-    // Shift up so the needle TIP (not the bubble center) sits at map center
-    // Bubble 36 + needle 10 = 46 total
     paddingBottom: 46,
   },
   pinBubble: {
     width: 36,
     height: 36,
-    borderRadius: 18,
+    borderRadius: borderRadius.full,
     backgroundColor: colors.amber,
     justifyContent: 'center',
     alignItems: 'center',
@@ -129,7 +69,7 @@ export const styles = StyleSheet.create({
   pinImage: {
     width: 28,
     height: 28,
-    tintColor: '#FFFFFF',
+    tintColor: colors.white,
   },
   pinNeedle: {
     width: 0,
@@ -159,11 +99,11 @@ export const styles = StyleSheet.create({
   locationLabel: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: spacing.xs,
     backgroundColor: colors.card,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 16,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: borderRadius.lg,
     shadowColor: colors.black,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
@@ -174,8 +114,8 @@ export const styles = StyleSheet.create({
   locationLabelDot: {
     width: 8,
     height: 8,
-    borderRadius: 4,
-    marginRight: 6,
+    borderRadius: borderRadius.full,
+    marginRight: spacing.sm,
   },
   locationLabelText: {
     fontSize: 12,
@@ -185,13 +125,13 @@ export const styles = StyleSheet.create({
   },
 
   // ============================================
-  // BOTTOM PANEL (25% of screen)
+  // BOTTOM PANEL
   // ============================================
+  // Panel sizes to content — no flex, no scroll
   panel: {
-    flex: 1,
     backgroundColor: colors.white,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    borderTopLeftRadius: borderRadius.xl,
+    borderTopRightRadius: borderRadius.xl,
     shadowColor: colors.black,
     shadowOffset: { width: 0, height: -2 },
     shadowOpacity: 0.1,
@@ -199,57 +139,33 @@ export const styles = StyleSheet.create({
     elevation: 8,
   },
   panelContent: {
-    flexGrow: 1,
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 24,
-    justifyContent: 'space-between',
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.xxl,
   },
 
-  // Panel handle (visual grab indicator)
+  // Panel handle (State A only — kept for adding mode)
   panelHandle: {
     width: 36,
     height: 4,
-    borderRadius: 2,
+    borderRadius: borderRadius.xs,
     backgroundColor: colors.border,
     alignSelf: 'center',
-    marginTop: 8,
-    marginBottom: 4,
-  },
-
-  // Address row
-  addressRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 8,
-  },
-  addressText: {
-    flex: 1,
-    fontSize: 13,
-    color: colors.textSecondary,
-    lineHeight: 18,
-  },
-
-  // State B: Fence name
-  fenceName: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: colors.text,
-    marginBottom: 4,
+    marginTop: spacing.sm,
+    marginBottom: spacing.xs,
   },
 
   // Name input (State A)
   nameInput: {
     borderWidth: 0.5,
     borderColor: colors.border,
-    borderRadius: 14,
+    borderRadius: borderRadius.md,
     paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingVertical: spacing.md,
     fontSize: 15,
     color: colors.text,
     backgroundColor: colors.backgroundTertiary,
-    marginBottom: 10,
+    marginBottom: spacing.md,
   },
   nameInputError: {
     borderColor: colors.error,
@@ -261,9 +177,9 @@ export const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 8,
+    gap: spacing.sm,
     minHeight: 52,
-    borderRadius: 14,
+    borderRadius: borderRadius.md,
     backgroundColor: colors.buttonPrimary,
   },
   addButtonDisabled: {
@@ -275,61 +191,335 @@ export const styles = StyleSheet.create({
     color: colors.buttonPrimaryText,
   },
 
-  // Delete button (State B)
-  deleteButton: {
-    flexDirection: 'row',
-    justifyContent: 'center',
+  // ============================================
+  // STEP 1: FLOATING CONFIRM AREA (bottom of map)
+  // ============================================
+  confirmArea: {
+    position: 'absolute',
+    bottom: 20,
+    left: 16,
+    right: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.92)',
+    borderRadius: 16,
+    padding: 16,
     alignItems: 'center',
-    gap: 8,
-    minHeight: 48,
-    borderRadius: 14,
-    borderWidth: 0.5,
-    borderColor: withOpacity(colors.error, 0.3),
-    backgroundColor: 'transparent',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
   },
-  deleteButtonText: {
+  confirmHint: {
     fontSize: 14,
+    color: colors.textSecondary,
+    marginBottom: 10,
+  },
+  confirmButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: colors.buttonPrimary,
+    borderRadius: 12,
+    paddingVertical: 14,
+    width: '100%',
+  },
+  confirmButtonText: {
+    fontSize: 16,
     fontWeight: '600',
-    color: colors.error,
+    color: colors.buttonPrimaryText,
+  },
+});
+
+// ============================================
+// STATE B — Location Detail Panel
+// ============================================
+
+export const detailStyles = StyleSheet.create({
+  // Header section
+  headerSection: {
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.lg,
+    borderBottomWidth: 0.5,
+    borderBottomColor: colors.borderLight,
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  nameDot: {
+    width: 10,
+    height: 10,
+    borderRadius: borderRadius.full,
+    marginRight: spacing.sm,
+  },
+  nameText: {
+    fontSize: 18,
+    fontWeight: '500',
+    color: colors.text,
+    flex: 1,
+  },
+  editButton: {
+    padding: spacing.sm,
+  },
+  addressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+    paddingLeft: 18, // Align with name (dot 10px + margin 8px)
+  },
+  addressText: {
+    flex: 1,
+    fontSize: 12,
+    color: colors.textSecondary,
+    lineHeight: 16,
   },
 
-  // ============================================
-  // RADIO BUTTONS (trigger mode)
-  // ============================================
-  radioGroup: {
-    marginTop: 8,
-    marginBottom: 4,
+  // Empty state (adding mode, no name entered yet)
+  emptyState: {
+    alignItems: 'center',
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.xl,
+    paddingBottom: spacing.md,
   },
-  radioRow: {
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.text,
+    marginTop: spacing.md,
+  },
+  emptyDesc: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 18,
+    marginTop: spacing.xs,
+  },
+
+  // Toggle section
+  toggleSection: {
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.lg,
+  },
+  toggleRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-    gap: 10,
-  },
-  radioOuter: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    borderWidth: 2,
-    borderColor: colors.border,
-    justifyContent: 'center',
+    justifyContent: 'space-between',
     alignItems: 'center',
   },
-  radioOuterSelected: {
-    borderColor: colors.primary,
-  },
-  radioInner: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: colors.primary,
-  },
-  radioLabel: {
+  toggleLabel: {
     fontSize: 14,
     fontWeight: '500',
     color: colors.text,
   },
-  radioLabelMuted: {
+  toggleSubtitleOff: {
+    fontSize: 13,
     color: colors.textSecondary,
+    marginTop: spacing.xxs,
+  },
+  toggleSubtitleOn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: spacing.xs,
+    gap: spacing.sm,
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: borderRadius.full,
+    backgroundColor: colors.successTeal,
+  },
+  statusText: {
+    fontSize: 13,
+    color: colors.successTeal,
+  },
+
+  // Marketing balloon (toggle OFF)
+  balloon: {
+    backgroundColor: colors.amberSoftWarm,
+    borderRadius: borderRadius.sm,
+    padding: 14,
+    marginTop: 14,
+  },
+  balloonArrow: {
+    position: 'absolute',
+    top: -8,
+    right: 60,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 8,
+    borderRightWidth: 8,
+    borderBottomWidth: 8,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderBottomColor: colors.amberSoftWarm,
+  },
+  balloonTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.primaryStrong,
+    marginBottom: spacing.sm,
+  },
+  balloonBody: {
+    fontSize: 14,
+    color: colors.primaryStrong,
+    lineHeight: 20,
+  },
+
+  // Detection zone slider card (toggle ON)
+  sliderCard: {
+    backgroundColor: colors.backgroundWarm,
+    borderRadius: borderRadius.sm,
+    padding: 14,
+    marginTop: 14,
+  },
+  sliderHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    marginBottom: spacing.sm,
+  },
+  sliderLabel: {
+    fontSize: 12,
+    color: colors.textSecondary,
+  },
+  sliderValueRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+  },
+  sliderValue: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: colors.text,
+  },
+  sliderUnit: {
+    fontSize: 12,
+    fontWeight: '400',
+    color: colors.textSecondary,
+    marginLeft: 1,
+  },
+  sliderTrack: {
+    marginTop: spacing.xs,
+    marginBottom: spacing.xs,
+  },
+  sliderRange: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  sliderRangeText: {
+    fontSize: 12,
+    color: colors.textTertiary,
+  },
+  sliderHelper: {
+    fontSize: 13,
+    color: colors.textTertiary,
+    textAlign: 'center',
+    marginTop: spacing.sm,
+  },
+
+  // Permission warning
+  warningBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderRadius: borderRadius.sm,
+    backgroundColor: withOpacity(colors.amber, 0.08),
+    marginTop: spacing.md,
+  },
+  warningText: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    flex: 1,
+    lineHeight: 16,
+  },
+  warningLink: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.amber,
+  },
+
+  // Delete section
+  deleteSection: {
+    borderTopWidth: 0.5,
+    borderTopColor: colors.borderLight,
+    paddingVertical: spacing.md,
+    marginTop: spacing.lg,
+  },
+  deleteButton: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  deleteIcon: {
+    // placeholder for icon sizing
+  },
+  deleteText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: colors.error,
+  },
+});
+
+// ============================================
+// STATE A — Adding Mode
+// Uses same visual language as State B (detailStyles)
+// ============================================
+
+export const addingStyles = StyleSheet.create({
+  // Wraps all adding content — same horizontal padding as detailStyles sections
+  container: {
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.lg,
+  },
+
+  // Radius section — inside a card like detailStyles.sliderCard
+  radiusCard: {
+    backgroundColor: colors.backgroundWarm,
+    borderRadius: borderRadius.sm,
+    padding: 14,
+    marginTop: 14,
+  },
+  radiusLabel: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginBottom: spacing.md,
+  },
+  chipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  chip: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: borderRadius.full,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.white,
+  },
+  chipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  chipText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: colors.text,
+  },
+  chipTextActive: {
+    color: colors.white,
+  },
+
+  // Add button — same margin pattern as detailStyles.deleteSection
+  addButtonWrap: {
+    borderTopWidth: 0.5,
+    borderTopColor: colors.borderLight,
+    paddingHorizontal: spacing.xl,
+    paddingTop: 14,
+    paddingBottom: spacing.lg,
   },
 });

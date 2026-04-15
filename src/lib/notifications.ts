@@ -96,7 +96,7 @@ export async function requestNotificationPermission(): Promise<boolean> {
     // notifications are silently dropped even after user grants permission later.
     if (Platform.OS === 'android') {
       // Delete old channels (Android won't update existing channel settings)
-      await Notifications.deleteNotificationChannelAsync('geofence').catch(() => {});
+      await Notifications.deleteNotificationChannelAsync('geofence').catch((e) => logger.warn('ui', 'Failed to delete old geofence channel', { error: String(e) }));
 
       await Notifications.setNotificationChannelAsync('geofence_v2', {
         name: 'Time Log Updates',
@@ -106,7 +106,7 @@ export async function requestNotificationPermission(): Promise<boolean> {
         // sound omitted = uses system default notification sound
       });
 
-      await Notifications.deleteNotificationChannelAsync('report_reminder').catch(() => {});
+      await Notifications.deleteNotificationChannelAsync('report_reminder').catch((e) => logger.warn('ui', 'Failed to delete old report_reminder channel', { error: String(e) }));
 
       await Notifications.setNotificationChannelAsync('report_reminder_v2', {
         name: 'Report Reminders',
@@ -366,7 +366,7 @@ export async function scheduleAutoLoggingNudge(): Promise<string> {
     if (!await canSendNotification()) return '';
 
     // Cancel any existing nudge first
-    await Notifications.cancelScheduledNotificationAsync(AUTO_LOGGING_NUDGE_ID).catch(() => {});
+    await Notifications.cancelScheduledNotificationAsync(AUTO_LOGGING_NUDGE_ID).catch((e) => logger.warn('ui', 'Failed to cancel existing nudge notification', { error: String(e) }));
 
     const notificationId = await Notifications.scheduleNotificationAsync({
       identifier: AUTO_LOGGING_NUDGE_ID,

@@ -11,6 +11,8 @@ import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
+import { getAttestationHeaders } from './appAttestation';
+import { validateSupabaseUrl } from './sslPinning';
 
 // ============================================
 // CREDENTIALS - MULTIPLE SOURCES
@@ -36,6 +38,11 @@ if (__DEV__ && (!supabaseUrl || !supabaseAnonKey)) {
     'EXPO_PUBLIC_SUPABASE_URL=your_url\n' +
     'EXPO_PUBLIC_SUPABASE_ANON_KEY=your_key'
   );
+}
+
+// SSL Pinning: Validate Supabase URL at startup
+if (supabaseUrl && !validateSupabaseUrl(supabaseUrl)) {
+  console.error('[Security] Supabase URL does not match expected host — possible misconfiguration or tampering');
 }
 
 // ============================================
@@ -69,12 +76,18 @@ const customStorage = Platform.OS === 'web'
 // SUPABASE CLIENT
 // ============================================
 
+// App Attestation: Include device/app identity headers with every request
+const attestationHeaders = getAttestationHeaders();
+
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     storage: customStorage,
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,
+  },
+  global: {
+    headers: attestationHeaders,
   },
 });
 
@@ -122,6 +135,7 @@ export interface Database {
           id: string;
           email: string | null;
           full_name: string | null;
+          phone: string | null;
           avatar_url: string | null;
           created_at: string;
           updated_at: string;

@@ -13,6 +13,7 @@ import {
   TouchableOpacity,
   ScrollView,
   Platform,
+  Linking,
 } from 'react-native';
 import { colors } from '../constants/colors';
 import { logger } from '../lib/logger';
@@ -104,6 +105,13 @@ export class ErrorBoundary extends Component<Props, State> {
               <Text style={styles.buttonText}>Try Again</Text>
             </TouchableOpacity>
 
+            <TouchableOpacity
+              style={styles.contactButton}
+              onPress={() => Linking.openURL('mailto:contact@onsiteclub.ca?subject=Timekeeper%20Crash%20Report')}
+            >
+              <Text style={styles.contactButtonText}>Contact Support</Text>
+            </TouchableOpacity>
+
             {__DEV__ && this.state.error && (
               <ScrollView style={styles.errorContainer}>
                 <Text style={styles.errorTitle}>Error Details (Dev Only)</Text>
@@ -148,7 +156,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 24,
-    fontWeight: 'bold',
+    fontWeight: '700',
     color: colors.text,
     textAlign: 'center',
     marginBottom: 8,
@@ -171,6 +179,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: colors.buttonPrimaryText,
+  },
+  contactButton: {
+    marginBottom: 24,
+  },
+  contactButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: colors.primary,
   },
   errorContainer: {
     maxHeight: 200,

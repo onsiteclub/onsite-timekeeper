@@ -60,7 +60,7 @@ export const useBusinessProfileStore = create<BusinessProfileState>()((set) => (
     const errors: string[] = [];
 
     if (!data.businessName?.trim()) {
-      errors.push('Business name is required');
+      errors.push('Name is required');
     }
 
     if (data.email && !validateEmail(data.email)) {

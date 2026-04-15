@@ -13,6 +13,7 @@ import { logger } from '../lib/logger';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { initDatabase, trackMetric } from '../lib/database';
 import { setBackgroundUserId, clearBackgroundUserId } from '../lib/backgroundHelpers';
+import { captureMessage } from '../lib/sentry';
 import type { Session, User, Subscription } from '@supabase/supabase-js';
 
 // ============================================
@@ -35,15 +36,29 @@ export interface AuthState {
   profileComplete: boolean;
   cachedFullName: string | null;
 
+  // OTP State (Phone Verification)
+  pendingPhoneVerification: boolean;
+  pendingVerificationPhone: string | null;
+  otpResendCount: number;
+  otpResendCooldownEnd: number | null;
+
   // Actions
   initialize: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
-  signUp: (email: string, password: string, metadata?: { firstName: string; lastName: string }) => Promise<{ success: boolean; needsConfirmation?: boolean; error?: string }>;
+  signUp: (email: string, password: string, metadata?: { firstName: string; lastName: string; phone?: string }) => Promise<{ success: boolean; needsConfirmation?: boolean; needsPhoneVerification?: boolean; error?: string }>;
   signOut: () => Promise<void>;
   deleteAccount: () => Promise<{ success: boolean; error?: string }>;
   refreshSession: () => Promise<void>;
   checkProfile: () => Promise<void>;
   updateProfile: (firstName: string, lastName: string) => Promise<{ success: boolean; error?: string }>;
+
+  // OTP Actions
+  verifyPhoneOtp: (phone: string, token: string) => Promise<{ error: string | null }>;
+  sendPhoneOtp: (phone: string) => Promise<{ error: string | null }>;
+  resetPasswordWithPhone: (phone: string) => Promise<{ error: string | null }>;
+  verifyResetOtp: (phone: string, token: string) => Promise<{ error: string | null }>;
+  updatePasswordAfterReset: (newPassword: string) => Promise<{ error: string | null }>;
+  clearOtpState: () => void;
 
   // Helpers
   getUserId: () => string | null;
@@ -65,6 +80,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   error: null,
   profileComplete: false,
   cachedFullName: null,
+
+  // OTP initial state
+  pendingPhoneVerification: false,
+  pendingVerificationPhone: null,
+  otpResendCount: 0,
+  otpResendCooldownEnd: null,
 
   // ============================================
   // INITIALIZE
@@ -94,7 +115,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
 
       if (session) {
-        logger.info('auth', `✅ Session found: ${session.user.email}`);
+        logger.info('auth', `✅ Session found: ${__DEV__ ? session.user.email : 'user_' + session.user.id.slice(0, 8)}`);
         set({ session, user: session.user });
         
         // Set userId for background tasks
@@ -178,22 +199,34 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       if (error) {
         logger.error('auth', 'Sign in error', { error: error.message });
+        captureMessage('Auth: sign-in failed', {
+          level: 'info',
+          tags: { security: 'auth' },
+          extra: { reason: error.message.includes('Invalid') ? 'invalid_credentials' : 'auth_error' },
+        });
         set({ isLoading: false, error: error.message });
         return { success: false, error: error.message };
       }
 
       if (data.session) {
-        logger.info('auth', `✅ Signed in: ${data.session.user.email}`);
-        set({ 
-          session: data.session, 
-          user: data.session.user, 
-          isLoading: false,
+        logger.info('auth', `✅ Signed in: ${__DEV__ ? data.session.user.email : 'user_' + data.session.user.id.slice(0, 8)}`);
+
+        // Set session/user first (needed by checkProfile), but keep isLoading=true
+        // so the navigation guard doesn't fire before profileComplete is resolved.
+        set({
+          session: data.session,
+          user: data.session.user,
           error: null,
         });
-        
+
         await setBackgroundUserId(data.session.user.id);
-        // NOTE: app_opens tracked in initialize, not here
-        
+
+        // Check profile BEFORE clearing isLoading — prevents race condition
+        // where navigation guard sees profileComplete=false and redirects
+        // to complete-profile before checkProfile can resolve.
+        await get().checkProfile();
+
+        set({ isLoading: false });
         return { success: true };
       }
 
@@ -212,11 +245,30 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   // SIGN UP
   // ============================================
   signUp: async (email, password, metadata?) => {
-    set({ isLoading: true, error: null });
+    // FIX: Don't set global isLoading here. The component manages its own
+    // loading state via setIsLoading prop. Setting global isLoading triggers
+    // _layout.tsx re-renders and navigation guard effects, which can cause
+    // expo-router to remount the AuthScreen and reset step state to 'email'.
+    set({ error: null });
+
+    if (!email?.trim()) {
+      logger.error('auth', 'Sign up attempted without email');
+      return { success: false, error: 'Email is required' };
+    }
+
+    const phone = metadata?.phone;
+
+    // CRITICAL: Set pendingPhoneVerification BEFORE signUp call.
+    // This prevents the nav guard race condition: signUp triggers
+    // onAuthStateChange SIGNED_IN → nav guard fires → redirects away
+    // from AuthScreen before OTP step can show.
+    if (phone) {
+      set({ pendingPhoneVerification: true, pendingVerificationPhone: phone });
+    }
 
     try {
       if (!isSupabaseConfigured()) {
-        set({ isLoading: false });
+        if (phone) set({ pendingPhoneVerification: false, pendingVerificationPhone: null });
         return { success: false, error: 'Supabase not configured' };
       }
 
@@ -237,45 +289,66 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       if (error) {
         logger.error('auth', 'Sign up error', { error: error.message });
-        set({ isLoading: false, error: error.message });
+        if (phone) set({ pendingPhoneVerification: false, pendingVerificationPhone: null });
+        set({ error: error.message });
         return { success: false, error: error.message };
       }
 
+      // Check if email already exists (empty identities = duplicate signup attempt)
+      // MUST be checked BEFORE needsConfirmation — both have data.user && !data.session
+      if (data.user && data.user.identities && data.user.identities.length === 0) {
+        logger.info('auth', 'Email already exists (empty identities)');
+        if (phone) set({ pendingPhoneVerification: false, pendingVerificationPhone: null });
+        return { success: false, error: 'already_registered' };
+      }
+
       if (data.session) {
-        logger.info('auth', `✅ Signed up and logged in: ${data.session.user.email}`);
+        logger.info('auth', `✅ Signed up and logged in: ${__DEV__ ? data.session.user.email : 'user_' + data.session.user.id.slice(0, 8)}`);
         set({
           session: data.session,
           user: data.session.user,
-          isLoading: false,
           error: null,
         });
 
         await setBackgroundUserId(data.session.user.id);
 
+        // If phone provided, register it to trigger OTP
+        if (phone) {
+          try {
+            const { error: phoneError } = await supabase.auth.updateUser({ phone });
+            if (phoneError) {
+              logger.warn('auth', 'Phone OTP send failed after signup', { error: phoneError.message });
+              // Clear flag — let user proceed without verification
+              set({ pendingPhoneVerification: false, pendingVerificationPhone: null });
+              return { success: true, needsPhoneVerification: false };
+            }
+            logger.info('auth', 'OTP sent to phone for verification');
+            return { success: true, needsPhoneVerification: true };
+          } catch (e) {
+            logger.warn('auth', 'Phone registration exception', { error: String(e) });
+            set({ pendingPhoneVerification: false, pendingVerificationPhone: null });
+            return { success: true, needsPhoneVerification: false };
+          }
+        }
+
         return { success: true, needsConfirmation: false };
       }
 
-      // Email confirmation required
+      // Email confirmation required (new user, no session yet)
       if (data.user && !data.session) {
         logger.info('auth', 'Email confirmation required');
-        set({ isLoading: false });
+        if (phone) set({ pendingPhoneVerification: false, pendingVerificationPhone: null });
         return { success: true, needsConfirmation: true };
       }
 
-      // Check if user has no identities (email already exists in Supabase)
-      if (data.user && data.user.identities && data.user.identities.length === 0) {
-        logger.info('auth', 'Email already exists (empty identities)');
-        set({ isLoading: false });
-        return { success: false, error: 'already_registered' };
-      }
-
-      set({ isLoading: false });
+      if (phone) set({ pendingPhoneVerification: false, pendingVerificationPhone: null });
       return { success: false, error: 'Unknown error during sign up' };
 
     } catch (error) {
       const errorMsg = String(error);
       logger.error('auth', 'Sign up exception', { error: errorMsg });
-      set({ isLoading: false, error: errorMsg });
+      if (phone) set({ pendingPhoneVerification: false, pendingVerificationPhone: null });
+      set({ error: errorMsg });
       return { success: false, error: errorMsg };
     }
   },
@@ -300,6 +373,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         error: null,
         profileComplete: false,
         cachedFullName: null,
+        pendingPhoneVerification: false,
+        pendingVerificationPhone: null,
+        otpResendCount: 0,
+        otpResendCooldownEnd: null,
       });
 
       logger.info('auth', '👋 Signed out');
@@ -315,6 +392,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         error: null,
         profileComplete: false,
         cachedFullName: null,
+        pendingPhoneVerification: false,
+        pendingVerificationPhone: null,
+        otpResendCount: 0,
+        otpResendCooldownEnd: null,
       });
     }
   },
@@ -385,7 +466,23 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const { data: { session }, error } = await supabase.auth.refreshSession();
 
       if (error) {
-        logger.warn('auth', 'Session refresh error', { error: error.message });
+        const msg = error.message.toLowerCase();
+        const isNetworkError = msg.includes('network') || msg.includes('fetch') || msg.includes('timeout');
+
+        if (isNetworkError) {
+          // Network error — keep current session, don't force logout
+          logger.warn('auth', 'Session refresh failed (network). Keeping session.', { error: error.message });
+          return;
+        }
+
+        // Token error (expired, revoked, invalid) — force re-login
+        logger.warn('auth', 'Session refresh failed (token). Forcing re-login.', { error: error.message });
+        captureMessage('Session refresh: token invalid, forcing re-login', {
+          level: 'warning',
+          tags: { security: 'session' },
+          extra: { error: error.message },
+        });
+        set({ session: null, user: null });
         return;
       }
 
@@ -393,7 +490,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         set({ session, user: session.user });
       }
     } catch (error) {
-      logger.error('auth', 'Session refresh exception', { error: String(error) });
+      // Network-level exception (e.g. no connectivity) — keep session
+      logger.error('auth', 'Session refresh exception (keeping session)', { error: String(error) });
     }
   },
 
@@ -425,10 +523,23 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       if (!error && data?.full_name) {
         set({ profileComplete: true, cachedFullName: data.full_name });
         logger.info('auth', `Profile found: ${data.full_name}`);
-      } else {
-        set({ profileComplete: false, cachedFullName: null });
-        logger.info('auth', 'Profile incomplete — name missing');
+        return;
       }
+
+      // Last resort: refresh user from Supabase (metadata may be stale in store)
+      try {
+        const { data: { user: freshUser } } = await supabase.auth.getUser();
+        if (freshUser?.user_metadata?.full_name) {
+          set({ user: freshUser, profileComplete: true, cachedFullName: freshUser.user_metadata.full_name });
+          logger.info('auth', `Profile found after refresh: ${freshUser.user_metadata.full_name}`);
+          return;
+        }
+      } catch {
+        // Ignore refresh errors
+      }
+
+      set({ profileComplete: false, cachedFullName: null });
+      logger.info('auth', 'Profile incomplete — name missing');
     } catch (error) {
       logger.error('auth', 'checkProfile failed', { error: String(error) });
       // On error, keep previous profileComplete state instead of forcing true.
@@ -489,6 +600,183 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   // ============================================
+  // OTP METHODS (Phone Verification)
+  // ============================================
+
+  verifyPhoneOtp: async (phone, token) => {
+    try {
+      const { error } = await supabase.auth.verifyOtp({
+        phone,
+        token,
+        type: 'phone_change',
+      });
+
+      if (error) {
+        logger.warn('auth', 'Phone OTP verification failed', { error: error.message });
+        return { error: error.message };
+      }
+
+      logger.info('auth', 'Phone verified successfully');
+
+      // Refresh user to get latest metadata (may have changed since signup)
+      try {
+        const { data: { user: freshUser } } = await supabase.auth.getUser();
+        if (freshUser) {
+          set({ user: freshUser });
+        }
+      } catch {
+        // Continue with existing user object
+      }
+
+      // Save phone + full_name to profiles table
+      // full_name was set in user_metadata during signup but the Supabase
+      // trigger only creates profiles with id/email — so we must write it here
+      const user = get().user;
+      if (user) {
+        const fullName = user.user_metadata?.full_name || null;
+        try {
+          await supabase.from('profiles').upsert({
+            id: user.id,
+            email: user.email,
+            phone,
+            ...(fullName ? { full_name: fullName } : {}),
+          }, { onConflict: 'id' });
+        } catch (e) {
+          logger.warn('auth', 'Failed to save profile after OTP', { error: String(e) });
+        }
+      }
+
+      // Complete the flow: check profile + clear OTP state
+      await get().checkProfile();
+      set({
+        pendingPhoneVerification: false,
+        pendingVerificationPhone: null,
+        otpResendCount: 0,
+        otpResendCooldownEnd: null,
+      });
+
+      return { error: null };
+    } catch (e) {
+      logger.error('auth', 'verifyPhoneOtp exception', { error: String(e) });
+      return { error: 'Verification failed. Please try again.' };
+    }
+  },
+
+  sendPhoneOtp: async (phone) => {
+    const { otpResendCount, otpResendCooldownEnd } = get();
+
+    // Enforce max 3 resends
+    if (otpResendCount >= 3) {
+      return { error: 'Maximum attempts reached. Contact support at contact@onsiteclub.ca' };
+    }
+
+    // Enforce 60s cooldown
+    if (otpResendCooldownEnd && Date.now() < otpResendCooldownEnd) {
+      const remaining = Math.ceil((otpResendCooldownEnd - Date.now()) / 1000);
+      return { error: `Please wait ${remaining}s before resending` };
+    }
+
+    try {
+      const { error } = await supabase.auth.updateUser({ phone });
+      if (error) {
+        logger.warn('auth', 'Resend OTP failed', { error: error.message });
+        return { error: error.message };
+      }
+
+      set({
+        otpResendCount: otpResendCount + 1,
+        otpResendCooldownEnd: Date.now() + 60_000,
+      });
+
+      logger.info('auth', 'OTP resent successfully');
+      return { error: null };
+    } catch (e) {
+      logger.error('auth', 'sendPhoneOtp exception', { error: String(e) });
+      return { error: 'Failed to send code. Please try again.' };
+    }
+  },
+
+  resetPasswordWithPhone: async (phone) => {
+    try {
+      const { error } = await supabase.auth.signInWithOtp({ phone });
+      if (error) {
+        logger.warn('auth', 'Password reset OTP failed', { error: error.message });
+        return { error: error.message };
+      }
+
+      set({
+        pendingVerificationPhone: phone,
+        otpResendCount: 0,
+        otpResendCooldownEnd: Date.now() + 60_000,
+      });
+
+      logger.info('auth', 'Password reset OTP sent');
+      return { error: null };
+    } catch (e) {
+      logger.error('auth', 'resetPasswordWithPhone exception', { error: String(e) });
+      return { error: 'Failed to send reset code. Please try again.' };
+    }
+  },
+
+  verifyResetOtp: async (phone, token) => {
+    try {
+      const { data, error } = await supabase.auth.verifyOtp({
+        phone,
+        token,
+        type: 'sms',
+      });
+
+      if (error) {
+        logger.warn('auth', 'Reset OTP verification failed', { error: error.message });
+        return { error: error.message };
+      }
+
+      // Session is established after successful verification
+      if (data.session) {
+        set({ session: data.session, user: data.session.user });
+      }
+
+      logger.info('auth', 'Reset OTP verified — session established');
+      return { error: null };
+    } catch (e) {
+      logger.error('auth', 'verifyResetOtp exception', { error: String(e) });
+      return { error: 'Verification failed. Please try again.' };
+    }
+  },
+
+  updatePasswordAfterReset: async (newPassword) => {
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) {
+        logger.warn('auth', 'Password update failed', { error: error.message });
+        return { error: error.message };
+      }
+
+      // Clear OTP state
+      set({
+        pendingVerificationPhone: null,
+        otpResendCount: 0,
+        otpResendCooldownEnd: null,
+      });
+
+      logger.info('auth', 'Password updated successfully');
+      return { error: null };
+    } catch (e) {
+      logger.error('auth', 'updatePasswordAfterReset exception', { error: String(e) });
+      return { error: 'Failed to update password. Please try again.' };
+    }
+  },
+
+  clearOtpState: () => {
+    set({
+      pendingPhoneVerification: false,
+      pendingVerificationPhone: null,
+      otpResendCount: 0,
+      otpResendCooldownEnd: null,
+    });
+  },
+
+  // ============================================
   // HELPERS (BACKWARD COMPATIBLE)
   // ============================================
   getUserId: () => {
@@ -516,6 +804,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   isAuthenticated: () => {
-    return !!get().session;
+    const state = get();
+    // Block authentication while phone OTP verification is pending.
+    // This prevents nav guard, login effects, and store init from firing
+    // before the user completes phone verification.
+    return !!state.session && !state.pendingPhoneVerification;
   },
 }));

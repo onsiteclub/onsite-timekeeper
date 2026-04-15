@@ -25,7 +25,7 @@ import {
   DEFAULT_RADIUS,
   RADIUS_MIN,
   RADIUS_MAX,
-  RADIUS_STEP,
+  SLIDER_STEP,
   ZOOM_CLOSE,
   ZOOM_DEFAULT,
   MAP_ANIMATION_DURATION,
@@ -107,6 +107,9 @@ export function useMapScreen() {
   const [isGeocoding, setIsGeocoding] = useState(false);
 
   // State A: adding controls
+  const [addingStep, setAddingStep] = useState<'picking' | 'naming'>('picking');
+  const [confirmedCenter, setConfirmedCenter] = useState<{ lat: number; lng: number } | null>(null);
+  const [confirmedAddress, setConfirmedAddress] = useState('');
   const [fenceName, setFenceName] = useState('');
   const [fenceNameError, setFenceNameError] = useState(false);
   const [selectedRadius, setSelectedRadius] = useState(DEFAULT_RADIUS);
@@ -244,25 +247,48 @@ export function useMapScreen() {
     }
   }, [currentLocation, animateToLocation, refreshCurrentLocation]);
 
-  const doAddFence = useCallback(async () => {
+  const handleConfirmLocation = useCallback(() => {
     if (!mapCenter) return;
+    setConfirmedCenter({ lat: mapCenter.lat, lng: mapCenter.lng });
+    setConfirmedAddress(address);
+    // Auto-suggest name from address (first part before comma)
+    const suggested = address ? address.split(',')[0].trim().substring(0, 40) : '';
+    setFenceName(suggested);
+    setAddingStep('naming');
+  }, [mapCenter, address]);
+
+  const handleCancelNaming = useCallback(() => {
+    setAddingStep('picking');
+    setConfirmedCenter(null);
+    setConfirmedAddress('');
+    setFenceName('');
+    setFenceNameError(false);
+  }, []);
+
+  const doAddFence = useCallback(async () => {
+    const center = confirmedCenter || mapCenter;
+    if (!center) return;
     setIsAdding(true);
     try {
+      const radius = useSettingsStore.getState().defaultRadius;
       await addLocation(
         fenceName.trim(),
-        mapCenter.lat,
-        mapCenter.lng,
-        selectedRadius,
+        center.lat,
+        center.lng,
+        radius,
         getRandomGeofenceColor()
       );
 
-      // Clear form
+      // Clear form + reset step
       setFenceName('');
       setSelectedRadius(DEFAULT_RADIUS);
       setFenceNameError(false);
+      setAddingStep('picking');
+      setConfirmedCenter(null);
+      setConfirmedAddress('');
 
       // Geocode the saved position for State B
-      reverseGeocode(mapCenter.lat, mapCenter.lng);
+      reverseGeocode(center.lat, center.lng);
 
       logger.info('ui', `Fence added: "${fenceName}"`);
     } catch (error: any) {
@@ -270,7 +296,7 @@ export function useMapScreen() {
     } finally {
       setIsAdding(false);
     }
-  }, [fenceName, mapCenter, selectedRadius, addLocation, reverseGeocode]);
+  }, [fenceName, confirmedCenter, mapCenter, addLocation, reverseGeocode]);
 
   const handleAddFence = useCallback(async () => {
     if (!fenceName.trim()) {
@@ -345,18 +371,31 @@ export function useMapScreen() {
     }
   }, [locations, editLocation]);
 
-  const handleStepRadius = useCallback((delta: number) => {
-    const f = locations[0];
-    if (!f) return;
-    const newRadius = Math.max(RADIUS_MIN, Math.min(RADIUS_MAX, f.radius + delta));
-    if (newRadius !== f.radius) {
-      handleChangeRadius(newRadius);
-    }
-  }, [locations, handleChangeRadius]);
+  // Slider handler — snaps to SLIDER_STEP increments, debounced save
+  const sliderDebounce = useRef<ReturnType<typeof setTimeout>>();
+  const [sliderValue, setSliderValue] = useState<number | null>(null);
 
-  const handleStepSelectedRadius = useCallback((delta: number) => {
-    setSelectedRadius(prev => Math.max(RADIUS_MIN, Math.min(RADIUS_MAX, prev + delta)));
+  const handleSliderChange = useCallback((value: number) => {
+    const snapped = Math.round(value / SLIDER_STEP) * SLIDER_STEP;
+    setSliderValue(snapped);
   }, []);
+
+  const handleSliderComplete = useCallback((value: number) => {
+    const snapped = Math.round(value / SLIDER_STEP) * SLIDER_STEP;
+    setSliderValue(snapped);
+    if (sliderDebounce.current) clearTimeout(sliderDebounce.current);
+    sliderDebounce.current = setTimeout(() => {
+      handleChangeRadius(snapped);
+    }, 300);
+  }, [handleChangeRadius]);
+
+  // Rename location handler
+  const handleRenameLocation = useCallback((newName: string) => {
+    const f = locations[0];
+    if (!f || !newName.trim()) return;
+    editLocation(f.id, { name: newName.trim() });
+    logger.info('ui', `Location renamed: "${f.name}" → "${newName.trim()}"`);
+  }, [locations, editLocation]);
 
   // ============================================
   // AUTO-LOGGING TOGGLE
@@ -435,6 +474,8 @@ export function useMapScreen() {
     isGeocoding,
 
     // State A (adding) controls
+    addingStep,
+    confirmedAddress,
     fenceName,
     setFenceName,
     fenceNameError,
@@ -456,16 +497,22 @@ export function useMapScreen() {
     triggerMode,
     handleTriggerModeChange,
 
+    // Slider state
+    sliderValue,
+    handleSliderChange,
+    handleSliderComplete,
+
     // Handlers
     handleMapReady,
     handleMapPress,
     handleRegionChange,
     handleSelectSearchResult,
     handleGoToMyLocation,
+    handleConfirmLocation,
+    handleCancelNaming,
     handleAddFence,
     handleDeleteFence,
     handleChangeRadius,
-    handleStepRadius,
-    handleStepSelectedRadius,
+    handleRenameLocation,
   };
 }

@@ -5,15 +5,16 @@
  *       Amber dot active indicator, warm color palette
  */
 
-import React, { useState } from 'react';
+import React from 'react'; // useState needed when voice widget re-enabled
 import { Platform, View, Text } from 'react-native';
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../../src/constants/colors';
-import { FloatingMicButton } from '../../src/components/FloatingMicButton';
-import { VoiceCommandSheet } from '../../src/components/VoiceCommandSheet';
+// TODO: Re-enable when AI Chat Widget is extracted as reusable package
+// import { FloatingMicButton } from '../../src/components/FloatingMicButton';
+// import { VoiceCommandSheet } from '../../src/components/VoiceCommandSheet';
 
 const isWeb = Platform.OS === 'web';
 
@@ -46,7 +47,8 @@ export default function TabsLayout() {
   const bottomPadding = Platform.OS === 'android' ? Math.max(insets.bottom, 8) : 8;
   const tabBarHeight = 60 + insets.bottom;
 
-  const [showVoiceSheet, setShowVoiceSheet] = useState(false);
+  // TODO: Re-enable when AI Chat Widget is extracted as reusable package
+  // const [showVoiceSheet, setShowVoiceSheet] = useState(false);
 
   return (
     <GestureHandlerRootView style={[
@@ -89,12 +91,12 @@ export default function TabsLayout() {
           }}
         />
         <Tabs.Screen
-          name="history"
+          name="invoice"
           options={{
             tabBarIcon: ({ color, size }) => (
-              <Ionicons name="calendar-outline" size={size} color={color} />
+              <Ionicons name="document-text-outline" size={size} color={color} />
             ),
-            tabBarLabel: ({ focused }) => <TabLabel title="History" focused={focused} />,
+            tabBarLabel: ({ focused }) => <TabLabel title="Invoices" focused={focused} />,
           }}
         />
         <Tabs.Screen
@@ -107,12 +109,6 @@ export default function TabsLayout() {
           }}
         />
         <Tabs.Screen
-          name="invoice"
-          options={{
-            href: null,
-          }}
-        />
-        <Tabs.Screen
           name="team"
           options={{
             href: null,
@@ -121,14 +117,12 @@ export default function TabsLayout() {
         <Tabs.Screen
           name="settings"
           options={{
-            tabBarIcon: ({ color, size }) => (
-              <Ionicons name="ellipsis-horizontal" size={size} color={color} />
-            ),
-            tabBarLabel: ({ focused }) => <TabLabel title="More" focused={focused} />,
+            href: null,
           }}
         />
       </Tabs>
 
+      {/* TODO: Re-enable when AI Chat Widget is extracted as reusable package
       <FloatingMicButton
         onPress={() => setShowVoiceSheet(true)}
         tabBarHeight={tabBarHeight}
@@ -140,6 +134,7 @@ export default function TabsLayout() {
           onClose={() => setShowVoiceSheet(false)}
         />
       )}
+      */}
     </GestureHandlerRootView>
   );
 }

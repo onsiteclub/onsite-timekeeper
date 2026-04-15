@@ -12,23 +12,29 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  Pressable,
   Switch,
   Alert,
   Modal,
   TextInput,
   ActivityIndicator,
   Platform,
+  KeyboardAvoidingView,
+  Linking,
 } from 'react-native';
 import { startActivityAsync, ActivityAction } from 'expo-intent-launcher';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import Constants from 'expo-constants';
-import { colors } from '../../src/constants/colors';
+import { colors, spacing, borderRadius } from '../../src/constants/colors';
+import { AvatarCircle } from '../../src/components/ui/AvatarCircle';
 import { useAuthStore } from '../../src/stores/authStore';
-import { useSettingsStore } from '../../src/stores/settingsStore';
+import { useSettingsStore, DETECTION_ZONE_OPTIONS } from '../../src/stores/settingsStore';
 import { onUserLogout } from '../../src/lib/bootstrap';
 import { useBusinessProfileStore } from '../../src/stores/businessProfileStore';
-import { useLocationStore } from '../../src/stores/locationStore';
+import { useLocationStore, selectLocations } from '../../src/stores/locationStore';
+import { useAutoLogToggle } from '../../src/hooks/useAutoLogToggle';
+import { setSentryContext, captureException } from '../../src/lib/sentry';
 
 // ============================================
 // MAIN COMPONENT
@@ -40,19 +46,44 @@ export default function MoreScreen() {
   const settings = useSettingsStore();
   const businessProfile = useBusinessProfileStore(s => s.profile);
   const loadBusinessProfile = useBusinessProfileStore(s => s.loadProfile);
-  const enableAutoLogging = useLocationStore(s => s.enableAutoLogging);
-  const disableAutoLogging = useLocationStore(s => s.disableAutoLogging);
+  const locations = useLocationStore(selectLocations);
+  const editLocation = useLocationStore(s => s.editLocation);
+  const { autoLoggingEnabled, isToggling: isTogglingAutoLog, handleToggle: handleAutoLogToggle } = useAutoLogToggle();
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showRadiusPicker, setShowRadiusPicker] = useState(false);
   const [deleteInput, setDeleteInput] = useState('');
+  // UX6: Logout transition
+  const [isSigningOut, setIsSigningOut] = useState(false);
+
+  // ============================================
+  // SENTRY CONTEXT
+  // ============================================
+  React.useEffect(() => { setSentryContext('settings'); }, []);
 
   // ============================================
   // HANDLERS
   // ============================================
 
+  // TEMPORARY — Remove after confirming Sentry receives events
+  // TODO: Remove after Sentry verification
+  const handleTestSentry = () => {
+    if (!__DEV__) return;
+    try {
+      throw new Error('Sentry audit test — Timekeeper — safe to ignore');
+    } catch (e) {
+      captureException(e as Error);
+      Alert.alert(
+        'Sentry Test Sent',
+        'Check your Sentry dashboard for an event titled "Sentry audit test". If you see it, the pipeline works.\n\nNote: In __DEV__ mode, Sentry is disabled. Build a production build to test.'
+      );
+    }
+  };
+
   const handleVersionLongPress = () => {
     router.push('/logs' as any);
   };
 
+  // UX6: Logout with brief "Signing out..." transition
   const handleSignOut = async () => {
     Alert.alert(
       'Sign Out',
@@ -63,9 +94,12 @@ export default function MoreScreen() {
           text: 'Sign Out',
           style: 'destructive',
           onPress: async () => {
+            setIsSigningOut(true);
             await onUserLogout();
             await signOut();
-            router.replace('/');
+            setTimeout(() => {
+              router.replace('/');
+            }, 300);
           },
         },
       ]
@@ -107,6 +141,14 @@ export default function MoreScreen() {
     }
   };
 
+  const handleRadiusChange = async (newRadius: number) => {
+    settings.updateSetting('defaultRadius', newRadius);
+    for (const loc of locations) {
+      await editLocation(loc.id, { radius: newRadius });
+    }
+    setShowRadiusPicker(false);
+  };
+
   const handleOpenBatterySettings = async () => {
     try {
       await startActivityAsync(ActivityAction.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, {
@@ -122,23 +164,21 @@ export default function MoreScreen() {
     if (user?.id) loadBusinessProfile(user.id);
   }, [user?.id]);
 
-  // Get user initials for avatar
-  const getUserInitials = () => {
-    const name = getUserName();
-    if (name && name.includes(' ')) {
-      const parts = name.split(' ');
-      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-    }
-    if (name) return name[0].toUpperCase();
-    const email = user?.email || '';
-    return email ? email[0].toUpperCase() : '?';
-  };
-
   const appVersion = Constants.expoConfig?.version || '1.0.0';
 
   // ============================================
   // RENDER
   // ============================================
+
+  // UX6: Show signing out overlay
+  if (isSigningOut) {
+    return (
+      <View style={styles.signingOutOverlay}>
+        <ActivityIndicator size="small" color={colors.primary} />
+        <Text style={styles.signingOutText}>Signing out...</Text>
+      </View>
+    );
+  }
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -147,8 +187,8 @@ export default function MoreScreen() {
       {/* PROFILE CARD */}
       {/* ============================================ */}
       <View style={styles.profileSection}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{getUserInitials()}</Text>
+        <View style={{ marginBottom: spacing.md }}>
+          <AvatarCircle name={getUserName()} email={user?.email} size={72} />
         </View>
         <Text style={styles.profileName}>{getUserName() || 'Guest'}</Text>
         <Text style={styles.profileEmail}>{user?.email || ''}</Text>
@@ -182,29 +222,30 @@ export default function MoreScreen() {
             <Ionicons name="sync" size={20} color={colors.primary} style={styles.rowIcon} />
             <View>
               <Text style={styles.rowText}>Auto-logging</Text>
-              <Text style={{ fontSize: 12, color: colors.textSecondary, marginTop: 2 }}>Automatically log hours at your saved locations</Text>
+              <Text style={{ fontSize: 13, color: colors.textSecondary, marginTop: spacing.xxs }}>Automatically log hours at your saved locations</Text>
             </View>
           </View>
           <Switch
-            value={settings.autoLoggingEnabled}
-            onValueChange={(v) => {
-              if (v) {
-                enableAutoLogging();
-              } else {
-                Alert.alert(
-                  'Turn off Auto-logging?',
-                  'This will disable background location detection. Your hours will no longer be logged automatically and the map will be locked.\n\nYou can still log hours manually anytime.',
-                  [
-                    { text: 'Keep On', style: 'cancel' },
-                    { text: 'Turn Off', style: 'destructive', onPress: () => disableAutoLogging() },
-                  ]
-                );
-              }
-            }}
+            value={autoLoggingEnabled}
+            onValueChange={handleAutoLogToggle}
+            disabled={isTogglingAutoLog}
             trackColor={{ false: colors.border, true: colors.primarySoft }}
-            thumbColor={settings.autoLoggingEnabled ? colors.primary : '#FFFFFF'}
+            thumbColor={autoLoggingEnabled ? colors.primary : '#FFFFFF'}
           />
         </View>
+
+        <View style={styles.rowSeparator} />
+
+        <TouchableOpacity style={styles.row} onPress={() => setShowRadiusPicker(true)} activeOpacity={0.6}>
+          <View style={styles.rowLeft}>
+            <Ionicons name="radio-outline" size={20} color={colors.primary} style={styles.rowIcon} />
+            <Text style={styles.rowText}>Detection zone</Text>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+            <Text style={{ fontSize: 15, color: colors.textSecondary }}>{settings.defaultRadius}m</Text>
+            <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+          </View>
+        </TouchableOpacity>
 
         <View style={styles.rowSeparator} />
 
@@ -267,6 +308,20 @@ export default function MoreScreen() {
 
         <TouchableOpacity
           style={styles.row}
+          onPress={() => Linking.openURL('mailto:contact@onsiteclub.ca?subject=Timekeeper%20Support')}
+          activeOpacity={0.6}
+        >
+          <View style={styles.rowLeft}>
+            <Ionicons name="mail" size={20} color={colors.primary} style={styles.rowIcon} />
+            <Text style={styles.rowText}>Contact Support</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+        </TouchableOpacity>
+
+        <View style={styles.rowSeparator} />
+
+        <TouchableOpacity
+          style={styles.row}
           onLongPress={handleVersionLongPress}
           delayLongPress={5000}
           activeOpacity={1}
@@ -276,6 +331,20 @@ export default function MoreScreen() {
             <Text style={styles.rowText}>OnSite v{appVersion}</Text>
           </View>
         </TouchableOpacity>
+
+        {/* TEMPORARY — Remove after Sentry verification */}
+        {/* TODO: Remove after confirming Sentry receives events */}
+        {__DEV__ && (
+          <>
+            <View style={styles.rowSeparator} />
+            <TouchableOpacity style={styles.row} onPress={handleTestSentry} activeOpacity={0.6}>
+              <View style={styles.rowLeft}>
+                <Ionicons name="bug" size={20} color="#FF6B35" style={styles.rowIcon} />
+                <Text style={[styles.rowText, { color: '#FF6B35' }]}>Test Sentry (DEV only)</Text>
+              </View>
+            </TouchableOpacity>
+          </>
+        )}
       </View>
 
       {/* ============================================ */}
@@ -315,7 +384,10 @@ export default function MoreScreen() {
         animationType="fade"
         onRequestClose={() => setShowDeleteModal(false)}
       >
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
           <View style={styles.modalContent}>
             <Ionicons name="warning" size={40} color={colors.error} style={styles.modalIcon} />
             <Text style={styles.modalTitle}>Delete Account</Text>
@@ -350,14 +422,47 @@ export default function MoreScreen() {
                 disabled={deleteInput !== 'DELETE' || isLoading}
               >
                 {isLoading ? (
-                  <ActivityIndicator color="#fff" size="small" />
+                  <ActivityIndicator color={colors.white} size="small" />
                 ) : (
                   <Text style={styles.modalDeleteText}>Delete Forever</Text>
                 )}
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ============================================ */}
+      {/* DETECTION ZONE PICKER MODAL */}
+      {/* ============================================ */}
+      <Modal
+        visible={showRadiusPicker}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowRadiusPicker(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setShowRadiusPicker(false)}>
+          <View style={styles.pickerCard} onStartShouldSetResponder={() => true}>
+            <Text style={styles.pickerTitle}>Detection Zone</Text>
+            <Text style={styles.pickerSubtitle}>Radius around your location for automatic detection</Text>
+            {DETECTION_ZONE_OPTIONS.map((radius) => (
+              <TouchableOpacity
+                key={radius}
+                style={styles.pickerOption}
+                onPress={() => handleRadiusChange(radius)}
+                activeOpacity={0.6}
+              >
+                <Text style={[
+                  styles.pickerOptionText,
+                  settings.defaultRadius === radius && styles.pickerOptionActive,
+                ]}>{radius}m</Text>
+                {settings.defaultRadius === radius && (
+                  <Ionicons name="checkmark" size={20} color={colors.primary} />
+                )}
+              </TouchableOpacity>
+            ))}
+          </View>
+        </Pressable>
       </Modal>
     </ScrollView>
   );
@@ -373,7 +478,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   content: {
-    paddingBottom: 40,
+    paddingBottom: spacing['4xl'],
   },
 
   // ============================================
@@ -381,28 +486,14 @@ const styles = StyleSheet.create({
   // ============================================
   profileSection: {
     alignItems: 'center',
-    paddingTop: 32,
-    paddingBottom: 28,
-  },
-  avatar: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  avatarText: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#FFFFFF',
+    paddingTop: spacing['3xl'],
+    paddingBottom: spacing['3xl'],
   },
   profileName: {
     fontSize: 18,
     fontWeight: '600',
     color: colors.text,
-    marginBottom: 2,
+    marginBottom: spacing.xxs,
   },
   profileEmail: {
     fontSize: 14,
@@ -413,23 +504,23 @@ const styles = StyleSheet.create({
   // SECTION HEADERS
   // ============================================
   sectionHeader: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '600',
     color: colors.textSecondary,
     letterSpacing: 0.5,
     textTransform: 'uppercase',
-    marginLeft: 32,
-    marginTop: 24,
-    marginBottom: 6,
+    marginLeft: spacing['3xl'],
+    marginTop: spacing.xxl,
+    marginBottom: spacing.sm,
   },
 
   // ============================================
   // GROUPED CARD
   // ============================================
   groupedCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    marginHorizontal: 16,
+    backgroundColor: colors.white,
+    borderRadius: borderRadius.md,
+    marginHorizontal: spacing.lg,
     borderWidth: 0.5,
     borderColor: colors.border,
     overflow: 'hidden',
@@ -443,8 +534,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     minHeight: 52,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
   },
   rowLeft: {
     flexDirection: 'row',
@@ -452,7 +543,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   rowIcon: {
-    marginRight: 12,
+    marginRight: spacing.md,
     width: 24,
     textAlign: 'center',
   },
@@ -472,13 +563,13 @@ const styles = StyleSheet.create({
   // ============================================
   reviewBadge: {
     backgroundColor: colors.warningSoft,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 8,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xxs,
+    borderRadius: borderRadius.sm,
   },
   reviewBadgeText: {
     color: colors.warning,
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '600',
   },
 
@@ -486,13 +577,13 @@ const styles = StyleSheet.create({
   // SIGN OUT
   // ============================================
   signOutSection: {
-    marginTop: 32,
+    marginTop: spacing['3xl'],
   },
   signOutRow: {
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: 52,
-    paddingVertical: 8,
+    paddingVertical: spacing.sm,
   },
   signOutText: {
     fontSize: 15,
@@ -506,11 +597,11 @@ const styles = StyleSheet.create({
   deleteAccountRow: {
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 16,
-    paddingVertical: 12,
+    marginTop: spacing.lg,
+    paddingVertical: spacing.md,
   },
   deleteAccountText: {
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: '500',
     color: colors.textSecondary,
   },
@@ -527,34 +618,34 @@ const styles = StyleSheet.create({
   // ============================================
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    backgroundColor: colors.overlayHeavy,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 24,
+    padding: spacing.xxl,
   },
   modalContent: {
     backgroundColor: colors.surface,
-    borderRadius: 16,
-    padding: 24,
+    borderRadius: borderRadius.lg,
+    padding: spacing.xxl,
     width: '100%',
     maxWidth: 400,
     alignItems: 'center',
   },
   modalIcon: {
-    marginBottom: 12,
+    marginBottom: spacing.md,
   },
   modalTitle: {
-    fontSize: 20,
-    fontWeight: '700',
+    fontSize: 18,
+    fontWeight: '600',
     color: colors.text,
-    marginBottom: 8,
+    marginBottom: spacing.sm,
   },
   modalMessage: {
     fontSize: 14,
     color: colors.textSecondary,
     textAlign: 'center',
     lineHeight: 20,
-    marginBottom: 16,
+    marginBottom: spacing.lg,
   },
   modalBold: {
     fontWeight: '700',
@@ -564,25 +655,25 @@ const styles = StyleSheet.create({
     width: '100%',
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    borderRadius: borderRadius.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
     fontSize: 16,
     color: colors.text,
     textAlign: 'center',
     letterSpacing: 2,
-    marginBottom: 20,
+    marginBottom: spacing.xl,
     backgroundColor: colors.background,
   },
   modalButtons: {
     flexDirection: 'row',
-    gap: 12,
+    gap: spacing.md,
     width: '100%',
   },
   modalCancelButton: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 8,
+    paddingVertical: 14,
+    borderRadius: borderRadius.sm,
     alignItems: 'center',
     backgroundColor: colors.background,
     borderWidth: 1,
@@ -595,8 +686,8 @@ const styles = StyleSheet.create({
   },
   modalDeleteButton: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 8,
+    paddingVertical: 14,
+    borderRadius: borderRadius.sm,
     alignItems: 'center',
     backgroundColor: colors.error,
   },
@@ -607,5 +698,56 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: '#fff',
+  },
+
+  // ============================================
+  // DETECTION ZONE PICKER
+  // ============================================
+  pickerCard: {
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.lg,
+    padding: spacing.xl,
+    width: '100%',
+    maxWidth: 340,
+  },
+  pickerTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: colors.text,
+    marginBottom: spacing.xs,
+  },
+  pickerSubtitle: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    marginBottom: spacing.lg,
+  },
+  pickerOption: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 14,
+    borderTopWidth: 0.5,
+    borderTopColor: colors.borderLight,
+  },
+  pickerOptionText: {
+    fontSize: 16,
+    color: colors.text,
+  },
+  pickerOptionActive: {
+    fontWeight: '600',
+    color: colors.primary,
+  },
+
+  // UX6: Signing out overlay
+  signingOutOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: colors.background,
+    gap: spacing.md,
+  },
+  signingOutText: {
+    fontSize: 15,
+    color: colors.textSecondary,
   },
 });

@@ -10,7 +10,7 @@
  */
 
 import { StyleSheet, Dimensions, Platform } from 'react-native';
-import { colors, withOpacity, shadows } from '../../../constants/colors';
+import { colors, withOpacity, shadows, spacing, borderRadius, typography } from '../../../constants/colors';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 export const MONTH_DAY_SIZE = (SCREEN_WIDTH - 32 - 12) / 7;
@@ -19,11 +19,11 @@ export const reportsStyles = StyleSheet.create({
   // ============================================
   // CALENDAR CARD
   // ============================================
-  calendarCard: { 
-    padding: 16, 
+  calendarCard: {
+    padding: spacing.lg,
     marginBottom: 0,
     backgroundColor: colors.card,
-    borderRadius: 16,
+    borderRadius: borderRadius.lg,
     borderWidth: 1,
     borderColor: colors.border,
     ...shadows.sm,
@@ -34,27 +34,27 @@ export const reportsStyles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   calendarCenter: { alignItems: 'center', flex: 1 },
-  navBtn: { 
-    width: 36, 
-    height: 36, 
-    borderRadius: 18, 
-    backgroundColor: colors.surfaceMuted, 
-    justifyContent: 'center', 
+  navBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: borderRadius.full,
+    backgroundColor: colors.surfaceMuted,
+    justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
     borderColor: colors.border,
   },
-  navBtnText: { color: colors.textSecondary, fontSize: 14, fontWeight: 'bold' },
-  calendarTitle: { 
-    fontSize: 13, 
-    fontWeight: '500', 
-    color: colors.textSecondary, 
+  navBtnText: { color: colors.textSecondary, ...typography.bodyMd, fontWeight: '700' },
+  calendarTitle: {
+    ...typography.bodySm,
+    fontWeight: '500',
+    color: colors.textSecondary,
     textAlign: 'center',
   },
-  calendarTotal: { 
-    fontSize: 24, 
-    fontWeight: '700', 
-    color: colors.text, 
+  calendarTotal: {
+    ...typography.displaySm,
+    fontWeight: '700',
+    color: colors.text,
     textAlign: 'center',
   },
 
@@ -62,20 +62,20 @@ export const reportsStyles = StyleSheet.create({
   viewToggleContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginTop: 12,
-    gap: 8,
+    marginTop: spacing.md,
+    gap: spacing.sm,
   },
   viewToggleBtn: {
-    paddingVertical: 6,
-    paddingHorizontal: 20,
-    borderRadius: 16,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.xl,
+    borderRadius: borderRadius.lg,
     backgroundColor: colors.surfaceMuted,
   },
   viewToggleBtnActive: {
     backgroundColor: colors.accent,
   },
   viewToggleText: {
-    fontSize: 13,
+    ...typography.bodySm,
     fontWeight: '600',
     color: colors.textSecondary,
   },
@@ -86,28 +86,28 @@ export const reportsStyles = StyleSheet.create({
   // ============================================
   // SELECTION BAR
   // ============================================
-  selectionBar: { 
-    flexDirection: 'row', 
-    justifyContent: 'space-between', 
-    alignItems: 'center', 
-    backgroundColor: colors.accent, 
-    paddingVertical: 8, 
-    paddingHorizontal: 16, 
-    borderRadius: 8, 
-    marginBottom: 12,
+  selectionBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: colors.accent,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    borderRadius: borderRadius.sm,
+    marginBottom: spacing.md,
   },
-  selectionText: { color: colors.white, fontSize: 14, fontWeight: '500' },
-  selectionCancel: { color: colors.white, fontSize: 14, fontWeight: '600' },
+  selectionText: { color: colors.white, ...typography.bodyMd, fontWeight: '500' },
+  selectionCancel: { color: colors.white, ...typography.bodyMd, fontWeight: '600' },
 
   // ============================================
   // WEEK VIEW - DAY ROW
   // ============================================
-  dayRow: { 
-    flexDirection: 'row', 
-    backgroundColor: colors.card, 
-    borderRadius: 12, 
-    padding: 12, 
-    marginBottom: 8, 
+  dayRow: {
+    flexDirection: 'row',
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
     alignItems: 'center',
     borderWidth: 1,
     borderColor: colors.border,
@@ -129,70 +129,70 @@ export const reportsStyles = StyleSheet.create({
     opacity: 0.5,
   },
   
-  checkbox: { 
-    width: 24, 
-    height: 24, 
-    borderRadius: 6, 
-    borderWidth: 2, 
-    borderColor: colors.border, 
-    marginRight: 10, 
-    justifyContent: 'center', 
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: borderRadius.xs,
+    borderWidth: 2,
+    borderColor: colors.border,
+    marginRight: spacing.md,
+    justifyContent: 'center',
     alignItems: 'center',
   },
   checkboxSelected: { 
     backgroundColor: colors.accent, 
     borderColor: colors.accent,
   },
-  checkmark: { color: colors.white, fontSize: 14, fontWeight: 'bold' },
-  
-  dayLeft: { width: 44, alignItems: 'center', marginRight: 12 },
-  dayName: { fontSize: 11, color: colors.textSecondary, fontWeight: '500' },
+  checkmark: { color: colors.white, ...typography.bodyMd, fontWeight: '700' },
+
+  dayLeft: { width: 44, alignItems: 'center', marginRight: spacing.md },
+  dayName: { ...typography.labelMd, color: colors.textSecondary, fontWeight: '500' },
   dayNameToday: { color: colors.accent },
-  dayCircle: { 
-    width: 32, 
-    height: 32, 
-    borderRadius: 16, 
+  dayCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: borderRadius.lg,
     backgroundColor: colors.surfaceMuted,
-    justifyContent: 'center', 
-    alignItems: 'center', 
-    marginTop: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: spacing.xxs,
   },
   dayCircleToday: { 
     backgroundColor: colors.primary,
   },
-  dayNumber: { fontSize: 14, fontWeight: '600', color: colors.text },
+  dayNumber: { ...typography.bodyMd, fontWeight: '600', color: colors.text },
   dayNumberToday: { color: colors.buttonPrimaryText },
   
   dayRight: { flex: 1 },
   dayEmpty: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  dayEmptyText: { fontSize: 13, color: colors.textMuted, fontStyle: 'italic' },
+  dayEmptyText: { ...typography.bodySm, color: colors.textMuted, fontStyle: 'italic' },
   dayPreview: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center' },
-  dayPreviewDuration: { fontSize: 15, fontWeight: '600', color: colors.text },
-  expandIcon: { fontSize: 12, color: colors.textSecondary, marginLeft: 8 },
+  dayPreviewDuration: { ...typography.bodyLg, fontWeight: '600', color: colors.text },
+  expandIcon: { ...typography.labelLg, color: colors.textSecondary, marginLeft: spacing.sm },
 
   // ============================================
   // MONTH VIEW
   // ============================================
   monthContainer: {
-    marginBottom: 8,
-    marginTop: 16,
+    marginBottom: spacing.sm,
+    marginTop: spacing.lg,
   },
   monthWeekHeader: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    marginBottom: 8,
+    marginBottom: spacing.sm,
   },
   monthWeekHeaderText: {
     width: MONTH_DAY_SIZE,
     textAlign: 'center',
-    fontSize: 12,
+    ...typography.labelLg,
     fontWeight: '600',
     color: colors.textSecondary,
   },
   monthGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 4,
+    gap: spacing.xs,
   },
   monthDayEmpty: {
     width: MONTH_DAY_SIZE,
@@ -203,7 +203,7 @@ export const reportsStyles = StyleSheet.create({
     height: MONTH_DAY_SIZE,
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: 10,
+    borderRadius: borderRadius.sm,
     backgroundColor: colors.surfaceMuted,
   },
   monthDayToday: {
@@ -217,24 +217,24 @@ export const reportsStyles = StyleSheet.create({
     backgroundColor: withOpacity(colors.primary, 0.15),
   },
   monthDayNumber: {
-    fontSize: 14,
+    ...typography.bodyMd,
     fontWeight: '500',
     color: colors.text,
   },
   monthDayNumberToday: {
     color: colors.accent,
-    fontWeight: 'bold',
+    fontWeight: '700',
   },
   monthDayNumberSelected: {
     color: colors.white,
-    fontWeight: 'bold',
+    fontWeight: '700',
   },
   monthDayIndicator: {
     width: 4,
     height: 4,
-    borderRadius: 2,
+    borderRadius: borderRadius.full,
     backgroundColor: colors.accent,
-    marginTop: 2,
+    marginTop: spacing.xxs,
   },
   monthDayWeekend: {
     backgroundColor: withOpacity(colors.textMuted, 0.15),
@@ -247,43 +247,43 @@ export const reportsStyles = StyleSheet.create({
   },
   monthDayTagIndicator: {
     position: 'absolute',
-    top: 2,
-    right: 2,
+    top: spacing.xxs,
+    right: spacing.xxs,
     width: 8,
     height: 8,
-    borderRadius: 4,
+    borderRadius: borderRadius.full,
   },
   monthExpandedReport: {
-    marginTop: 12,
+    marginTop: spacing.md,
   },
 
   // ============================================
   // EXPORT BUTTONS
   // ============================================
-  exportBtn: { 
-    backgroundColor: colors.primary, 
-    paddingVertical: 14, 
-    borderRadius: 12, 
-    alignItems: 'center', 
-    marginTop: 16,
+  exportBtn: {
+    backgroundColor: colors.primary,
+    paddingVertical: spacing.md,
+    borderRadius: borderRadius.md,
+    alignItems: 'center',
+    marginTop: spacing.lg,
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 8,
+    gap: spacing.sm,
   },
-  exportBtnText: { color: colors.buttonPrimaryText, fontSize: 15, fontWeight: '600' },
-  exportBtnSecondary: { 
-    backgroundColor: colors.card, 
-    paddingVertical: 14, 
-    borderRadius: 12, 
-    alignItems: 'center', 
-    marginTop: 16, 
-    borderWidth: 1, 
+  exportBtnText: { color: colors.buttonPrimaryText, ...typography.bodyLg, fontWeight: '600' },
+  exportBtnSecondary: {
+    backgroundColor: colors.card,
+    paddingVertical: spacing.md,
+    borderRadius: borderRadius.md,
+    alignItems: 'center',
+    marginTop: spacing.lg,
+    borderWidth: 1,
     borderColor: colors.border,
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 8,
+    gap: spacing.sm,
   },
-  exportBtnSecondaryText: { color: colors.text, fontSize: 15, fontWeight: '600' },
+  exportBtnSecondaryText: { color: colors.text, ...typography.bodyLg, fontWeight: '600' },
 
   // ============================================
   // DAY DETAIL MODAL
@@ -293,49 +293,48 @@ export const reportsStyles = StyleSheet.create({
     backgroundColor: colors.overlay,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 48,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing['4xl'],
   },
   dayModalContainer: {
     flex: 1,
     width: '100%',
     backgroundColor: colors.backgroundSecondary,
-    borderRadius: 20,
+    borderRadius: borderRadius.xl,
     overflow: 'hidden',
     ...shadows.lg,
   },
   dayModalContent: {
     backgroundColor: colors.backgroundSecondary,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 20,
-    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+    borderTopLeftRadius: borderRadius.xxl,
+    borderTopRightRadius: borderRadius.xxl,
+    padding: spacing.xl,
+    paddingBottom: Platform.OS === 'ios' ? 34 : spacing.xl,
     maxHeight: '85%',
   },
   dayModalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.lg,
     backgroundColor: colors.surfaceMuted,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
   dayModalTitle: {
-    fontSize: 16,
-    fontWeight: '600',
+    ...typography.titleSm,
     color: colors.text,
     flex: 1,
   },
   dayModalHeaderActions: {
     flexDirection: 'row',
-    gap: 8,
+    gap: spacing.sm,
   },
   dayModalHeaderBtn: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: borderRadius.xl,
     backgroundColor: colors.card,
     justifyContent: 'center',
     alignItems: 'center',
@@ -343,15 +342,15 @@ export const reportsStyles = StyleSheet.create({
     borderColor: colors.border,
   },
   dayModalHeaderBtnText: {
-    fontSize: 18,
+    ...typography.titleMd,
   },
   dayModalCloseHeaderBtn: {
     backgroundColor: colors.accent,
     borderColor: colors.accent,
   },
   dayModalCloseHeaderBtnText: {
-    fontSize: 16,
-    fontWeight: 'bold',
+    ...typography.titleSm,
+    fontWeight: '700',
     color: colors.white,
   },
   
@@ -360,21 +359,21 @@ export const reportsStyles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     backgroundColor: colors.surfaceMuted,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
   dayModalSelectionText: {
-    fontSize: 13,
+    ...typography.bodySm,
     color: colors.textSecondary,
   },
   dayModalSelectionActions: {
     flexDirection: 'row',
-    gap: 16,
+    gap: spacing.lg,
   },
   dayModalSelectionBtn: {
-    fontSize: 13,
+    ...typography.bodySm,
     fontWeight: '600',
     color: colors.accent,
   },
@@ -383,8 +382,8 @@ export const reportsStyles = StyleSheet.create({
     flex: 1,
   },
   dayModalSessionsContent: {
-    padding: 16,
-    paddingBottom: 20,
+    padding: spacing.lg,
+    paddingBottom: spacing.xl,
   },
   dayModalSessions: {
     maxHeight: 350,
@@ -395,22 +394,22 @@ export const reportsStyles = StyleSheet.create({
   },
   dayModalEmptyIcon: {
     fontSize: 48,
-    marginBottom: 16,
+    marginBottom: spacing.lg,
     opacity: 0.3,
   },
   dayModalEmptyText: {
-    fontSize: 16,
+    ...typography.titleSm,
     color: colors.textSecondary,
-    marginBottom: 20,
+    marginBottom: spacing.xl,
   },
   dayModalAddBtn: {
     backgroundColor: colors.primary,
-    paddingVertical: 14,
-    paddingHorizontal: 24,
-    borderRadius: 25,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xxl,
+    borderRadius: borderRadius.xxl,
   },
   dayModalAddBtnText: {
-    fontSize: 15,
+    ...typography.bodyLg,
     fontWeight: '600',
     color: colors.buttonPrimaryText,
   },
@@ -418,10 +417,10 @@ export const reportsStyles = StyleSheet.create({
   dayModalSession: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    padding: 16,
+    padding: spacing.lg,
     backgroundColor: colors.card,
-    borderRadius: 16,
-    marginBottom: 10,
+    borderRadius: borderRadius.lg,
+    marginBottom: spacing.md,
     borderWidth: 1,
     borderColor: colors.border,
   },
@@ -433,11 +432,11 @@ export const reportsStyles = StyleSheet.create({
   dayModalCheckbox: {
     width: 26,
     height: 26,
-    borderRadius: 8,
+    borderRadius: borderRadius.sm,
     borderWidth: 2,
     borderColor: colors.border,
-    marginRight: 14,
-    marginTop: 2,
+    marginRight: spacing.md,
+    marginTop: spacing.xxs,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -447,8 +446,8 @@ export const reportsStyles = StyleSheet.create({
   },
   dayModalCheckmark: {
     color: colors.white,
-    fontSize: 14,
-    fontWeight: 'bold',
+    ...typography.bodyMd,
+    fontWeight: '700',
   },
   dayModalSessionInfo: {
     flex: 1,
@@ -457,99 +456,97 @@ export const reportsStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 6,
+    marginBottom: spacing.sm,
   },
   dayModalSessionLocation: {
-    fontSize: 16,
-    fontWeight: '600',
+    ...typography.titleSm,
     color: colors.text,
   },
   dayModalSessionDot: {
     width: 12,
     height: 12,
-    borderRadius: 6,
+    borderRadius: borderRadius.full,
   },
   dayModalSessionTime: {
-    fontSize: 14,
+    ...typography.bodyMd,
     color: colors.textSecondary,
-    marginBottom: 4,
+    marginBottom: spacing.xs,
   },
   dayModalSessionTimeEdited: {
     color: colors.warning,
   },
   dayModalSessionPause: {
-    fontSize: 13,
+    ...typography.bodySm,
     color: colors.textTertiary,
-    marginBottom: 4,
+    marginBottom: spacing.xs,
   },
   dayModalSessionTotal: {
-    fontSize: 18,
-    fontWeight: 'bold',
+    ...typography.titleMd,
+    fontWeight: '700',
     color: colors.text,
-    marginTop: 6,
+    marginTop: spacing.sm,
   },
 
   dayModalTotalBar: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 20,
+    paddingVertical: spacing.lg,
+    paddingHorizontal: spacing.xl,
     backgroundColor: colors.surfaceMuted,
     borderTopWidth: 1,
     borderTopColor: colors.border,
   },
   dayModalTotalLabel: {
-    fontSize: 16,
+    ...typography.titleSm,
     fontWeight: '500',
     color: colors.textSecondary,
   },
   dayModalTotalValue: {
-    fontSize: 24,
-    fontWeight: 'bold',
+    ...typography.displaySm,
+    fontWeight: '700',
     color: colors.text,
   },
 
   dayModalFooter: {
     flexDirection: 'row',
-    gap: 12,
-    marginTop: 16,
+    gap: spacing.md,
+    marginTop: spacing.lg,
   },
   dayModalCancelBtn: {
     flex: 1,
-    paddingVertical: 14,
-    borderRadius: 12,
+    paddingVertical: spacing.md,
+    borderRadius: borderRadius.md,
     backgroundColor: colors.surfaceMuted,
     alignItems: 'center',
   },
   dayModalCancelBtnText: {
-    fontSize: 15,
+    ...typography.bodyLg,
     fontWeight: '600',
     color: colors.textSecondary,
   },
   dayModalExportBtn: {
     flex: 2,
-    paddingVertical: 14,
-    borderRadius: 12,
+    paddingVertical: spacing.md,
+    borderRadius: borderRadius.md,
     backgroundColor: colors.primary,
     alignItems: 'center',
   },
   dayModalExportBtnText: {
-    fontSize: 15,
+    ...typography.bodyLg,
     fontWeight: '600',
     color: colors.buttonPrimaryText,
   },
   
   dayModalCloseBtn: {
-    paddingVertical: 16,
+    paddingVertical: spacing.lg,
     backgroundColor: colors.surfaceMuted,
     alignItems: 'center',
     borderTopWidth: 1,
     borderTopColor: colors.border,
   },
   dayModalCloseBtnText: {
-    fontSize: 16,
-    fontWeight: '600',
+    ...typography.titleSm,
     color: colors.textSecondary,
   },
 
@@ -561,36 +558,36 @@ export const reportsStyles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     backgroundColor: colors.accent,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    marginTop: 16,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    borderRadius: borderRadius.md,
+    marginTop: spacing.lg,
   },
   batchActionText: {
-    fontSize: 14,
+    ...typography.bodyMd,
     fontWeight: '600',
     color: colors.white,
   },
   batchActionButtons: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: spacing.sm,
   },
   batchActionBtn: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: borderRadius.xl,
     backgroundColor: colors.white,
     justifyContent: 'center',
     alignItems: 'center',
   },
   batchActionBtnText: {
-    fontSize: 18,
+    ...typography.titleMd,
   },
   batchActionBtnCancel: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: borderRadius.xl,
     backgroundColor: 'transparent',
     borderWidth: 2,
     borderColor: colors.white,
@@ -598,8 +595,8 @@ export const reportsStyles = StyleSheet.create({
     alignItems: 'center',
   },
   batchActionCancelText: {
-    fontSize: 16,
-    fontWeight: 'bold',
+    ...typography.titleSm,
+    fontWeight: '700',
     color: colors.white,
   },
 });

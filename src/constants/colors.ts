@@ -163,7 +163,8 @@ export const colors = {
   badgeInfo: '#3B82F6',
 
   // Overlay
-  overlay: 'rgba(26, 26, 26, 0.6)',       // Warm dark with opacity
+  overlay: 'rgba(0, 0, 0, 0.4)',          // Standard modal overlay
+  overlayHeavy: 'rgba(0, 0, 0, 0.6)',     // High-emphasis overlay
   overlayLight: 'rgba(26, 26, 26, 0.4)',
 
   // Graph styles
@@ -171,6 +172,17 @@ export const colors = {
   steel: '#E5E5E3',                // Grid lines
   graphBar: '#C58B1B',             // Bar chart color (amber)
   graphBarMuted: '#E5E5E3',        // Empty/no-data bar
+
+  // ============================================
+  // WIZARD & INVOICE
+  // ============================================
+  amberDark: '#D4A017',            // Invoice wizard accent, darker amber
+  backgroundWarm: '#F5F5F0',       // Invoice/map warm background variant
+  charcoal: '#2C2C2A',            // Dark buttons, wizard backgrounds
+  amberSoftWarm: '#FFF8E7',       // Soft amber highlights
+  borderWarm: '#D3D1C7',          // Warm gray borders, wizard stepper
+  successTeal: '#1D9E75',         // Auto-log status teal
+  amberMid: '#F59E0B',            // Amber-500 variant, day off tags
 };
 
 /**
@@ -216,23 +228,28 @@ export function getRandomGeofenceColor(): string {
  * Spacing tokens
  */
 export const spacing = {
-  xs: 4,
-  sm: 8,
-  md: 16,
-  lg: 24,
-  xl: 32,
-  xxl: 48,
+  xxs: 2,    // hairline gaps
+  xs: 4,     // tight gaps
+  sm: 8,     // small gaps, icon padding
+  md: 12,    // medium gaps (common in codebase)
+  lg: 16,    // standard padding, card content
+  xl: 20,    // section gaps
+  xxl: 24,   // large section gaps
+  '3xl': 32, // screen padding
+  '4xl': 48, // major sections
 };
 
 /**
  * Border radius tokens
  */
 export const borderRadius = {
-  sm: 10,
-  md: 14,
-  lg: 18,
-  xl: 24,
-  full: 9999,
+  xs: 4,     // tiny elements, inner corners
+  sm: 8,     // small pills, chips, inputs
+  md: 12,    // cards, containers (most common)
+  lg: 16,    // modals, large cards
+  xl: 20,    // bottom sheets, large modals
+  xxl: 24,   // special emphasis
+  full: 9999, // circles, fully rounded
 };
 
 /**
@@ -263,39 +280,26 @@ export const shadows = {
 };
 
 /**
- * Typography (reference values)
+ * Typography scale (12 levels)
  */
 export const typography = {
-  // Screen title
-  screenTitle: {
-    fontSize: 28,
-    fontWeight: '700' as const,
-    color: colors.text,
-    lineHeight: 34,
-  },
-  // Card title
-  cardTitle: {
-    fontSize: 15,
-    fontWeight: '600' as const,
-    color: colors.text,
-  },
-  // Timer
-  timer: {
-    fontSize: 36,
-    fontWeight: '700' as const,
-    color: colors.text,
-    letterSpacing: 0.5,
-  },
-  // Labels
-  label: {
-    fontSize: 13,
-    fontWeight: '500' as const,
-    color: colors.textSecondary,
-  },
-  // Meta/Small
-  meta: {
-    fontSize: 12,
-    fontWeight: '400' as const,
-    color: colors.textSecondary,
-  },
+  // Display — hero numbers, timers
+  displayLg: { fontSize: 42, fontWeight: '500' as const },
+  displayMd: { fontSize: 32, fontWeight: '500' as const },
+  displaySm: { fontSize: 24, fontWeight: '500' as const },
+
+  // Headings
+  titleLg: { fontSize: 20, fontWeight: '600' as const },
+  titleMd: { fontSize: 18, fontWeight: '600' as const },
+  titleSm: { fontSize: 16, fontWeight: '600' as const },
+
+  // Body
+  bodyLg: { fontSize: 15, fontWeight: '400' as const },
+  bodyMd: { fontSize: 14, fontWeight: '400' as const },
+  bodySm: { fontSize: 13, fontWeight: '400' as const },
+
+  // Small — labels, captions, meta
+  labelLg: { fontSize: 12, fontWeight: '500' as const },
+  labelMd: { fontSize: 12, fontWeight: '500' as const },
+  labelSm: { fontSize: 11, fontWeight: '400' as const },
 };

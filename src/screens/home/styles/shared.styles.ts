@@ -10,29 +10,29 @@
  */
 
 import { StyleSheet, Dimensions, Platform, StatusBar } from 'react-native';
-import { colors, withOpacity, shadows } from '../../../constants/colors';
+import { colors, withOpacity, shadows, spacing, borderRadius, typography } from '../../../constants/colors';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 export const MONTH_DAY_SIZE = (SCREEN_WIDTH - 32 - 12) / 7;
 
 export const sharedStyles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  content: { 
-    padding: 16,
-    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 24) + 16 : 60,
+  content: {
+    padding: spacing.lg,
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 24) + spacing.lg : 60,
   },
 
   // ============================================
   // HEADER
   // ============================================
-  header: { 
-    flexDirection: 'row', 
-    justifyContent: 'space-between', 
-    alignItems: 'center', 
-    marginBottom: 20,
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.xl,
   },
   headerLogoContainer: {
-    padding: 4,
+    padding: spacing.xs,
   },
   headerLogo: { 
     width: 110, 
@@ -41,10 +41,10 @@ export const sharedStyles = StyleSheet.create({
   headerUserContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: spacing.sm,
   },
   headerUserName: {
-    fontSize: 14,
+    ...typography.bodyMd,
     fontWeight: '500',
     color: colors.textSecondary,
     maxWidth: 120,
@@ -52,7 +52,7 @@ export const sharedStyles = StyleSheet.create({
   headerUserAvatar: {
     width: 36,
     height: 36,
-    borderRadius: 18,
+    borderRadius: borderRadius.full,
     backgroundColor: colors.surfaceMuted,
     justifyContent: 'center',
     alignItems: 'center',
@@ -65,7 +65,7 @@ export const sharedStyles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'transparent',
     paddingTop: Platform.OS === 'ios' ? 100 : 80,
-    paddingHorizontal: 20,
+    paddingHorizontal: spacing.xl,
   },
   tooltipContainer: {
     alignSelf: 'flex-start',
@@ -79,21 +79,21 @@ export const sharedStyles = StyleSheet.create({
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
     borderBottomColor: colors.card,
-    marginLeft: 20,
+    marginLeft: spacing.xl,
     ...shadows.md,
   },
   tooltipContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: spacing.md,
     backgroundColor: colors.card,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 12,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    borderRadius: borderRadius.md,
     ...shadows.md,
   },
   tooltipText: {
-    fontSize: 14,
+    ...typography.bodyMd,
     fontWeight: '500',
     color: colors.text,
     flex: 1,
@@ -101,35 +101,35 @@ export const sharedStyles = StyleSheet.create({
   tooltipButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: spacing.xs,
     backgroundColor: colors.primary,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: borderRadius.sm,
   },
   tooltipButtonText: {
-    fontSize: 13,
+    ...typography.bodySm,
     fontWeight: '600',
     color: colors.buttonPrimaryText,
   },
 
-  greeting: { 
-    fontSize: 14, 
-    fontWeight: '500', 
+  greeting: {
+    ...typography.bodyMd,
+    fontWeight: '500',
     color: colors.textSecondary,
   },
 
   // ============================================
   // TIMER CARD (Active Session)
   // ============================================
-  timerCard: { 
-    padding: 24, 
-    marginBottom: 16, 
+  timerCard: {
+    padding: spacing.xxl,
+    marginBottom: spacing.lg,
     alignItems: 'center',
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 16,
+    borderRadius: borderRadius.lg,
     ...shadows.md,
   },
   timerCardActive: { 
@@ -147,21 +147,21 @@ export const sharedStyles = StyleSheet.create({
   activeBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: spacing.sm,
     backgroundColor: colors.successSoft,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 999,
-    marginBottom: 16,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: borderRadius.full,
+    marginBottom: spacing.lg,
   },
   activeBadgeDot: {
     width: 6,
     height: 6,
-    borderRadius: 3,
+    borderRadius: borderRadius.full,
     backgroundColor: colors.success,
   },
   activeBadgeText: {
-    fontSize: 12,
+    ...typography.labelLg,
     fontWeight: '700',
     color: colors.success,
     letterSpacing: 0.4,
@@ -171,21 +171,21 @@ export const sharedStyles = StyleSheet.create({
   idleBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: spacing.sm,
     backgroundColor: colors.surfaceMuted,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 999,
-    marginBottom: 16,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: borderRadius.full,
+    marginBottom: spacing.lg,
   },
   idleBadgeDot: {
     width: 6,
     height: 6,
-    borderRadius: 3,
+    borderRadius: borderRadius.full,
     backgroundColor: colors.textSecondary,
   },
   idleBadgeText: {
-    fontSize: 12,
+    ...typography.labelLg,
     fontWeight: '600',
     color: colors.textSecondary,
     letterSpacing: 0.4,
@@ -196,70 +196,70 @@ export const sharedStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: colors.surfaceMuted,
-    paddingVertical: 6,
-    paddingHorizontal: 14,
-    borderRadius: 20,
-    marginBottom: 8,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: borderRadius.xl,
+    marginBottom: spacing.sm,
   },
   locationBadgeText: {
-    fontSize: 13,
+    ...typography.bodySm,
     fontWeight: '600',
     color: colors.text,
   },
   
   // Timer display
   timerLabel: {
-    fontSize: 13,
+    ...typography.bodySm,
     fontWeight: '500',
     color: colors.textSecondary,
-    marginBottom: 4,
+    marginBottom: spacing.xs,
   },
-  timer: { 
-    fontSize: 40, 
-    fontWeight: '700', 
-    fontVariant: ['tabular-nums'], 
-    color: colors.text, 
-    marginBottom: 8,
+  timer: {
+    fontSize: 40,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+    color: colors.text,
+    marginBottom: spacing.sm,
     letterSpacing: 0.5,
   },
   timerPaused: { opacity: 0.4 },
-  timerHint: { 
-    fontSize: 14, 
-    color: colors.textSecondary, 
-    marginBottom: 8,
+  timerHint: {
+    ...typography.bodyMd,
+    color: colors.textSecondary,
+    marginBottom: spacing.sm,
   },
   
   // Geofence status
   geofenceStatus: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginBottom: 16,
+    gap: spacing.sm,
+    marginBottom: spacing.lg,
   },
   geofenceStatusText: {
-    fontSize: 12,
+    ...typography.labelLg,
     fontWeight: '500',
     color: colors.success,
   },
   
   // Timer actions
-  timerActions: { 
-    flexDirection: 'row', 
-    justifyContent: 'center', 
-    gap: 12,
-    marginTop: 8,
+  timerActions: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: spacing.md,
+    marginTop: spacing.sm,
   },
-  actionBtn: { 
-    paddingVertical: 12, 
-    paddingHorizontal: 24, 
-    borderRadius: 12, 
-    minWidth: 110, 
+  actionBtn: {
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xxl,
+    borderRadius: borderRadius.md,
+    minWidth: 110,
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 6,
+    gap: spacing.sm,
   },
-  actionBtnText: { fontSize: 14, fontWeight: '600' },
+  actionBtnText: { ...typography.bodyMd, fontWeight: '600' },
   
   pauseBtn: { 
     backgroundColor: colors.surfaceMuted, 
@@ -275,22 +275,21 @@ export const sharedStyles = StyleSheet.create({
   startBtnText: { color: colors.buttonPrimaryText },
 
   // Break/Pause display
-  pausaContainer: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    justifyContent: 'center', 
-    backgroundColor: colors.surfaceMuted, 
-    paddingVertical: 8, 
-    paddingHorizontal: 16, 
-    borderRadius: 20, 
-    marginBottom: 16, 
-    gap: 8,
+  pausaContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surfaceMuted,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    borderRadius: borderRadius.xl,
+    marginBottom: spacing.lg,
+    gap: spacing.sm,
   },
-  pausaLabel: { fontSize: 13, color: colors.textSecondary },
-  pausaTimer: { 
-    fontSize: 16, 
-    fontWeight: '600', 
-    fontVariant: ['tabular-nums'], 
+  pausaLabel: { ...typography.bodySm, color: colors.textSecondary },
+  pausaTimer: {
+    ...typography.titleSm,
+    fontVariant: ['tabular-nums'],
     color: colors.textSecondary,
   },
   pausaTimerActive: { color: colors.accent },
@@ -298,10 +297,10 @@ export const sharedStyles = StyleSheet.create({
   // ============================================
   // SECTION DIVIDER
   // ============================================
-  sectionDivider: { 
-    height: 1, 
-    backgroundColor: colors.border, 
-    marginVertical: 16, 
+  sectionDivider: {
+    height: 1,
+    backgroundColor: colors.border,
+    marginVertical: spacing.lg,
     marginHorizontal: 0,
   },
 
@@ -309,50 +308,50 @@ export const sharedStyles = StyleSheet.create({
   // LOCATION CARDS
   // ============================================
   locationCardsSection: {
-    marginBottom: 16,
+    marginBottom: spacing.lg,
   },
   locationCardsScroll: {
-    marginHorizontal: -16,
-    paddingHorizontal: 16,
+    marginHorizontal: -spacing.lg,
+    paddingHorizontal: spacing.lg,
   },
   locationCardsRow: {
     flexDirection: 'row',
-    gap: 12,
+    gap: spacing.md,
   },
   
   locationCardFull: {
     backgroundColor: colors.card,
-    borderRadius: 16,
+    borderRadius: borderRadius.lg,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: 14,
+    padding: spacing.md,
     ...shadows.sm,
   },
   locationCardHalf: {
     flex: 1,
     minWidth: 150,
     backgroundColor: colors.card,
-    borderRadius: 14,
+    borderRadius: borderRadius.md,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: 12,
+    padding: spacing.md,
     ...shadows.sm,
   },
   locationCardScrollable: {
     width: 160,
     backgroundColor: colors.card,
-    borderRadius: 14,
+    borderRadius: borderRadius.md,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: 12,
+    padding: spacing.md,
     ...shadows.sm,
   },
   
   locationCardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    marginBottom: 10,
+    gap: spacing.md,
+    marginBottom: spacing.md,
   },
   locationCardHeaderInfo: {
     flex: 1,
@@ -360,8 +359,8 @@ export const sharedStyles = StyleSheet.create({
   locationCardHeaderCompact: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 8,
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
   },
   locationCardIconContainer: {
     width: 32,
@@ -375,38 +374,38 @@ export const sharedStyles = StyleSheet.create({
     bottom: 0,
     width: 20,
     height: 6,
-    borderRadius: 10,
+    borderRadius: borderRadius.sm,
     backgroundColor: colors.primary,
     opacity: 0.35,
   },
   locationCardName: {
-    fontSize: 15,
+    ...typography.bodyLg,
     fontWeight: '600',
     color: colors.text,
   },
   locationCardNameCompact: {
     flex: 1,
-    fontSize: 14,
+    ...typography.bodyMd,
     fontWeight: '600',
     color: colors.text,
   },
   locationCardCoords: {
-    fontSize: 11,
+    ...typography.labelMd,
     color: colors.textTertiary,
     marginTop: 1,
   },
   locationCardTimeRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginTop: 4,
+    gap: spacing.sm,
+    marginTop: spacing.xs,
   },
   locationCardTimeLabel: {
-    fontSize: 12,
+    ...typography.labelLg,
     color: colors.textSecondary,
   },
   locationCardTimeValue: {
-    fontSize: 14,
+    ...typography.bodyMd,
     fontWeight: '600',
     color: colors.text,
   },
@@ -417,22 +416,22 @@ export const sharedStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'baseline',
     justifyContent: 'space-between',
-    marginTop: 4,
+    marginTop: spacing.xs,
   },
   locationCardTotal: {
-    fontSize: 18,
+    ...typography.titleMd,
     fontWeight: '700',
     color: colors.text,
   },
   locationCardTotalCompact: {
-    fontSize: 16,
+    ...typography.titleSm,
     fontWeight: '700',
     color: colors.text,
   },
   locationCardSubtext: {
-    fontSize: 11,
+    ...typography.labelMd,
     color: colors.textTertiary,
-    marginTop: 2,
+    marginTop: spacing.xxs,
   },
 
   // ============================================
@@ -443,131 +442,131 @@ export const sharedStyles = StyleSheet.create({
     backgroundColor: colors.overlay, 
     justifyContent: 'flex-end',
   },
-  modalContent: { 
-    backgroundColor: colors.backgroundSecondary, 
-    borderTopLeftRadius: 24, 
-    borderTopRightRadius: 24, 
-    padding: 20, 
-    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+  modalContent: {
+    backgroundColor: colors.backgroundSecondary,
+    borderTopLeftRadius: borderRadius.xxl,
+    borderTopRightRadius: borderRadius.xxl,
+    padding: spacing.xl,
+    paddingBottom: Platform.OS === 'ios' ? 34 : spacing.xl,
   },
-  modalTitle: { 
-    fontSize: 18, 
-    fontWeight: 'bold', 
-    color: colors.text, 
+  modalTitle: {
+    ...typography.titleMd,
+    fontWeight: '700',
+    color: colors.text,
     textAlign: 'center',
   },
-  modalSubtitle: { 
-    fontSize: 14, 
-    color: colors.textSecondary, 
-    textAlign: 'center', 
-    marginBottom: 16,
+  modalSubtitle: {
+    ...typography.bodyMd,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    marginBottom: spacing.lg,
   },
-  inputLabel: { 
-    fontSize: 13, 
-    fontWeight: '500', 
-    color: colors.text, 
-    marginBottom: 6,
+  inputLabel: {
+    ...typography.bodySm,
+    fontWeight: '500',
+    color: colors.text,
+    marginBottom: spacing.sm,
   },
-  localPicker: { 
-    flexDirection: 'row', 
-    flexWrap: 'wrap', 
-    gap: 8, 
-    marginBottom: 16,
+  localPicker: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginBottom: spacing.lg,
   },
-  localOption: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    paddingVertical: 8, 
-    paddingHorizontal: 12, 
-    borderRadius: 20, 
-    backgroundColor: colors.surfaceMuted, 
-    borderWidth: 1, 
+  localOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: borderRadius.xl,
+    backgroundColor: colors.surfaceMuted,
+    borderWidth: 1,
     borderColor: colors.border,
   },
   localOptionActive: { 
     backgroundColor: colors.primary, 
     borderColor: colors.primary,
   },
-  localDot: { width: 10, height: 10, borderRadius: 5, marginRight: 8 },
-  localOptionText: { fontSize: 13, color: colors.text },
+  localDot: { width: 10, height: 10, borderRadius: borderRadius.full, marginRight: spacing.sm },
+  localOptionText: { ...typography.bodySm, color: colors.text },
   localOptionTextActive: { color: colors.buttonPrimaryText, fontWeight: '500' },
 
-  timeRow: { flexDirection: 'row', gap: 16, marginBottom: 12 },
+  timeRow: { flexDirection: 'row', gap: spacing.lg, marginBottom: spacing.md },
   timeField: { flex: 1 },
   timeInputRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
-  timeInputSmall: { 
-    borderWidth: 1, 
-    borderColor: colors.border, 
-    borderRadius: 10, 
-    paddingHorizontal: 12, 
-    paddingVertical: 12, 
-    fontSize: 24, 
-    textAlign: 'center', 
-    fontWeight: '600', 
-    backgroundColor: colors.surfaceMuted, 
+  timeInputSmall: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: borderRadius.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    ...typography.displaySm,
+    fontWeight: '600',
+    textAlign: 'center',
+    backgroundColor: colors.surfaceMuted,
     color: colors.text,
     width: 56,
   },
   timeSeparator: {
-    fontSize: 24,
-    fontWeight: 'bold',
+    ...typography.displaySm,
+    fontWeight: '700',
     color: colors.text,
-    marginHorizontal: 4,
+    marginHorizontal: spacing.xs,
   },
-  timeInput: { 
-    borderWidth: 1, 
-    borderColor: colors.border, 
-    borderRadius: 10, 
-    paddingHorizontal: 16, 
-    paddingVertical: 12, 
-    fontSize: 18, 
-    textAlign: 'center', 
-    fontWeight: '600', 
-    backgroundColor: colors.surfaceMuted, 
-    color: colors.text,
-  },
-  pausaRow: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    justifyContent: 'center', 
-    gap: 8, 
-    marginBottom: 8,
-  },
-  pausaInput: { 
-    borderWidth: 1, 
-    borderColor: colors.border, 
-    borderRadius: 10, 
-    paddingHorizontal: 12, 
-    paddingVertical: 10, 
-    fontSize: 20, 
-    textAlign: 'center', 
-    fontWeight: '600', 
-    width: 70, 
-    backgroundColor: colors.surfaceMuted, 
+  timeInput: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: borderRadius.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    ...typography.titleMd,
+    fontWeight: '600',
+    textAlign: 'center',
+    backgroundColor: colors.surfaceMuted,
     color: colors.text,
   },
-  pausaHint: { fontSize: 16, color: colors.textSecondary },
-  inputHint: { 
-    fontSize: 12, 
-    color: colors.textSecondary, 
-    textAlign: 'center', 
-    marginBottom: 16,
+  pausaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  pausaInput: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: borderRadius.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    ...typography.titleLg,
+    fontWeight: '600',
+    textAlign: 'center',
+    width: 70,
+    backgroundColor: colors.surfaceMuted,
+    color: colors.text,
+  },
+  pausaHint: { ...typography.titleSm, color: colors.textSecondary },
+  inputHint: {
+    ...typography.labelLg,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    marginBottom: spacing.lg,
   },
   
   // Entry mode toggle
   entryModeToggle: {
     flexDirection: 'row',
-    gap: 8,
-    marginBottom: 16,
+    gap: spacing.sm,
+    marginBottom: spacing.lg,
   },
   entryModeBtn: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 12,
-    borderRadius: 10,
+    gap: spacing.sm,
+    paddingVertical: spacing.md,
+    borderRadius: borderRadius.sm,
     backgroundColor: colors.surfaceMuted,
     borderWidth: 1.5,
     borderColor: 'transparent',
@@ -577,7 +576,7 @@ export const sharedStyles = StyleSheet.create({
     borderColor: colors.primary,
   },
   entryModeBtnText: {
-    fontSize: 14,
+    ...typography.bodyMd,
     fontWeight: '600',
     color: colors.textSecondary,
   },
@@ -587,17 +586,17 @@ export const sharedStyles = StyleSheet.create({
   
   // Absence options
   absenceOptions: {
-    gap: 8,
-    marginBottom: 16,
+    gap: spacing.sm,
+    marginBottom: spacing.lg,
   },
   absenceOption: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderRadius: 10,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    borderRadius: borderRadius.sm,
     backgroundColor: colors.surfaceMuted,
-    gap: 12,
+    gap: spacing.md,
     borderWidth: 1.5,
     borderColor: 'transparent',
   },
@@ -608,13 +607,13 @@ export const sharedStyles = StyleSheet.create({
   absenceOptionIcon: {
     width: 32,
     height: 32,
-    borderRadius: 16,
+    borderRadius: borderRadius.lg,
     justifyContent: 'center',
     alignItems: 'center',
   },
   absenceOptionText: {
     flex: 1,
-    fontSize: 15,
+    ...typography.bodyLg,
     fontWeight: '500',
     color: colors.text,
   },
@@ -623,59 +622,59 @@ export const sharedStyles = StyleSheet.create({
     fontWeight: '600',
   },
   
-  modalActions: { flexDirection: 'row', gap: 12 },
-  cancelBtn: { 
-    flex: 1, 
-    paddingVertical: 14, 
-    borderRadius: 12, 
-    backgroundColor: colors.surfaceMuted, 
+  modalActions: { flexDirection: 'row', gap: spacing.md },
+  cancelBtn: {
+    flex: 1,
+    paddingVertical: spacing.md,
+    borderRadius: borderRadius.md,
+    backgroundColor: colors.surfaceMuted,
     alignItems: 'center',
   },
-  cancelBtnText: { fontSize: 15, color: colors.textSecondary, fontWeight: '600' },
-  saveBtn: { 
-    flex: 1, 
-    paddingVertical: 14, 
-    borderRadius: 12, 
-    backgroundColor: colors.primary, 
+  cancelBtnText: { ...typography.bodyLg, color: colors.textSecondary, fontWeight: '600' },
+  saveBtn: {
+    flex: 1,
+    paddingVertical: spacing.md,
+    borderRadius: borderRadius.md,
+    backgroundColor: colors.primary,
     alignItems: 'center',
   },
-  saveBtnText: { fontSize: 15, color: colors.buttonPrimaryText, fontWeight: '600' },
+  saveBtnText: { ...typography.bodyLg, color: colors.buttonPrimaryText, fontWeight: '600' },
 
   // ============================================
   // TAG MODAL
   // ============================================
   tagModalContent: {
     backgroundColor: colors.card,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 20,
-    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+    borderTopLeftRadius: borderRadius.xl,
+    borderTopRightRadius: borderRadius.xl,
+    padding: spacing.xl,
+    paddingBottom: Platform.OS === 'ios' ? 34 : spacing.xl,
   },
   tagModalTitle: {
-    fontSize: 18,
+    ...typography.titleMd,
     fontWeight: '700',
     color: colors.text,
     textAlign: 'center',
-    marginBottom: 4,
+    marginBottom: spacing.xs,
   },
   tagModalSubtitle: {
-    fontSize: 14,
+    ...typography.bodyMd,
     color: colors.textSecondary,
     textAlign: 'center',
-    marginBottom: 20,
+    marginBottom: spacing.xl,
   },
   tagOptionsList: {
-    gap: 8,
-    marginBottom: 16,
+    gap: spacing.sm,
+    marginBottom: spacing.lg,
   },
   tagOption: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: 12,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    borderRadius: borderRadius.md,
     backgroundColor: colors.surfaceMuted,
-    gap: 12,
+    gap: spacing.md,
   },
   tagOptionActive: {
     backgroundColor: withOpacity(colors.primary, 0.15),
@@ -685,12 +684,12 @@ export const sharedStyles = StyleSheet.create({
   tagOptionIcon: {
     width: 36,
     height: 36,
-    borderRadius: 18,
+    borderRadius: borderRadius.full,
     justifyContent: 'center',
     alignItems: 'center',
   },
   tagOptionText: {
-    fontSize: 15,
+    ...typography.bodyLg,
     fontWeight: '500',
     color: colors.text,
     flex: 1,
@@ -698,7 +697,7 @@ export const sharedStyles = StyleSheet.create({
   tagOptionCheck: {
     width: 24,
     height: 24,
-    borderRadius: 12,
+    borderRadius: borderRadius.md,
     backgroundColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
@@ -707,25 +706,25 @@ export const sharedStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 14,
-    borderRadius: 12,
+    paddingVertical: spacing.md,
+    borderRadius: borderRadius.md,
     backgroundColor: colors.surfaceMuted,
-    gap: 8,
-    marginBottom: 12,
+    gap: spacing.sm,
+    marginBottom: spacing.md,
   },
   tagClearBtnText: {
-    fontSize: 15,
+    ...typography.bodyLg,
     fontWeight: '500',
     color: colors.textSecondary,
   },
   tagCloseBtn: {
-    paddingVertical: 14,
-    borderRadius: 12,
+    paddingVertical: spacing.md,
+    borderRadius: borderRadius.md,
     backgroundColor: colors.primary,
     alignItems: 'center',
   },
   tagCloseBtnText: {
-    fontSize: 15,
+    ...typography.bodyLg,
     fontWeight: '600',
     color: colors.buttonPrimaryText,
   },
@@ -733,14 +732,61 @@ export const sharedStyles = StyleSheet.create({
   dayTagBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-    marginTop: 4,
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xxs,
+    borderRadius: borderRadius.xs,
+    marginTop: spacing.xs,
   },
   dayTagBadgeText: {
-    fontSize: 10,
+    ...typography.labelSm,
     fontWeight: '600',
+  },
+
+  // ============================================
+  // SHARED PATTERNS (Phase 3 consolidation)
+  // ============================================
+
+  // Section label (uppercase, small, secondary)
+  sectionLabel: {
+    ...typography.labelMd,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+
+  // Standard card container
+  card: {
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+
+  // Surface card variant (lighter)
+  cardSurface: {
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.md,
+    borderWidth: 0.5,
+    borderColor: colors.borderLight,
+  },
+
+  // Bottom sheet top
+  bottomSheet: {
+    borderTopLeftRadius: borderRadius.xl,
+    borderTopRightRadius: borderRadius.xl,
+    backgroundColor: colors.card,
+  },
+
+  // Bottom sheet drag handle
+  bottomSheetHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: borderRadius.full,
+    backgroundColor: colors.borderWarm,
+    alignSelf: 'center',
+    marginTop: spacing.sm,
+    marginBottom: spacing.md,
   },
 });

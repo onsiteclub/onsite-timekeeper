@@ -11,7 +11,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { colors } from '../constants/colors';
+import { colors, withOpacity } from '../constants/colors';
 import { usePermissionStatus } from '../hooks/usePermissionStatus';
 
 // ============================================
@@ -46,7 +46,7 @@ export function PermissionBanner({
 }: BannerProps) {
   const styles = type === 'error' ? errorStyles : type === 'warning' ? warningStyles : infoStyles;
   const iconName = icon || (type === 'error' ? 'warning' : type === 'warning' ? 'alert-circle' : 'information-circle');
-  const iconColor = type === 'error' ? '#DC2626' : type === 'warning' ? '#D97706' : '#2563EB';
+  const iconColor = type === 'error' ? colors.error : type === 'warning' ? colors.amberDark : colors.infoDark;
 
   return (
     <View style={[baseStyles.container, styles.container]}>
@@ -94,8 +94,8 @@ export function ForegroundServiceKilledBanner() {
   return (
     <PermissionBanner
       type="error"
-      title="⚠️ Logging paused"
-      message="Keep this notification active to log your hours automatically. Dismissing it stops time logging. Tap Restart to resume."
+      title="Logging paused"
+      message="The notification was dismissed. Tap Restart to resume automatic time logging."
       actionLabel="Restart"
       onAction={restartMonitoring}
       icon="notifications-off"
@@ -117,8 +117,8 @@ export function NotificationDisabledBanner() {
   return (
     <PermissionBanner
       type="error"
-      title="Notifications disabled"
-      message="Enable notifications for time log updates. Without this, auto-logging reminders may not reach you."
+      title="Notifications off"
+      message="Turn on notifications to receive time logging updates and reminders."
       actionLabel="Enable"
       onAction={openAppSettings}
       icon="notifications-off"
@@ -140,8 +140,8 @@ export function LocationPermissionBanner() {
   return (
     <PermissionBanner
       type="warning"
-      title="Location access limited"
-      message="Set location to 'Always Allow' for automatic time logging when you arrive or leave your saved locations."
+      title="Location set to limited"
+      message="Change to 'Always Allow' so your hours are logged automatically when you arrive or leave."
       actionLabel="Allow"
       onAction={async () => {
         const granted = await requestLocationPermission();
@@ -239,7 +239,7 @@ const baseStyles = StyleSheet.create({
     marginVertical: 8,
     borderRadius: 12,
     borderWidth: 1,
-    shadowColor: '#000',
+    shadowColor: colors.black,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
@@ -289,57 +289,57 @@ const baseStyles = StyleSheet.create({
 
 const errorStyles = StyleSheet.create({
   container: {
-    backgroundColor: '#FEE2E2',
-    borderColor: '#FECACA',
+    backgroundColor: withOpacity(colors.error, 0.12),
+    borderColor: withOpacity(colors.error, 0.2),
   },
   title: {
-    color: '#991B1B',
+    color: colors.error,
   },
   message: {
-    color: '#7F1D1D',
+    color: colors.buttonDangerPressed,
   },
   button: {
-    backgroundColor: '#DC2626',
+    backgroundColor: colors.error,
   },
   buttonText: {
-    color: '#FFFFFF',
+    color: colors.white,
   },
 });
 
 const warningStyles = StyleSheet.create({
   container: {
-    backgroundColor: '#FEF3C7',
-    borderColor: '#FDE68A',
+    backgroundColor: colors.primarySoft,
+    borderColor: colors.amberLine,
   },
   title: {
-    color: '#92400E',
+    color: colors.primaryStrong,
   },
   message: {
-    color: '#78350F',
+    color: colors.primaryDark,
   },
   button: {
-    backgroundColor: '#D97706',
+    backgroundColor: colors.amberDark,
   },
   buttonText: {
-    color: '#FFFFFF',
+    color: colors.white,
   },
 });
 
 const infoStyles = StyleSheet.create({
   container: {
-    backgroundColor: '#DBEAFE',
-    borderColor: '#BFDBFE',
+    backgroundColor: withOpacity(colors.info, 0.1),
+    borderColor: withOpacity(colors.info, 0.2),
   },
   title: {
-    color: '#1E40AF',
+    color: colors.infoDark,
   },
   message: {
-    color: '#1E3A8A',
+    color: colors.infoDark,
   },
   button: {
-    backgroundColor: '#2563EB',
+    backgroundColor: colors.infoDark,
   },
   buttonText: {
-    color: '#FFFFFF',
+    color: colors.white,
   },
 });

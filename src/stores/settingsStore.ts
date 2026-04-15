@@ -153,7 +153,7 @@ const DEFAULT_SETTINGS: SettingsData = {
   autoStopEnabled: true,
   
   // Geofencing
-  defaultRadius: 100,
+  defaultRadius: 150,
   minimumLocationDistance: 200,
   distanciaMinimaLocais: 200, // deprecated alias
 
@@ -212,6 +212,9 @@ export const TIMER_OPTIONS = {
     { value: 15, label: '15 minutes' },
   ],
 } as const;
+
+/** Radius options for Detection Zone picker in Settings (min 150m for reliable geofencing) */
+export const DETECTION_ZONE_OPTIONS = [150, 200, 250, 300, 400, 500] as const;
 
 // ============================================
 // STORE

@@ -1,13 +1,12 @@
 /**
  * Styles Index - OnSite Timekeeper
- * 
+ *
  * Re-exporta todos os estilos para manter backward compatibility
- * 
+ *
  * Estrutura:
  * - shared.styles.ts  → Header, badges, modals genéricos, location cards
  * - home.styles.ts    → fixedStyles v1.5 (layout 50/25/25, timer vertical)
  * - reports.styles.ts → Calendário, week/month view, day modal, export
- * - legacy.styles.ts  → manualEntryStyles, compactStyles (deprecated)
  */
 
 import { Dimensions, StyleSheet } from 'react-native';
@@ -32,11 +31,6 @@ export { homeStyles, fixedStyles } from './home.styles';
 // REPORTS STYLES
 // ============================================
 export { reportsStyles, MONTH_DAY_SIZE as REPORTS_MONTH_DAY_SIZE } from './reports.styles';
-
-// ============================================
-// LEGACY STYLES (deprecated)
-// ============================================
-export { manualEntryStyles, compactStyles } from './legacy.styles';
 
 // ============================================
 // BACKWARD COMPATIBILITY

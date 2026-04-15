@@ -114,7 +114,7 @@ export async function cleanupDay(userId: string, date: string): Promise<void> {
       return;
     }
 
-    console.log(`[AI-SECRETARY] 📊 Record: ${date} | entry=${record.first_entry} exit=${record.last_exit} total=${record.total_minutes}min break=${record.break_minutes}min`);
+    if (__DEV__) console.log(`[AI-SECRETARY] 📊 Record: ${date} | entry=${record.first_entry} exit=${record.last_exit} total=${record.total_minutes}min break=${record.break_minutes}min`);
 
     // Get worker profile (reuses buildWorkerProfile from Fase 1)
     const profile = buildWorkerProfile(userId);

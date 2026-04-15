@@ -64,7 +64,7 @@ export function Button({
       {loading ? (
         <ActivityIndicator
           size="small"
-          color={variant === 'primary' ? colors.black : colors.primary}
+          color={variant === 'primary' ? colors.white : colors.primary}
         />
       ) : (
         <>
@@ -189,7 +189,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   buttonText_primary: {
-    color: colors.black,
+    color: colors.white,
   },
   buttonText_secondary: {
     color: colors.text,

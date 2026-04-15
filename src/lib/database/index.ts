@@ -30,7 +30,25 @@ export {
   type LocationAuditDB,
   type DailyHoursDB,
   type BusinessProfileDB,
+  type InvoiceDB,
+  type InvoiceItemDB,
+  type InvoiceType,
+  type InvoiceStatus,
+  type ClientDB,
 } from './core';
+
+// ============================================
+// CLIENTS
+// ============================================
+
+export {
+  getClients,
+  getClientByName,
+  getClientById,
+  upsertClient,
+  deleteClient,
+  type CreateClientParams,
+} from './clients';
 
 // ============================================
 // LOCATIONS
@@ -149,6 +167,8 @@ export {
   getUnsyncedDailyHours,
   markDailyHoursSynced,
   upsertDailyHoursFromSync,
+  // Recent location names
+  getRecentLocationNames,
   // Web init
   initWebData as initDailyWebData,
   // Types
@@ -173,6 +193,32 @@ export {
   formatPostalCode,
   type UpsertBusinessProfileParams,
 } from './businessProfile';
+
+// ============================================
+// INVOICES
+// ============================================
+
+export {
+  getInvoice,
+  getAllInvoices,
+  getRecentInvoices,
+  getInvoiceItems,
+  getThisMonthTotal as getInvoicesThisMonthTotal,
+  getPendingTotal as getInvoicesPendingTotal,
+  getOverdueTotal as getInvoicesOverdueTotal,
+  getThisMonthCount as getInvoicesThisMonthCount,
+  getPendingCount as getInvoicesPendingCount,
+  getDistinctClientNames,
+  createInvoice,
+  createInvoiceWithItems,
+  updateInvoiceStatus,
+  updateInvoicePdfUri,
+  deleteInvoice,
+  formatInvoiceNumber,
+  isOverdue,
+  type CreateInvoiceParams,
+  type CreateInvoiceItemParams,
+} from './invoices';
 
 // ============================================
 // DEBUG

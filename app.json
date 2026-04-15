@@ -12,16 +12,18 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.onsiteclub.timekeeper",
-      "buildNumber": "37",
+      "buildNumber": "38",
       "config": {
-        "googleMapsApiKey": "AIzaSyBdITLu3Kr5OYPr8ZnhxIGVNFHIGEgvfKY"
+        "googleMapsApiKey": "AIzaSyBdITLu3Kr5OYPr8ZnhxIGVNFHIGEgvfKY",
+        "_TODO_SECURITY": "Restrict this API key in Google Cloud Console: APIs & Services > Credentials > Edit key > Application restrictions: iOS apps (bundle ID: com.onsiteclub.timekeeper) > API restrictions: Maps SDK for iOS only"
       },
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "Your location is used to show your position on the map when you set up a location zone. For example, when you open the Locations tab, the map centers on your current position so you can easily define a zone where you want automatic time logging.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "Your location is used in the background to automatically record your time at saved locations. For example, when you arrive at a location you previously saved, your arrival time is recorded automatically. When you leave, your departure is logged. This saves you from having to remember to start and stop a timer manually. All data stays on your device and is never shared.",
-        "NSLocationAlwaysUsageDescription": "Your location is used in the background to detect when you enter or leave your saved locations, even when the app is not open. For example, if you visit a saved location, the app records your arrival time automatically. When you leave, your departure time is logged. All data is stored locally on your device for your personal records only.",
-"NSMicrophoneUsageDescription": "The microphone is used for voice commands so you can manage time logging hands-free. For example, you can say 'start timer' when your hands are busy to begin logging time without touching your phone.",
-        "NSMotionUsageDescription": "Motion data is used to improve the accuracy of automatic time detection at your saved locations. For example, motion data helps determine if you have actually arrived at a location versus briefly passing nearby, giving you more accurate time records.",
+        "NSLocationWhenInUseUsageDescription": "Shows your position on the map when you set up a location zone.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Automatically records your time when you arrive at or leave your saved locations, even when the app is closed. All data stays on your device.",
+        "NSLocationAlwaysUsageDescription": "Records your arrival and departure times at saved locations in the background. All data stays on your device.",
+        "NSMicrophoneUsageDescription": "Lets you use voice commands to log time hands-free. For example, say 'start timer' without touching your phone.",
+        "NSContactsUsageDescription": "Lets you quickly select invoice recipients from your contacts. Names are used only to fill in invoice details.",
+        "NSMotionUsageDescription": "Improves arrival detection accuracy at your saved locations. Helps distinguish arriving from passing by.",
         "UIBackgroundModes": [
           "location",
           "fetch",
@@ -35,12 +37,13 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#E8E4E0"
       },
-      "versionCode": 33,
+      "versionCode": 34,
       "package": "com.onsiteclub.timekeeper",
       "allowBackup": false,
       "config": {
         "googleMaps": {
-          "apiKey": "AIzaSyBdITLu3Kr5OYPr8ZnhxIGVNFHIGEgvfKY"
+          "apiKey": "AIzaSyBdITLu3Kr5OYPr8ZnhxIGVNFHIGEgvfKY",
+          "_TODO_SECURITY": "Restrict this API key in Google Cloud Console: APIs & Services > Credentials > Edit key > Application restrictions: Android apps (package: com.onsiteclub.timekeeper) > API restrictions: Maps SDK for Android only"
         }
       },
       "permissions": [
@@ -70,9 +73,9 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Your location is used to detect when you arrive at or leave your saved locations, so your time is recorded automatically. For example, when you arrive at a saved location, your start time is recorded without any manual input.",
-          "locationAlwaysPermission": "Your location is used in the background to detect when you enter or leave your saved locations. For example, if you visit a saved location, your time is logged automatically — even if the app is not open.",
-          "locationWhenInUsePermission": "Your location is used to show your position on the map when setting up location zones. For example, when you add a new location, your current position helps you place the zone accurately.",
+          "locationAlwaysAndWhenInUsePermission": "Automatically records your time when you arrive at or leave your saved locations, even when the app is closed.",
+          "locationAlwaysPermission": "Records your arrival and departure times at saved locations in the background. All data stays on your device.",
+          "locationWhenInUsePermission": "Shows your position on the map when you set up a location zone.",
           "isAndroidBackgroundLocationEnabled": true,
           "isAndroidForegroundServiceEnabled": true
         }
@@ -98,19 +101,21 @@
         "@sentry/react-native/expo",
         {
           "organization": "onsite-club",
-          "project": "react-native"
+          "project": "react-native",
+          "setCommits": true
         }
       ],
+      "./plugins/withSSLPinning",
       "react-native-background-fetch",
       [
         "react-native-background-geolocation",
         {
           "license": "eyJhbGciOiJFZERTQSIsImtpZCI6ImVkMjU1MTktbWFpbi12MSJ9.eyJvcyI6ImFuZHJvaWQiLCJhcHBfaWQiOiJjb20ub25zaXRlY2x1Yi50aW1la2VlcGVyIiwib3JkZXJfbnVtYmVyIjoxNTQ4OSwicmVuZXdhbF91cmwiOiJodHRwczovL3Nob3AudHJhbnNpc3RvcnNvZnQuY29tL2NhcnQvMTY1MDc4NjE1MDU6MT9ub3RlPTEwMzAyIiwiY3VzdG9tZXJfaWQiOjkzNzcsInByb2R1Y3QiOiJyZWFjdC1uYXRpdmUtYmFja2dyb3VuZC1nZW9sb2NhdGlvbiIsImtleV92ZXJzaW9uIjoxLCJhbGxvd2VkX3N1ZmZpeGVzIjpbIi5kZXYiLCIuZGV2ZWxvcG1lbnQiLCIuc3RhZ2luZyIsIi5zdGFnZSIsIi5xYSIsIi51YXQiLCIudGVzdCIsIi5kZWJ1ZyJdLCJtYXhfYnVpbGRfc3RhbXAiOjIwMjcwMzE1LCJncmFjZV9idWlsZHMiOjAsImVudGl0bGVtZW50cyI6WyJjb3JlIl0sImlhdCI6MTc3MTEyNzkwN30.DMaR-9jymNddxHcUVMxpnMeOtoMgRKzmmQ6p6wV8Zkl_Fu1GN-qDEICbI7y4C31NgbIAs9FAUgGsRUclNsDPDQ",
           "backgroundPermissionRationale": {
-            "title": "Allow OnSite Timekeeper to access your location in the background?",
-            "message": "OnSite Timekeeper uses background location to automatically detect when you arrive at or leave your saved locations, even when the app is closed. This allows automatic time recording. Your location data stays on your device and is never shared with third parties.",
+            "title": "Allow background location access?",
+            "message": "Timekeeper uses background location to automatically record your hours when you arrive at or leave your saved locations. No data is shared with third parties.",
             "positiveAction": "Allow",
-            "negativeAction": "Deny"
+            "negativeAction": "Not now"
           }
         }
       ]

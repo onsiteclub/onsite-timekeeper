@@ -43,6 +43,8 @@ interface SearchBoxProps {
   currentLatitude?: number;
   currentLongitude?: number;
   onSelectResult: (result: SearchResult) => void;
+  /** Render inline (inside bottom panel) instead of floating over map */
+  embedded?: boolean;
 }
 
 // ============================================
@@ -62,10 +64,10 @@ function formatDistance(distancia?: number): string {
 
 function getDistanceColor(distancia?: number): string {
   if (distancia === undefined) return colors.textMuted;
-  if (distancia < 5) return '#22C55E';
-  if (distancia < 20) return '#3B82F6';
-  if (distancia < 100) return '#F59E0B';
-  return '#EF4444';
+  if (distancia < 5) return colors.successLight;
+  if (distancia < 20) return colors.info;
+  if (distancia < 100) return colors.amberMid;
+  return colors.errorLight;
 }
 
 function formatCoords(lat?: number, lng?: number): string {
@@ -85,6 +87,7 @@ export const SearchBox = memo(function SearchBox({
   currentLatitude,
   currentLongitude,
   onSelectResult,
+  embedded = false,
 }: SearchBoxProps) {
   const inputRef = useRef<TextInput>(null);
   const autocompleteTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -195,9 +198,9 @@ export const SearchBox = memo(function SearchBox({
   }, [query, currentLatitude, currentLongitude]);
 
   return (
-    <View style={styles.container}>
+    <View style={embedded ? styles.containerEmbedded : styles.container}>
       {/* ===== BAR ===== */}
-      <View style={styles.bar}>
+      <View style={[styles.bar, embedded && styles.barEmbedded]}>
         {searching ? (
           // SEARCH MODE: text input + close button
           <>
@@ -301,7 +304,7 @@ export const SearchBox = memo(function SearchBox({
 // STYLES
 // ============================================
 
-const TRANSLUCENT_BG = 'rgba(255, 255, 255, 0.65)';
+const SOLID_BG = '#FFFFFF';
 
 const styles = StyleSheet.create({
   container: {
@@ -311,20 +314,27 @@ const styles = StyleSheet.create({
     right: 16,
     zIndex: 10,
   },
+  containerEmbedded: {
+    zIndex: 10,
+  },
 
   // The main bar (both modes)
   bar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: TRANSLUCENT_BG,
-    borderRadius: 14,
+    backgroundColor: SOLID_BG,
+    borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 14,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    elevation: 3,
+    borderWidth: 0.5,
+    borderColor: '#D1D0CE',
+  },
+  barEmbedded: {
+    backgroundColor: colors.backgroundTertiary,
+    borderWidth: 0.5,
+    borderColor: colors.border,
+    shadowOpacity: 0,
+    elevation: 0,
   },
   barIcon: {
     marginRight: 10,
@@ -363,7 +373,7 @@ const styles = StyleSheet.create({
 
   // Results dropdown
   results: {
-    backgroundColor: TRANSLUCENT_BG,
+    backgroundColor: SOLID_BG,
     borderRadius: 14,
     marginTop: 8,
     shadowColor: '#000000',
@@ -428,14 +438,14 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   resultsHintText: {
-    fontSize: 11,
+    fontSize: 12,
     color: colors.textMuted,
   },
   noResults: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: TRANSLUCENT_BG,
+    backgroundColor: SOLID_BG,
     borderRadius: 14,
     marginTop: 8,
     padding: 16,

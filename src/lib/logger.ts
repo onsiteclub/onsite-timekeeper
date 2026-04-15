@@ -24,7 +24,8 @@ type LogCategory =
   | 'dailyLog'    // Daily hours tracking (Caderneta Digital)
   | 'ai'          // AI Guardião - GPS event interpreter
   | 'secretary'   // AI Secretário - data cleanup & reports
-  | 'voice';      // AI Voz - voice command processing
+  | 'voice'       // AI Voz - voice command processing
+  | 'invoice';    // Invoice generation & management
 
 
 export interface LogEntry {
@@ -71,6 +72,7 @@ const categoryColor: Record<LogCategory, string> = {
   ai: '\x1b[93m',          // bright yellow (AI Guardião)
   secretary: '\x1b[95m',   // bright magenta (AI Secretário)
   voice: '\x1b[92m',       // bright green (AI Voz)
+  invoice: '\x1b[33m',     // yellow (Invoice)
 };
 
 // In-memory log storage
@@ -139,7 +141,14 @@ function sanitizeMetadata(metadata: Record<string, unknown> | undefined): Record
       sanitized[key] = value.length > 8 ? `${value.substring(0, 8)}...` : value;
       continue;
     }
-    
+
+    // Mask phone fields (show only last 4 digits)
+    if (keyLower.includes('phone') && typeof value === 'string') {
+      const digits = value.replace(/\D/g, '');
+      sanitized[key] = digits.length >= 4 ? `***${digits.slice(-4)}` : '***';
+      continue;
+    }
+
     // Keep other fields as-is
     sanitized[key] = value;
   }
@@ -161,7 +170,11 @@ function sanitizeMessage(message: string): string {
   // Only if it looks like a coordinate (between -180 and 180)
   const coordPattern = /-?\d{1,3}\.\d{5,}/g;
   sanitized = sanitized.replace(coordPattern, '[coord]');
-  
+
+  // Mask phone patterns (e.g. +1 (514) 555-1234, 5145551234, +15145551234)
+  const phonePattern = /(\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/g;
+  sanitized = sanitized.replace(phonePattern, '[phone]');
+
   return sanitized;
 }
 

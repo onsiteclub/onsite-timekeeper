@@ -401,7 +401,7 @@ export function VoiceCommandSheet({ visible, onClose }: VoiceCommandSheetProps) 
     >
       <KeyboardAvoidingView
         style={s.overlay}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         {/* Backdrop */}
         <TouchableOpacity

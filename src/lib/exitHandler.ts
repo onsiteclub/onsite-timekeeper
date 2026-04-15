@@ -8,12 +8,13 @@
  */
 
 import { logger } from './logger';
+import { addSentryBreadcrumb } from './sentry';
 import { db, getToday, toLocalDateString } from './database/core';
 import { useSyncStore } from '../stores/syncStore';
 import { useDailyLogStore } from '../stores/dailyLogStore';
 import { showArrivalNotification, showEndOfDayNotification, showSessionGuardNotification, showSimpleNotification } from './notifications';
 import { useAuthStore } from '../stores/authStore';
-import { upsertDailyHours, getDailyHours, formatTimeHHMM, roundToHalfHour } from './database/daily';
+import { upsertDailyHours, getDailyHours, formatTimeHHMM, roundToHalfHour, resolveConflict } from './database/daily';
 import { switchToActiveMode, switchToIdleMode } from './bgGeo';
 import { useSettingsStore } from '../stores/settingsStore';
 
@@ -293,7 +294,8 @@ export async function onGeofenceEnter(
 
   // 4. Save new tracking entry (use SDK timestamp as enter_at)
   setActiveTracking(locationId, locationName, eventTimestamp);
-  switchToActiveMode().catch(() => {}); // Best-effort, non-blocking
+  switchToActiveMode().catch((e) => logger.warn('geofence', 'switchToActiveMode failed silently', { error: String(e) })); // Best-effort, non-blocking
+  addSentryBreadcrumb('geofence', 'Geofence ENTER', { location: locationName });
 
   logger.info('session', `[5/6] SQLite active_tracking: enter_at=${eventTimestamp || new Date().toISOString()} | location="${locationName}"`);
 
@@ -366,6 +368,7 @@ export async function onGeofenceExit(
 
   // 3. Schedule exit with cooldown (use SDK timestamp as exitTime)
   const exitTime = eventTimestamp ? new Date(eventTimestamp) : new Date();
+  addSentryBreadcrumb('geofence', 'Geofence EXIT', { location: locationName });
   logger.info('session', `[4/6] ⏳ Exit cooldown ${EXIT_COOLDOWN_MS / 1000}s | exitTime=${exitTime.toISOString()} | enter_at=${tracking.enter_at}`);
   const timeoutId = setTimeout(async () => {
     await confirmExit(userId, locationId, locationName, tracking.enter_at, exitTime);
@@ -509,7 +512,7 @@ async function confirmExit(
 
   // 3. Clear active tracking
   clearActiveTracking();
-  switchToIdleMode().catch(() => {}); // Best-effort, non-blocking
+  switchToIdleMode().catch((e) => logger.warn('geofence', 'switchToIdleMode failed silently', { error: String(e) })); // Best-effort, non-blocking
 
   // 4. Apply exit adjustment (subtract configured minutes from recorded time)
   const adjustMin = useSettingsStore.getState().exitAdjustmentMinutes;
@@ -528,24 +531,52 @@ async function confirmExit(
 
   for (const seg of segments) {
     const existingDaily = getDailyHours(userId, seg.date);
-    const totalMinutes = (existingDaily?.total_minutes || 0) + seg.minutes;
-    const existingBreak = existingDaily?.break_minutes || 0;
+    const action = resolveConflict(existingDaily, 'gps');
 
-    upsertDailyHours({
-      userId,
-      date: seg.date,
-      totalMinutes,
-      breakMinutes: existingBreak + seg.breakMinutes,
-      locationName,
-      locationId,
-      verified: true,
-      source: 'gps',
-      firstEntry: existingDaily?.first_entry || seg.firstEntry,
-      lastExit: seg.lastExit,
-    });
-
-    logger.info('session', `[5/6] daily_hours ${seg.date}: +${seg.minutes}min (total=${totalMinutes}), break=+${seg.breakMinutes}min, entry=${seg.firstEntry}, exit=${seg.lastExit}`);
-    grandTotalMinutes = totalMinutes;
+    if (action === 'write') {
+      // No existing record — write freely
+      upsertDailyHours({
+        userId,
+        date: seg.date,
+        totalMinutes: seg.minutes,
+        breakMinutes: seg.breakMinutes,
+        locationName,
+        locationId,
+        verified: true,
+        source: 'gps',
+        firstEntry: seg.firstEntry,
+        lastExit: seg.lastExit,
+      });
+      logger.info('session', `[5/6] daily_hours ${seg.date}: ${seg.minutes}min (new), entry=${seg.firstEntry}, exit=${seg.lastExit}`);
+      grandTotalMinutes = seg.minutes;
+    } else if (action === 'sum') {
+      // GPS over GPS — multi-session day (e.g. lunch break)
+      const totalMinutes = (existingDaily!.total_minutes || 0) + seg.minutes;
+      const existingBreak = existingDaily!.break_minutes || 0;
+      upsertDailyHours({
+        userId,
+        date: seg.date,
+        totalMinutes,
+        breakMinutes: existingBreak + seg.breakMinutes,
+        locationName,
+        locationId,
+        verified: true,
+        source: 'gps',
+        firstEntry: existingDaily!.first_entry || seg.firstEntry,
+        lastExit: seg.lastExit,
+      });
+      logger.info('session', `[5/6] daily_hours ${seg.date}: +${seg.minutes}min (total=${totalMinutes}), break=+${seg.breakMinutes}min, entry=${seg.firstEntry}, exit=${seg.lastExit}`);
+      grandTotalMinutes = totalMinutes;
+    } else if (action === 'ignore') {
+      // Safety fallback (shouldn't happen with current resolveConflict)
+      logger.warn('geofence', 'Skipped geofence write — conflict=ignore', {
+        date: seg.date,
+        existingSource: existingDaily!.source,
+        existingMinutes: existingDaily!.total_minutes,
+        geofenceMinutes: seg.minutes,
+      });
+      grandTotalMinutes = existingDaily!.total_minutes;
+    }
   }
 
   // 5b. Notification with exit-day total
