@@ -32,7 +32,7 @@ const ALLOWED_EXTERNAL_HOSTS = [
   'khms1.googleapis.com',
   // Sentry error reporting
   'sentry.io',
-  'o4509154101993472.ingest.us.sentry.io',
+  'o4510846541103104.ingest.us.sentry.io',
   // Expo updates (if applicable)
   'expo.dev',
   'u.expo.dev',

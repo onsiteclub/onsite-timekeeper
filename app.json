@@ -12,7 +12,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.onsiteclub.timekeeper",
-      "buildNumber": "38",
+      "buildNumber": "39",
       "config": {
         "googleMapsApiKey": "AIzaSyBdITLu3Kr5OYPr8ZnhxIGVNFHIGEgvfKY",
         "_TODO_SECURITY": "Restrict this API key in Google Cloud Console: APIs & Services > Credentials > Edit key > Application restrictions: iOS apps (bundle ID: com.onsiteclub.timekeeper) > API restrictions: Maps SDK for iOS only"

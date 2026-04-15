@@ -263,8 +263,9 @@ export default function AuthScreen({ onSuccess }: AuthScreenProps) {
   }, [updatePasswordAfterReset, transitionTo]);
 
   const handleBackToLogin = useCallback(() => {
+    clearOtpState();
     transitionTo('login');
-  }, [transitionTo]);
+  }, [clearOtpState, transitionTo]);
 
   // ============================================
   // ERROR BANNER (amber, friendly)

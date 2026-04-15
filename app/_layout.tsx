@@ -41,6 +41,16 @@ import { BatteryOptimizationModal } from '../src/components/BatteryOptimizationM
 import { LocationDisclosureModal } from '../src/components/LocationDisclosureModal';
 import { isIgnoringBatteryOptimizations } from '../src/lib/bgGeo';
 
+// Safety net: catch unhandled promise rejections that crash Android/Hermes
+// Must run at module scope (before any component renders)
+if (typeof globalThis !== 'undefined' && typeof (globalThis as any).addEventListener === 'function') {
+  (globalThis as any).addEventListener('unhandledrejection', (event: any) => {
+    logger.error('boot', 'Unhandled promise rejection', {
+      reason: String(event?.reason),
+    });
+    event?.preventDefault?.();
+  });
+}
 
 export default function RootLayout() {
   const [isReady, setIsReady] = useState(false);
@@ -55,6 +65,7 @@ export default function RootLayout() {
   const user = useAuthStore(s => s.user);
   const profileComplete = useAuthStore(s => s.profileComplete);
   const pendingPhoneVerification = useAuthStore(s => s.pendingPhoneVerification);
+  const pendingPasswordReset = useAuthStore(s => s.pendingPasswordReset);
   const initAuth = useAuthStore(s => s.initialize);
   
   // Refs for singleton control
@@ -281,6 +292,8 @@ export default function RootLayout() {
           }
         }
       }
+    }).catch((error) => {
+      logger.error('boot', 'Post-login initialization failed', { error: String(error) });
     });
   }, [isReady, isAuthenticated, storesInitialized]); // FIX: Removed 'user' dependency
 
@@ -312,8 +325,8 @@ export default function RootLayout() {
   useEffect(() => {
     if (!isReady || authLoading || !navigationState?.key) return;
 
-    // OTP: Skip all redirects while user is verifying phone
-    if (pendingPhoneVerification) return;
+    // OTP: Skip all redirects while user is verifying phone or resetting password
+    if (pendingPhoneVerification || pendingPasswordReset) return;
 
     const inAuthGroup = segments[0] === '(auth)';
 
@@ -334,7 +347,7 @@ export default function RootLayout() {
     }, 0);
 
     return () => clearTimeout(timer);
-  }, [isReady, authLoading, isAuthenticated, profileComplete, pendingPhoneVerification, segments, navigationState?.key]);
+  }, [isReady, authLoading, isAuthenticated, profileComplete, pendingPhoneVerification, pendingPasswordReset, segments, navigationState?.key]);
 
   // ============================================
   // RENDER

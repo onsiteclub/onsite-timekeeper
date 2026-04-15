@@ -38,6 +38,7 @@ export interface AuthState {
 
   // OTP State (Phone Verification)
   pendingPhoneVerification: boolean;
+  pendingPasswordReset: boolean;
   pendingVerificationPhone: string | null;
   otpResendCount: number;
   otpResendCooldownEnd: number | null;
@@ -83,6 +84,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   // OTP initial state
   pendingPhoneVerification: false,
+  pendingPasswordReset: false,
   pendingVerificationPhone: null,
   otpResendCount: 0,
   otpResendCooldownEnd: null,
@@ -374,6 +376,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         profileComplete: false,
         cachedFullName: null,
         pendingPhoneVerification: false,
+        pendingPasswordReset: false,
         pendingVerificationPhone: null,
         otpResendCount: 0,
         otpResendCooldownEnd: null,
@@ -393,6 +396,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         profileComplete: false,
         cachedFullName: null,
         pendingPhoneVerification: false,
+        pendingPasswordReset: false,
         pendingVerificationPhone: null,
         otpResendCount: 0,
         otpResendCooldownEnd: null,
@@ -705,6 +709,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
 
       set({
+        pendingPasswordReset: true,
         pendingVerificationPhone: phone,
         otpResendCount: 0,
         otpResendCooldownEnd: Date.now() + 60_000,
@@ -752,8 +757,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         return { error: error.message };
       }
 
-      // Clear OTP state
+      // Clear OTP + password reset state
       set({
+        pendingPasswordReset: false,
         pendingVerificationPhone: null,
         otpResendCount: 0,
         otpResendCooldownEnd: null,
@@ -770,6 +776,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   clearOtpState: () => {
     set({
       pendingPhoneVerification: false,
+      pendingPasswordReset: false,
       pendingVerificationPhone: null,
       otpResendCount: 0,
       otpResendCooldownEnd: null,
