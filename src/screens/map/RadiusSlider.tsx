@@ -14,7 +14,7 @@ import {
   LayoutChangeEvent,
 } from 'react-native';
 import { colors } from '../../constants/colors';
-import { RADIUS_OPTIONS } from './constants';
+import { RADIUS_CHIPS } from './constants';
 
 interface RadiusSliderProps {
   value: number;
@@ -31,17 +31,17 @@ export function RadiusSlider({ value, onValueChange }: RadiusSliderProps) {
   valueRef.current = value;
   onChangeRef.current = onValueChange;
 
-  const activeIndex = Math.max(0, RADIUS_OPTIONS.indexOf(value));
+  const activeIndex = Math.max(0, RADIUS_CHIPS.indexOf(value));
 
   const getXForIndex = useCallback((index: number) => {
     if (trackWidthRef.current === 0) return 0;
-    return (trackWidthRef.current / (RADIUS_OPTIONS.length - 1)) * index;
+    return (trackWidthRef.current / (RADIUS_CHIPS.length - 1)) * index;
   }, []);
 
   const getIndexForX = useCallback((x: number) => {
     if (trackWidthRef.current === 0) return 0;
-    const seg = trackWidthRef.current / (RADIUS_OPTIONS.length - 1);
-    return Math.max(0, Math.min(RADIUS_OPTIONS.length - 1, Math.round(x / seg)));
+    const seg = trackWidthRef.current / (RADIUS_CHIPS.length - 1);
+    return Math.max(0, Math.min(RADIUS_CHIPS.length - 1, Math.round(x / seg)));
   }, []);
 
   const panResponder = useMemo(() =>
@@ -52,7 +52,7 @@ export function RadiusSlider({ value, onValueChange }: RadiusSliderProps) {
         // Tap: snap to nearest position based on touch X
         const touchX = evt.nativeEvent.locationX;
         const snapIndex = getIndexForX(touchX);
-        const snapValue = RADIUS_OPTIONS[snapIndex];
+        const snapValue = RADIUS_CHIPS[snapIndex];
         if (snapValue !== valueRef.current) {
           onChangeRef.current(snapValue);
         }
@@ -62,7 +62,7 @@ export function RadiusSlider({ value, onValueChange }: RadiusSliderProps) {
         const touchX = evt.nativeEvent.locationX;
         const clampedX = Math.max(0, Math.min(trackWidthRef.current, touchX));
         const snapIndex = getIndexForX(clampedX);
-        const snapValue = RADIUS_OPTIONS[snapIndex];
+        const snapValue = RADIUS_CHIPS[snapIndex];
         if (snapValue !== valueRef.current) {
           onChangeRef.current(snapValue);
         }
@@ -80,7 +80,7 @@ export function RadiusSlider({ value, onValueChange }: RadiusSliderProps) {
 
   // Compute positions
   const thumbX = getXForIndex(activeIndex);
-  const fillPercent = (activeIndex / (RADIUS_OPTIONS.length - 1)) * 100;
+  const fillPercent = (activeIndex / (RADIUS_CHIPS.length - 1)) * 100;
 
   return (
     <View style={sliderStyles.container}>
@@ -97,9 +97,9 @@ export function RadiusSlider({ value, onValueChange }: RadiusSliderProps) {
         <View style={[sliderStyles.trackFill, { width: `${fillPercent}%` }]} />
 
         {/* Tick marks */}
-        {RADIUS_OPTIONS.map((r, i) => {
+        {RADIUS_CHIPS.map((r: number, i: number) => {
           const isActive = activeIndex >= i;
-          const pct = (i / (RADIUS_OPTIONS.length - 1)) * 100;
+          const pct = (i / (RADIUS_CHIPS.length - 1)) * 100;
           return (
             <View
               key={r}
@@ -123,14 +123,14 @@ export function RadiusSlider({ value, onValueChange }: RadiusSliderProps) {
 
       {/* Labels below track */}
       <View style={sliderStyles.labelsRow}>
-        {RADIUS_OPTIONS.map((r, i) => (
+        {RADIUS_CHIPS.map((r: number, i: number) => (
           <Text
             key={r}
             style={[
               sliderStyles.label,
               r === value && sliderStyles.labelActive,
               i === 0 && sliderStyles.labelFirst,
-              i === RADIUS_OPTIONS.length - 1 && sliderStyles.labelLast,
+              i === RADIUS_CHIPS.length - 1 && sliderStyles.labelLast,
             ]}
           >
             {r}m

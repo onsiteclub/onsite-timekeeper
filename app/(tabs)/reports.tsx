@@ -1993,7 +1993,7 @@ const logStyles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: colors.inputBg,
+    backgroundColor: colors.input,
     alignItems: 'center' as const,
     justifyContent: 'center' as const,
   },
