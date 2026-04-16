@@ -163,14 +163,14 @@ export function OnboardingTour({ refs, scrollViewRef }: OnboardingTourProps) {
           Animated.timing(fadeAnim, {
             toValue: 1,
             duration: FADE_DURATION,
-            useNativeDriver: true,
+            useNativeDriver: false,
           }).start();
 
           // Fade in tooltip
           Animated.timing(tooltipFade, {
             toValue: 1,
             duration: FADE_DURATION,
-            useNativeDriver: true,
+            useNativeDriver: false,
           }).start();
 
           // Pulse highlight
@@ -209,13 +209,13 @@ export function OnboardingTour({ refs, scrollViewRef }: OnboardingTourProps) {
     Animated.timing(tooltipFade, {
       toValue: 0,
       duration: FADE_DURATION / 2,
-      useNativeDriver: true,
+      useNativeDriver: false,
     }).start(() => {
       if (step >= 3) {
         Animated.timing(fadeAnim, {
           toValue: 0,
           duration: FADE_DURATION,
-          useNativeDriver: true,
+          useNativeDriver: false,
         }).start(() => {
           setStep(0);
           setTargetLayout(null);
