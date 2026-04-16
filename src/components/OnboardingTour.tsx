@@ -119,6 +119,8 @@ export function OnboardingTour({ refs, scrollViewRef }: OnboardingTourProps) {
         // First time — start tour after a short delay so layout settles
         setTimeout(() => setStep(1), 800);
       }
+    }).catch(() => {
+      // AsyncStorage read failed — skip tour silently
     });
   }, []);
 
@@ -138,6 +140,11 @@ export function OnboardingTour({ refs, scrollViewRef }: OnboardingTourProps) {
     }
 
     const measureAndAnimate = () => {
+      if (!ref.current?.measureInWindow) {
+        advance();
+        return;
+      }
+      try {
       ref.current.measureInWindow(
         (x: number, y: number, width: number, height: number) => {
           if (width === 0 && height === 0) {
@@ -185,6 +192,10 @@ export function OnboardingTour({ refs, scrollViewRef }: OnboardingTourProps) {
           ).start();
         }
       );
+      } catch {
+        // measureInWindow can crash on some devices — skip step
+        advance();
+      }
     };
 
     setTimeout(measureAndAnimate, 100);
