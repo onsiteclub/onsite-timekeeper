@@ -85,6 +85,7 @@ workflows:
             --config Release
     artifacts:
       - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
       - /tmp/xcodebuild_logs/**
       - $CM_BUILD_DIR/build/ios/**/*.log
       - $CM_BUILD_DIR/build/**/*.xcresult
