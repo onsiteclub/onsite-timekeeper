@@ -29,8 +29,8 @@ workflows:
     integrations:
       app_store_connect: OnSite Calculator
     environment:
-      node: 18
-      xcode: latest
+      node: 20
+      xcode: 16.4
       cocoapods: default
       groups:
         - supa var
@@ -60,6 +60,9 @@ workflows:
             --config Release
     artifacts:
       - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.xcresult
+      - $HOME/Library/Logs/gym/*.log
     publishing:
       app_store_connect:
         auth: integration
