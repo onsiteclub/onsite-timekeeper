@@ -82,10 +82,44 @@ export interface FramingPreset {
 }
 
 export const FRAMING_PRESETS: FramingPreset[] = [
-  { id: 'wall_framing', name: 'Wall framing', description: 'Layout, plate, stud, and sheathing per plan specs' },
-  { id: 'floor_framing', name: 'Floor framing', description: 'Joist, rim board, and subfloor install' },
-  { id: 'roof_framing', name: 'Roof framing', description: 'Install rafters, ridge board, and collar ties per plan specs' },
-  { id: 'backing_blocking', name: 'Backing & blocking', description: 'Install backing for fixtures, cabinets, and railings' },
-  { id: 'beam_post', name: 'Beam & post', description: 'LVL/glulam beam and support post install' },
-  { id: 'stair_framing', name: 'Stair framing', description: 'Cut and install stringers, treads, and risers' },
+  {
+    id: 'floor_wall_framing',
+    name: 'Floor & Wall Framing',
+    description: 'Floor joists, subfloor, and stud walls with plates, headers, and lintels per OBC and approved drawings.',
+  },
+  {
+    id: 'rough_framing',
+    name: 'Rough Framing',
+    description: 'Full rough framing package \u2014 floor, walls, and roof structure \u2014 per OBC Part 9 and approved drawings.',
+  },
+  {
+    id: 'roof_framing',
+    name: 'Roof Framing',
+    description: 'Trusses or rafters, ridge, clips, and roof sheathing per OBC Part 9 and approved drawings.',
+  },
+  {
+    id: 'winter_capping',
+    name: 'Winter Capping',
+    description: 'Poly and sheathing over main floor deck to protect subfloor from moisture during winter shutdown.',
+  },
+  {
+    id: 'ceiling_strapping',
+    name: 'Ceiling Strapping',
+    description: '1\u00d73 strapping at 16" o.c. under joists to provide a true nailing surface for drywall ceiling.',
+  },
+  {
+    id: 'backing_blocking',
+    name: 'Backing & Blocking',
+    description: 'Solid blocking and backing for cabinets, fixtures, handrails, grab bars, and drywall edges.',
+  },
+  {
+    id: 'basement_finish_framing',
+    name: 'Basement Finish Framing',
+    description: 'PT bottom plates, studs at 16" o.c., bulkheads, and soffits \u2014 ready for insulation and drywall.',
+  },
+  {
+    id: 'general_repairs',
+    name: 'General Repairs',
+    description: 'On-site framing repairs, adjustments, and punch-list corrections as required.',
+  },
 ];

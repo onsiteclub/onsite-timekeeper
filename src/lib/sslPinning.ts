@@ -30,6 +30,8 @@ const ALLOWED_EXTERNAL_HOSTS = [
   'maps.google.com',
   'khms0.googleapis.com',
   'khms1.googleapis.com',
+  // Photon geocoder (address autocomplete in Locations tab)
+  'photon.komoot.io',
   // Sentry error reporting
   'sentry.io',
   'o4510846541103104.ingest.us.sentry.io',

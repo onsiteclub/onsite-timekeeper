@@ -69,6 +69,7 @@ export default function MapScreen() {
     handleSelectSearchResult, handleGoToMyLocation,
     handleConfirmLocation, handleCancelNaming,
     handleAddFence, handleDeleteFence, handleRenameLocation,
+    isMoving, handleStartMove, handleConfirmMove, handleCancelMove, handleMarkerDragEnd,
   } = useMapScreen();
 
   const defaultRadius = useSettingsStore(s => s.defaultRadius);
@@ -164,6 +165,13 @@ export default function MapScreen() {
                 coordinate={{ latitude: fence.latitude, longitude: fence.longitude }}
                 anchor={{ x: 0.5, y: 0.5 }}
                 tracksViewChanges={false}
+                draggable={!isDisabled && !isMoving}
+                onDragEnd={(e) =>
+                  handleMarkerDragEnd(
+                    e.nativeEvent.coordinate.latitude,
+                    e.nativeEvent.coordinate.longitude,
+                  )
+                }
               >
                 <View style={styles.locationLabel}>
                   <View style={[styles.locationLabelDot, { backgroundColor: isDisabled ? '#999' : fence.color }]} />
@@ -175,11 +183,11 @@ export default function MapScreen() {
             </React.Fragment>
           )}
 
-          {/* Preview circle in adding mode (follows crosshair) */}
-          {isAddingMode && mapCenter && (
+          {/* Preview circle in adding or moving mode (follows crosshair) */}
+          {(isAddingMode || isMoving) && mapCenter && (
             <Circle
               center={{ latitude: mapCenter.lat, longitude: mapCenter.lng }}
-              radius={defaultRadius}
+              radius={isMoving && fence ? fence.radius : defaultRadius}
               fillColor={withOpacity(colors.primary, 0.12)}
               strokeColor={withOpacity(colors.primary, 0.4)}
               strokeWidth={1.5}
@@ -212,8 +220,8 @@ export default function MapScreen() {
             <Ionicons name="locate" size={24} color={colors.primary} />
           </TouchableOpacity>
 
-          {/* STEP 1: SearchBox floating over map (picking mode only) */}
-          {isAddingMode && addingStep === 'picking' && (
+          {/* SearchBox floating over map — picking (adding) or moving */}
+          {((isAddingMode && addingStep === 'picking') || isMoving) && (
             <SearchBox
               address={address}
               isGeocoding={isGeocoding}
@@ -225,7 +233,7 @@ export default function MapScreen() {
             />
           )}
 
-          {/* STEP 1: Floating confirm area at bottom of map */}
+          {/* Floating confirm area at bottom — add mode */}
           {isAddingMode && addingStep === 'picking' && (
             <View style={styles.confirmArea}>
               <Text style={styles.confirmHint}>Add your work location</Text>
@@ -239,11 +247,45 @@ export default function MapScreen() {
               </TouchableOpacity>
             </View>
           )}
+
+          {/* Floating confirm area at bottom — move mode */}
+          {isMoving && (
+            <View style={styles.confirmArea}>
+              <Text style={styles.confirmHint} numberOfLines={1}>
+                Move {fence?.name ? `"${fence.name}"` : 'location'} to new position
+              </Text>
+              <View style={{ flexDirection: 'row', gap: 8, width: '100%' }}>
+                <TouchableOpacity
+                  style={[
+                    styles.confirmButton,
+                    {
+                      flex: 1,
+                      backgroundColor: colors.backgroundTertiary,
+                      borderWidth: 0.5,
+                      borderColor: colors.border,
+                    },
+                  ]}
+                  onPress={handleCancelMove}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.confirmButtonText, { color: colors.text }]}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.confirmButton, { flex: 2 }]}
+                  onPress={handleConfirmMove}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="checkmark-circle" size={20} color={colors.buttonPrimaryText} />
+                  <Text style={styles.confirmButtonText}>Confirm Move</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
         </Animated.View>
       </View>
 
-      {/* ===== BOTTOM PANEL (configured mode only) — also muted when disabled ===== */}
-      {!isAddingMode && (
+      {/* ===== BOTTOM PANEL (configured mode only) — hidden during move, muted when disabled ===== */}
+      {!isAddingMode && !isMoving && (
         <Animated.View style={{ opacity: overlayOpacity }}>
         <View style={styles.panel}>
           <View>
@@ -269,12 +311,27 @@ export default function MapScreen() {
               </View>
             )}
 
-            {/* ── Delete location — only when a fence exists ── */}
+            {/* ── Action row: Move + Delete ── */}
             {fence && (
-              <View style={detailStyles.deleteSection}>
-                <TouchableOpacity style={detailStyles.deleteButton} onPress={handleDeleteFence} activeOpacity={0.7}>
-                  <Ionicons name="trash-outline" size={14} color="#A32D2D" />
-                  <Text style={detailStyles.deleteText}>Delete location</Text>
+              <View style={detailStyles.actionRow}>
+                <TouchableOpacity
+                  style={detailStyles.actionButton}
+                  onPress={handleStartMove}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="move-outline" size={15} color={colors.text} />
+                  <Text style={detailStyles.moveText}>Move location</Text>
+                </TouchableOpacity>
+
+                <View style={detailStyles.actionDivider} />
+
+                <TouchableOpacity
+                  style={detailStyles.actionButton}
+                  onPress={handleDeleteFence}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="trash-outline" size={15} color="#A32D2D" />
+                  <Text style={detailStyles.deleteText}>Delete</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -587,7 +644,7 @@ function LocationsTooltip({
             top: 0,
             left: tooltipLeft,
             right: tooltipRight,
-            maxHeight: layout.y - tooltipMargin,
+            height: layout.y - tooltipMargin,
             justifyContent: 'flex-end',
             opacity: fade,
           },

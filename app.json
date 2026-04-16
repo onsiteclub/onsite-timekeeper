@@ -12,7 +12,8 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.onsiteclub.timekeeper",
-      "buildNumber": "40",
+      "buildNumber": "41",
+      "usesAppleSignIn": true,
       "config": {
         "googleMapsApiKey": "AIzaSyBdITLu3Kr5OYPr8ZnhxIGVNFHIGEgvfKY",
         "_TODO_SECURITY": "Restrict this API key in Google Cloud Console: APIs & Services > Credentials > Edit key > Application restrictions: iOS apps (bundle ID: com.onsiteclub.timekeeper) > API restrictions: Maps SDK for iOS only"
@@ -37,7 +38,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#E8E4E0"
       },
-      "versionCode": 34,
+      "versionCode": 35,
       "package": "com.onsiteclub.timekeeper",
       "allowBackup": false,
       "config": {
@@ -118,6 +119,13 @@
             "negativeAction": "Not now"
           }
         }
+      ],
+      "expo-apple-authentication",
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.272025275406-rk3rrqoo3eef80947av09a61m3f0udgm"
+        }
       ]
     ],
     "experiments": {
@@ -131,7 +139,9 @@
         "projectId": "17ddb1e1-cbcf-43d1-91e8-2f8ee96f036b"
       },
       "EXPO_PUBLIC_SUPABASE_URL": "https://bjkhofdrzpczgnwxoauk.supabase.co",
-      "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJqa2hvZmRyenBjemdud3hvYXVrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg2ODc4NzYsImV4cCI6MjA4NDI2Mzg3Nn0.lKbH-SaqPmuvsiG4mcUyHH3TROmw6Aqb-UjstyRb4f4"
+      "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJqa2hvZmRyenBjemdud3hvYXVrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg2ODc4NzYsImV4cCI6MjA4NDI2Mzg3Nn0.lKbH-SaqPmuvsiG4mcUyHH3TROmw6Aqb-UjstyRb4f4",
+      "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "272025275406-ip4l64kd6gvohfq12ho2tfmgvja8br1t.apps.googleusercontent.com",
+      "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID": "272025275406-rk3rrqoo3eef80947av09a61m3f0udgm.apps.googleusercontent.com"
     }
   }
 }

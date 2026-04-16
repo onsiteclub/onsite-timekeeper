@@ -579,6 +579,9 @@ export default function InvoiceScreen() {
   // Success modal state
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [successInvoice, setSuccessInvoice] = useState<{ number: string; pdfUri: string; total: number } | null>(null);
+  // iOS: defer opening success modal until wizard's dismiss animation completes
+  // (prevents UIKit double-modal race that freezes the tab)
+  const [pendingSuccessModal, setPendingSuccessModal] = useState(false);
 
   // Inline hour entry state (Quick Add for empty days)
   const [inlineEntryDate, setInlineEntryDate] = useState<Date | null>(null);
@@ -849,11 +852,21 @@ export default function InvoiceScreen() {
           pdfUri: result.pdf_uri || '',
           total: result.total || 0,
         });
-        setShowHourlyWizard(false);
         setWizardStep(1);
         setWizardRateOverride(null);
         cancelDateRange();
-        setShowSuccessModal(true);
+        if (Platform.OS === 'ios') {
+          // iOS: defer success modal open until wizard's onDismiss fires
+          // (prevents UIKit double-modal race that freezes the tab)
+          setPendingSuccessModal(true);
+          setShowHourlyWizard(false);
+        } else {
+          // Android: onDismiss is iOS-only, so delay via setTimeout to let
+          // the slide-down animation finish before opening the next modal.
+          // Chaining both in the same tick locks up RN's modal stack.
+          setShowHourlyWizard(false);
+          setTimeout(() => setShowSuccessModal(true), 350);
+        }
       } else {
         Alert.alert('Error', 'Failed to create invoice.');
       }
@@ -1159,7 +1172,7 @@ export default function InvoiceScreen() {
           <PressableOpacity
             style={hubStyles.profileBtn}
             activeOpacity={0.7}
-            onPress={() => router.push('/business-profile' as any)}
+            onPress={() => router.navigate('/business-profile' as any)}
           >
             <Ionicons name="person-circle-outline" size={44} color={colors.white} />
             <View style={{ flex: 1 }}>
@@ -1328,7 +1341,7 @@ export default function InvoiceScreen() {
                     fromPhone={businessProfile?.phone || undefined}
                     fromAddress={[businessProfile?.address_street, businessProfile?.address_city, businessProfile?.address_province, businessProfile?.address_postal_code].filter(Boolean).join(', ') || undefined}
                     fromEmail={businessProfile?.email || undefined}
-                    onEditFrom={() => router.push('/business-profile' as any)}
+                    onEditFrom={() => router.navigate('/business-profile' as any)}
                     onSave={async (changes: InvoiceSummaryChanges) => {
                       if (!userId || !selectedInvoice) return;
 
@@ -1648,6 +1661,13 @@ export default function InvoiceScreen() {
           transparent
           animationType="slide"
           onRequestClose={handleWizardClose}
+          onDismiss={() => {
+            // iOS only: fires AFTER dismiss animation completes
+            if (pendingSuccessModal) {
+              setPendingSuccessModal(false);
+              setShowSuccessModal(true);
+            }
+          }}
         >
           <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           <View style={wizardStyles.overlay}>
@@ -1822,7 +1842,7 @@ export default function InvoiceScreen() {
                         <View style={recipientStyles.stepCircle}>
                           <Text style={recipientStyles.stepCircleText}>1</Text>
                         </View>
-                        <Text style={recipientStyles.cardTitle}>Client</Text>
+                        <Text style={recipientStyles.cardTitle}>To</Text>
                       </View>
 
                       {invoiceStore.clients.slice(0, 2).map((c) => (
@@ -1872,12 +1892,20 @@ export default function InvoiceScreen() {
                         <View style={recipientStyles.newClientInputRow}>
                           <TextInput
                             style={recipientStyles.newClientInput}
-                            placeholder="Client name..."
+                            placeholder="Send to..."
                             placeholderTextColor={colors.textMuted}
                             value={hourlyClientName}
                             onChangeText={setHourlyClientName}
                             autoFocus
                           />
+                          <PressableOpacity
+                            style={recipientStyles.fullFormBtn}
+                            onPress={() => setShowWizardClientEdit(true)}
+                            activeOpacity={0.7}
+                            accessibilityLabel="Open full client form"
+                          >
+                            <Ionicons name="person-add-outline" size={20} color={colors.text} />
+                          </PressableOpacity>
                         </View>
                       )}
                     </View>
@@ -1971,31 +1999,7 @@ export default function InvoiceScreen() {
                       fromPhone={businessProfile?.phone || undefined}
                       fromAddress={[businessProfile?.address_street, businessProfile?.address_city, businessProfile?.address_province, businessProfile?.address_postal_code].filter(Boolean).join(', ') || undefined}
                       fromEmail={businessProfile?.email || undefined}
-                      onEditFrom={() => router.push('/business-profile' as any)}
-                    />
-
-                    {/* Client Edit Sheet (wizard) */}
-                    <ClientEditSheet
-                      visible={showWizardClientEdit}
-                      onClose={() => setShowWizardClientEdit(false)}
-                      onSave={(data: ClientFormData) => {
-                        setHourlyClientName(data.name);
-                        setHourlyClientPhone(data.phone);
-                        setHourlyClientStreet(data.addressStreet);
-                        setHourlyClientCity(data.addressCity);
-                        setHourlyClientProvince(data.addressProvince);
-                        setHourlyClientPostal(data.addressPostalCode);
-                        setShowWizardClientEdit(false);
-                      }}
-                      initialData={{
-                        name: hourlyClientName,
-                        phone: hourlyClientPhone,
-                        addressStreet: hourlyClientStreet,
-                        addressCity: hourlyClientCity,
-                        addressProvince: hourlyClientProvince,
-                        addressPostalCode: hourlyClientPostal,
-                      }}
-                      savedClients={invoiceStore.clients}
+                      onEditFrom={() => router.navigate('/business-profile' as any)}
                     />
                   </ScrollView>
 
@@ -2016,6 +2020,30 @@ export default function InvoiceScreen() {
             </View>
           </View>
           </KeyboardAvoidingView>
+
+          {/* Client Edit Sheet (wizard) — accessible from step 2 and step 3 */}
+          <ClientEditSheet
+            visible={showWizardClientEdit}
+            onClose={() => setShowWizardClientEdit(false)}
+            onSave={(data: ClientFormData) => {
+              setHourlyClientName(data.name);
+              setHourlyClientPhone(data.phone);
+              setHourlyClientStreet(data.addressStreet);
+              setHourlyClientCity(data.addressCity);
+              setHourlyClientProvince(data.addressProvince);
+              setHourlyClientPostal(data.addressPostalCode);
+              setShowWizardClientEdit(false);
+            }}
+            initialData={{
+              name: hourlyClientName,
+              phone: hourlyClientPhone,
+              addressStreet: hourlyClientStreet,
+              addressCity: hourlyClientCity,
+              addressProvince: hourlyClientProvince,
+              addressPostalCode: hourlyClientPostal,
+            }}
+            savedClients={invoiceStore.clients}
+          />
         </Modal>
 
         {/* DAY DETAIL MODAL */}
@@ -3132,12 +3160,22 @@ const recipientStyles = StyleSheet.create({
   },
   newClientInputRow: {
     marginTop: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   newClientInput: {
+    flex: 1,
     fontSize: 15, fontWeight: '500', color: colors.text,
     backgroundColor: colors.surfaceMuted, borderRadius: 12,
     paddingVertical: 12, paddingHorizontal: 14,
     borderWidth: 1, borderColor: colors.primary,
+  },
+  fullFormBtn: {
+    width: 44, height: 44, borderRadius: 12,
+    backgroundColor: colors.surfaceMuted,
+    borderWidth: 1, borderColor: colors.border,
+    alignItems: 'center', justifyContent: 'center',
   },
 });
 

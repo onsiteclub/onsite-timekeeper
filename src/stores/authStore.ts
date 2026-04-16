@@ -23,6 +23,15 @@ let authSubscription: Subscription | null = null;
 let appStateSubscription: ReturnType<typeof AppState.addEventListener> | null = null;
 
 // ============================================
+// PENDING SESSION (uncommitted until phone OTP verified)
+// ============================================
+// Holds the Supabase session created by signUp() until the user completes
+// phone verification. Session is NOT committed to the Zustand store while
+// pending — this prevents isAuthenticated() from returning true during OTP.
+let _pendingSession: Session | null = null;
+let _pendingUser: User | null = null;
+
+// ============================================
 // TYPES
 // ============================================
 
@@ -47,6 +56,8 @@ export interface AuthState {
   initialize: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   signUp: (email: string, password: string, metadata?: { firstName: string; lastName: string; phone?: string }) => Promise<{ success: boolean; needsConfirmation?: boolean; needsPhoneVerification?: boolean; error?: string }>;
+  signInWithGoogle: () => Promise<{ success: boolean; error?: string; cancelled?: boolean }>;
+  signInWithApple: () => Promise<{ success: boolean; error?: string; cancelled?: boolean }>;
   signOut: () => Promise<void>;
   deleteAccount: () => Promise<{ success: boolean; error?: string }>;
   refreshSession: () => Promise<void>;
@@ -148,6 +159,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         logger.info('auth', `Auth state change: ${event}`);
 
         if (event === 'SIGNED_IN' && newSession) {
+          // Block session commit while phone OTP is pending. The signUp flow
+          // parks the session in _pendingSession until OTP is verified.
+          if (get().pendingPhoneVerification) {
+            logger.info('auth', 'Ignoring SIGNED_IN during pending OTP');
+            return;
+          }
           set({ session: newSession, user: newSession.user, error: null });
           await setBackgroundUserId(newSession.user.id);
           // NOTE: app_opens tracked in initialize, not here
@@ -305,7 +322,41 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
 
       if (data.session) {
-        logger.info('auth', `✅ Signed up and logged in: ${__DEV__ ? data.session.user.email : 'user_' + data.session.user.id.slice(0, 8)}`);
+        logger.info('auth', `✅ Signed up: ${__DEV__ ? data.session.user.email : 'user_' + data.session.user.id.slice(0, 8)}`);
+
+        // If phone provided, DEFER session commit until OTP is verified.
+        // Park session/user in module-level refs so isAuthenticated() stays false
+        // and back button / cold restart cannot bypass verification.
+        if (phone) {
+          _pendingSession = data.session;
+          _pendingUser = data.session.user;
+          set({ error: null });
+
+          // Register phone to trigger OTP. Session stays uncommitted.
+          try {
+            const { error: phoneError } = await supabase.auth.updateUser({ phone });
+            if (phoneError) {
+              logger.warn('auth', 'Phone OTP send failed after signup', { error: phoneError.message });
+              // OTP couldn't be sent — abort the pending session and surface error.
+              _pendingSession = null;
+              _pendingUser = null;
+              try { await supabase.auth.signOut({ scope: 'local' }); } catch { /* noop */ }
+              set({ pendingPhoneVerification: false, pendingVerificationPhone: null });
+              return { success: false, error: phoneError.message };
+            }
+            logger.info('auth', 'OTP sent to phone for verification');
+            return { success: true, needsPhoneVerification: true };
+          } catch (e) {
+            logger.warn('auth', 'Phone registration exception', { error: String(e) });
+            _pendingSession = null;
+            _pendingUser = null;
+            try { await supabase.auth.signOut({ scope: 'local' }); } catch { /* noop */ }
+            set({ pendingPhoneVerification: false, pendingVerificationPhone: null });
+            return { success: false, error: String(e) };
+          }
+        }
+
+        // No phone verification needed — commit session immediately.
         set({
           session: data.session,
           user: data.session.user,
@@ -313,25 +364,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         });
 
         await setBackgroundUserId(data.session.user.id);
-
-        // If phone provided, register it to trigger OTP
-        if (phone) {
-          try {
-            const { error: phoneError } = await supabase.auth.updateUser({ phone });
-            if (phoneError) {
-              logger.warn('auth', 'Phone OTP send failed after signup', { error: phoneError.message });
-              // Clear flag — let user proceed without verification
-              set({ pendingPhoneVerification: false, pendingVerificationPhone: null });
-              return { success: true, needsPhoneVerification: false };
-            }
-            logger.info('auth', 'OTP sent to phone for verification');
-            return { success: true, needsPhoneVerification: true };
-          } catch (e) {
-            logger.warn('auth', 'Phone registration exception', { error: String(e) });
-            set({ pendingPhoneVerification: false, pendingVerificationPhone: null });
-            return { success: true, needsPhoneVerification: false };
-          }
-        }
 
         return { success: true, needsConfirmation: false };
       }
@@ -356,12 +388,72 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   // ============================================
+  // SIGN IN WITH GOOGLE (native)
+  // ============================================
+  signInWithGoogle: async () => {
+    set({ isLoading: true, error: null });
+    try {
+      const { signInWithGoogle } = await import('../lib/oauth');
+      const result = await signInWithGoogle();
+
+      if (result.success) {
+        // onAuthStateChange will commit session (pendingPhoneVerification=false
+        // for OAuth flows, so the SIGNED_IN handler doesn't ignore it).
+        await get().checkProfile();
+        set({ isLoading: false });
+        return result;
+      }
+
+      set({ isLoading: false, error: result.error ?? null });
+      return result;
+    } catch (e) {
+      const errorMsg = String(e);
+      logger.error('auth', 'signInWithGoogle exception', { error: errorMsg });
+      set({ isLoading: false, error: errorMsg });
+      return { success: false, error: errorMsg };
+    }
+  },
+
+  // ============================================
+  // SIGN IN WITH APPLE (iOS native)
+  // ============================================
+  signInWithApple: async () => {
+    set({ isLoading: true, error: null });
+    try {
+      const { signInWithApple } = await import('../lib/oauth');
+      const result = await signInWithApple();
+
+      if (result.success) {
+        await get().checkProfile();
+        set({ isLoading: false });
+        return result;
+      }
+
+      set({ isLoading: false, error: result.error ?? null });
+      return result;
+    } catch (e) {
+      const errorMsg = String(e);
+      logger.error('auth', 'signInWithApple exception', { error: errorMsg });
+      set({ isLoading: false, error: errorMsg });
+      return { success: false, error: errorMsg };
+    }
+  },
+
+  // ============================================
   // SIGN OUT
   // ============================================
   signOut: async () => {
     set({ isLoading: true });
 
     try {
+      // Clear Google cached credential so next sign-in shows account picker
+      try {
+        const { signOutFromGoogle } = await import('../lib/oauth');
+        await signOutFromGoogle();
+      } catch {
+        // non-fatal — continue with Supabase signout
+      }
+
       if (isSupabaseConfigured()) {
         await supabase.auth.signOut();
       }
@@ -622,6 +714,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       logger.info('auth', 'Phone verified successfully');
 
+      // Commit the pending session now that OTP is verified.
+      // signUp() parked session/user in module refs — promote them to the store.
+      if (_pendingSession && _pendingUser) {
+        set({ session: _pendingSession, user: _pendingUser, error: null });
+        await setBackgroundUserId(_pendingUser.id);
+        _pendingSession = null;
+        _pendingUser = null;
+      }
+
       // Refresh user to get latest metadata (may have changed since signup)
       try {
         const { data: { user: freshUser } } = await supabase.auth.getUser();
@@ -774,6 +875,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   clearOtpState: () => {
+    // Destroy any uncommitted session on Supabase side. Without this, pressing
+    // Back at OTP step would leave the Supabase session alive — a cold restart
+    // could then hydrate session via getSession() and bypass verification.
+    if (_pendingSession) {
+      supabase.auth.signOut({ scope: 'local' }).catch(() => { /* best-effort */ });
+      _pendingSession = null;
+      _pendingUser = null;
+    }
     set({
       pendingPhoneVerification: false,
       pendingPasswordReset: false,

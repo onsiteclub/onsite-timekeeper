@@ -28,6 +28,7 @@ import { useAuthStore } from '../../stores/authStore';
 import { useBusinessProfileStore } from '../../stores/businessProfileStore';
 import { FRAMING_PRESETS, type FramingPreset } from '../../lib/constructionPresets';
 import { InvoiceSummaryCard } from './InvoiceSummaryCard';
+import { ClientEditSheet, type ClientFormData } from './ClientEditSheet';
 import { getInvoiceItems } from '../../lib/database/invoices';
 import type { ClientDB, LocationDB, InvoiceDB, InvoiceItemDB } from '../../lib/database/core';
 
@@ -37,7 +38,7 @@ import type { ClientDB, LocationDB, InvoiceDB, InvoiceItemDB } from '../../lib/d
 
 type WizardStep = 1 | 2 | 3 | 4;
 
-type NewClientMode = 'idle' | 'expanded' | 'typing';
+type NewClientMode = 'idle' | 'typing';
 
 interface LineItem {
   id: string;
@@ -180,6 +181,7 @@ export default function ServicesWizard({ onBack }: { onBack: () => void }) {
   const [selectedClient, setSelectedClient] = useState<{ name: string; id?: string; clientData?: ClientDB } | null>(null);
   const [newClientMode, setNewClientMode] = useState<NewClientMode>('idle');
   const [typedClientName, setTypedClientName] = useState('');
+  const [showClientSheet, setShowClientSheet] = useState(false);
 
   // ===== STEP 2: JOB SITE =====
   const [jobSiteName, setJobSiteName] = useState('');
@@ -295,9 +297,32 @@ export default function ServicesWizard({ onBack }: { onBack: () => void }) {
     advanceTo(2);
   }, [advanceTo]);
 
-  const handleFromContacts = useCallback(() => {
-    Alert.alert('Coming soon', 'Contact import will be available in a future update.');
-  }, []);
+  const handleClientSheetSave = useCallback((data: ClientFormData) => {
+    const name = data.name.trim();
+    if (!userId || !name) {
+      setShowClientSheet(false);
+      return;
+    }
+    const saved = invoiceStore.saveClient({
+      userId,
+      clientName: name,
+      addressStreet: data.addressStreet,
+      addressCity: data.addressCity,
+      addressProvince: data.addressProvince,
+      addressPostalCode: data.addressPostalCode,
+      email: data.email || null,
+      phone: data.phone || null,
+    });
+    setSelectedClient({
+      name,
+      id: saved?.id,
+      clientData: saved || undefined,
+    });
+    setTypedClientName('');
+    setNewClientMode('idle');
+    setShowClientSheet(false);
+    advanceTo(2);
+  }, [userId, invoiceStore, advanceTo]);
 
   const handleTypeSubmit = useCallback(() => {
     const name = typedClientName.trim();
@@ -516,7 +541,7 @@ export default function ServicesWizard({ onBack }: { onBack: () => void }) {
         {/* ======================== STEP 1 — CLIENT ======================== */}
         <StepCard
           step={1}
-          title="Client"
+          title="Send to"
           activeStep={activeStep}
           completedSteps={completedSteps}
           onEdit={() => reopenStep(1)}
@@ -561,7 +586,7 @@ export default function ServicesWizard({ onBack }: { onBack: () => void }) {
           {newClientMode === 'idle' && (
             <PressableOpacity
               style={s.newClientBtn}
-              onPress={() => setNewClientMode('expanded')}
+              onPress={() => setNewClientMode('typing')}
               activeOpacity={0.7}
             >
               <Ionicons name="add" size={14} color="#9B9889" />
@@ -569,26 +594,12 @@ export default function ServicesWizard({ onBack }: { onBack: () => void }) {
             </PressableOpacity>
           )}
 
-          {/* New client — expanded: show two options */}
-          {newClientMode === 'expanded' && (
-            <View style={s.newClientOptions}>
-              <PressableOpacity style={s.newClientOptionBtn} onPress={handleFromContacts} activeOpacity={0.7}>
-                <Ionicons name="people-outline" size={16} color="#9B9889" />
-                <Text style={s.newClientOptionText}>From contacts</Text>
-              </PressableOpacity>
-              <PressableOpacity style={s.newClientOptionBtn} onPress={() => setNewClientMode('typing')} activeOpacity={0.7}>
-                <Ionicons name="create-outline" size={16} color="#9B9889" />
-                <Text style={s.newClientOptionText}>Type a name</Text>
-              </PressableOpacity>
-            </View>
-          )}
-
-          {/* New client — typing: show text input */}
+          {/* New client — typing: show text input + full-form shortcut */}
           {newClientMode === 'typing' && (
             <View style={s.typeNameRow}>
               <TextInput
                 style={s.typeNameInput}
-                placeholder="Client name"
+                placeholder="Send to..."
                 placeholderTextColor="#9B9889"
                 value={typedClientName}
                 onChangeText={setTypedClientName}
@@ -596,6 +607,14 @@ export default function ServicesWizard({ onBack }: { onBack: () => void }) {
                 returnKeyType="done"
                 onSubmitEditing={handleTypeSubmit}
               />
+              <PressableOpacity
+                style={s.typeNameFullForm}
+                onPress={() => setShowClientSheet(true)}
+                activeOpacity={0.7}
+                accessibilityLabel="Open full client form"
+              >
+                <Ionicons name="person-add-outline" size={20} color="#2C2C2A" />
+              </PressableOpacity>
               <PressableOpacity
                 style={[s.typeNameSubmit, !typedClientName.trim() && { opacity: 0.3 }]}
                 onPress={handleTypeSubmit}
@@ -879,6 +898,15 @@ export default function ServicesWizard({ onBack }: { onBack: () => void }) {
 
 
       {/* Success modal removed — invoice is shown in Step 4 via InvoiceSummaryCard */}
+
+      {/* Full client registration form — returns user to Step 1 once saved, then auto-advances */}
+      <ClientEditSheet
+        visible={showClientSheet}
+        onClose={() => setShowClientSheet(false)}
+        onSave={handleClientSheetSave}
+        initialData={{ name: typedClientName }}
+        savedClients={invoiceStore.clients}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -1128,27 +1156,6 @@ const s = StyleSheet.create({
     color: '#9B9889',
   },
 
-  // New client — expanded options
-  newClientOptions: {
-    gap: 8,
-    marginBottom: 8,
-  },
-  newClientOptionBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: '#F5F5F0',
-    borderRadius: 8,
-    paddingVertical: 14,
-    paddingHorizontal: 12,
-    minHeight: 48,
-  },
-  newClientOptionText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#2C2C2A',
-  },
-
   // New client — type name
   typeNameRow: {
     flexDirection: 'row',
@@ -1165,6 +1172,16 @@ const s = StyleSheet.create({
     fontSize: 14,
     color: '#2C2C2A',
     minHeight: 48,
+  },
+  typeNameFullForm: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#F5F5F0',
+    borderWidth: 1.5,
+    borderColor: '#D3D1C7',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   typeNameSubmit: {
     width: 48,

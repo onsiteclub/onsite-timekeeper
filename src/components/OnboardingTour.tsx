@@ -248,14 +248,19 @@ export function OnboardingTour({ refs, scrollViewRef }: OnboardingTourProps) {
   // This avoids the `bottom` positioning mismatch when the parent (SafeAreaView)
   // doesn't extend to the full screen bottom (tab bar, nav bar).
   let tooltipTop: number;
-  let tooltipMaxHeight: number | undefined;
+  let tooltipHeight: number | undefined;
   let tooltipJustify: 'flex-start' | 'flex-end' = 'flex-start';
 
   if (config.tooltipSide === 'below') {
     tooltipTop = hlY + hlH + TOOLTIP_MARGIN;
   } else {
+    // Anchor container from top:0 down to just above the highlight.
+    // Use `height` (not maxHeight) so `justifyContent: flex-end` actually
+    // pushes the tooltip body to the bottom of the container. With only
+    // maxHeight, the container shrinks to content height and flex-end
+    // has nothing to push against — body ends up at top of screen.
     tooltipTop = 0;
-    tooltipMaxHeight = hlY - TOOLTIP_MARGIN;
+    tooltipHeight = hlY - TOOLTIP_MARGIN;
     tooltipJustify = 'flex-end';
   }
 
@@ -325,7 +330,7 @@ export function OnboardingTour({ refs, scrollViewRef }: OnboardingTourProps) {
             right: tooltipRight,
             opacity: tooltipFade,
             justifyContent: tooltipJustify,
-            ...(tooltipMaxHeight ? { maxHeight: tooltipMaxHeight } : {}),
+            ...(tooltipHeight ? { height: tooltipHeight } : {}),
           },
         ]}
         pointerEvents="box-none"

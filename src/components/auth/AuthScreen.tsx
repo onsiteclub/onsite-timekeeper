@@ -18,7 +18,6 @@ import {
   Platform,
   SafeAreaView,
   ActivityIndicator,
-  Alert,
   Image,
   Linking,
 } from 'react-native';
@@ -33,6 +32,7 @@ import SignupStep from './SignupStep';
 import OTPVerifyStep from './OTPVerifyStep';
 import PhoneInputStep from './PhoneInputStep';
 import SetNewPasswordStep from './SetNewPasswordStep';
+import { SocialButtons } from './SocialButtons';
 
 // Logo
 const logoOnsite = require('../../../assets/logo_onsite.png');
@@ -151,10 +151,6 @@ export default function AuthScreen({ onSuccess }: AuthScreenProps) {
   const handleNavigateToSignup = useCallback(() => {
     transitionTo('signup');
   }, [transitionTo]);
-
-  const handleSocialPress = useCallback(() => {
-    Alert.alert('Coming soon', 'Social login will be available in a future update.');
-  }, []);
 
   // ============================================
   // SIGNUP HANDLER
@@ -443,20 +439,21 @@ export default function AuthScreen({ onSuccess }: AuthScreenProps) {
         <View style={styles.dividerLine} />
       </View>
 
-      {/* Social Buttons (placeholder — "Coming soon" on tap) */}
-      <TouchableOpacity style={styles.socialButton} onPress={handleSocialPress} activeOpacity={0.8}>
-        <Ionicons name="logo-google" size={20} color={colors.text} />
-        <Text style={styles.socialButtonText}>Continue with Google</Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity
-        style={[styles.socialButton, { marginTop: 10 }]}
-        onPress={handleSocialPress}
-        activeOpacity={0.8}
-      >
-        <Ionicons name="logo-apple" size={20} color={colors.text} />
-        <Text style={styles.socialButtonText}>Continue with Apple</Text>
-      </TouchableOpacity>
+      {/* Social Sign-In (Google always, Apple on iOS only) */}
+      <SocialButtons
+        disabled={isLoading}
+        onError={(msg) => {
+          console.log('[AuthScreen] OAuth error:', msg);
+          setErrorBanner(classifyError(msg));
+        }}
+        onSuccess={() => {
+          // Navigation guard will redirect once session is committed by onAuthStateChange
+          if (onSuccess) {
+            const { user } = useAuthStore.getState();
+            if (user) onSuccess(user, false);
+          }
+        }}
+      />
 
       {/* Sign Up Link */}
       <View style={styles.signUpRow}>
@@ -665,24 +662,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.textSecondary,
     marginHorizontal: 16,
-  },
-
-  // Social buttons (placeholder)
-  socialButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    paddingVertical: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.white,
-  },
-  socialButtonText: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: colors.text,
   },
 
   // Sign up link

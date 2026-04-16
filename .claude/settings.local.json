@@ -69,7 +69,16 @@
       "Bash(wc:*)",
       "Bash(npx supabase:*)",
       "Bash(echo:*)",
-      "WebFetch(domain:onsiteclub.ca)"
+      "WebFetch(domain:onsiteclub.ca)",
+      "WebFetch(domain:www.onsiteclub.ca)",
+      "WebFetch(domain:shop.transistorsoft.com)",
+      "WebFetch(domain:support.google.com)",
+      "WebFetch(domain:radar.com)",
+      "WebFetch(domain:transistorsoft.medium.com)",
+      "WebFetch(domain:www.termsfeed.com)",
+      "WebFetch(domain:www.internetkatta.com)",
+      "WebFetch(domain:www.droidcon.com)",
+      "Bash(pip install:*)"
     ]
   }
 }

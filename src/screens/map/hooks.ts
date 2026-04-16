@@ -115,6 +115,9 @@ export function useMapScreen() {
   const [selectedRadius, setSelectedRadius] = useState(DEFAULT_RADIUS);
   const [isAdding, setIsAdding] = useState(false);
 
+  // Move mode — user wants to relocate an existing fence without deleting
+  const [isMoving, setIsMoving] = useState(false);
+
   // ============================================
   // EFFECTS
   // ============================================
@@ -398,6 +401,72 @@ export function useMapScreen() {
   }, [locations, editLocation]);
 
   // ============================================
+  // MOVE LOCATION (relocate existing fence)
+  // ============================================
+
+  const handleStartMove = useCallback(() => {
+    const f = locations[0];
+    if (!f) return;
+    setIsMoving(true);
+    setTimeout(() => animateToLocation(f.latitude, f.longitude, 'close'), 100);
+    logger.info('ui', `Move started: ${f.name}`);
+  }, [locations, animateToLocation]);
+
+  const handleCancelMove = useCallback(() => {
+    const f = locations[0];
+    setIsMoving(false);
+    if (f) {
+      setTimeout(() => animateToLocation(f.latitude, f.longitude, 'close'), 100);
+    }
+  }, [locations, animateToLocation]);
+
+  const handleConfirmMove = useCallback(async () => {
+    const f = locations[0];
+    if (!f || !mapCenter) return;
+    try {
+      await editLocation(f.id, {
+        latitude: mapCenter.lat,
+        longitude: mapCenter.lng,
+      });
+      setIsMoving(false);
+      reverseGeocode(mapCenter.lat, mapCenter.lng);
+      logger.info('ui', `Location moved: ${f.name}`);
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Could not move location');
+    }
+  }, [locations, mapCenter, editLocation, reverseGeocode]);
+
+  // Draggable marker drop — quick relocation with confirm
+  const handleMarkerDragEnd = useCallback((latitude: number, longitude: number) => {
+    const f = locations[0];
+    if (!f) return;
+    Alert.alert(
+      'Move location?',
+      `Move "${f.name}" to this new position?`,
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+          // Re-center on original so the marker visually snaps back
+          onPress: () => animateToLocation(f.latitude, f.longitude, 'close'),
+        },
+        {
+          text: 'Move',
+          onPress: async () => {
+            try {
+              await editLocation(f.id, { latitude, longitude });
+              reverseGeocode(latitude, longitude);
+              logger.info('ui', `Location moved via drag: ${f.name}`);
+            } catch (error: any) {
+              Alert.alert('Error', error.message || 'Could not move');
+            }
+          },
+        },
+      ]
+    );
+  }, [locations, editLocation, reverseGeocode, animateToLocation]);
+
+  // ============================================
   // AUTO-LOGGING TOGGLE
   // ============================================
 
@@ -514,5 +583,12 @@ export function useMapScreen() {
     handleDeleteFence,
     handleChangeRadius,
     handleRenameLocation,
+
+    // Move mode
+    isMoving,
+    handleStartMove,
+    handleConfirmMove,
+    handleCancelMove,
+    handleMarkerDragEnd,
   };
 }

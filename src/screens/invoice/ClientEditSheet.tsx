@@ -128,7 +128,7 @@ export function ClientEditSheet({
 
         {/* Header */}
         <View style={s.header}>
-          <Text style={s.title}>Client Info</Text>
+          <Text style={s.title}>Send to</Text>
           <PressableOpacity style={s.closeBtn} onPress={onClose} activeOpacity={0.6}>
             <Ionicons name="close" size={22} color={colors.textSecondary} />
           </PressableOpacity>
@@ -141,7 +141,7 @@ export function ClientEditSheet({
           showsVerticalScrollIndicator={false}
         >
           {/* Name */}
-          <Text style={s.label}>NAME *</Text>
+          <Text style={s.label}>TO *</Text>
           <TextInput
             style={s.input}
             value={name}
@@ -149,7 +149,7 @@ export function ClientEditSheet({
               setName(v);
               setShowSuggestions(v.length >= 2);
             }}
-            placeholder="Client name"
+            placeholder="Send to..."
             placeholderTextColor={colors.textMuted}
             autoCapitalize="words"
             autoFocus

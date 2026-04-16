@@ -1161,6 +1161,12 @@ export function useHomeScreen() {
       await loadMonthSessions();
 
       // Show success — close all modals when user taps OK
+      // NOTE: Do NOT reset manualPause / manualLocationName here.
+      // Those fields reflect the just-saved record and must stay visible on
+      // the inline Log screen. The auto-populate effect (above) already
+      // re-syncs them from todayLog / DB if the user navigates away.
+      // Clearing them caused breakMinutes → 0 in the UI, so total appeared
+      // inflated (e.g. 12h instead of 11h) while DB had the correct value.
       Alert.alert(
         '✅ Hours Saved',
         isEditing ? 'Entry updated successfully.' : 'Hours recorded successfully.',
@@ -1169,8 +1175,6 @@ export function useHomeScreen() {
           onPress: () => {
             setShowManualModal(false);
             setIsEditingInline(false);
-            setManualPause('');
-            setManualLocationName('');
             closeDayModal();
           },
         }]

@@ -461,6 +461,32 @@ export const detailStyles = StyleSheet.create({
     fontWeight: '500',
     color: colors.error,
   },
+
+  // Action row — Move + Delete side-by-side
+  actionRow: {
+    flexDirection: 'row',
+    borderTopWidth: 0.5,
+    borderTopColor: colors.borderLight,
+    marginTop: spacing.lg,
+  },
+  actionButton: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.md,
+  },
+  actionDivider: {
+    width: 0.5,
+    backgroundColor: colors.borderLight,
+    marginVertical: spacing.sm,
+  },
+  moveText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: colors.text,
+  },
 });
 
 // ============================================

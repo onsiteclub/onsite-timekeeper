@@ -201,7 +201,7 @@ export default function MoreScreen() {
       <View style={styles.groupedCard}>
         <TouchableOpacity
           style={styles.row}
-          onPress={() => router.push('/business-profile' as any)}
+          onPress={() => router.navigate('/business-profile' as any)}
           activeOpacity={0.6}
         >
           <View style={styles.rowLeft}>
