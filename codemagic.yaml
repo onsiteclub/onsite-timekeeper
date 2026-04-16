@@ -52,6 +52,31 @@ workflows:
           pod install
       - name: Set up code signing
         script: xcode-project use-profiles --project ios/OnSiteTimekeeper.xcodeproj
+      - name: Verbose archive (diagnostic)
+        script: |
+          set -o pipefail
+          mkdir -p /tmp/xcodebuild_logs
+          xcodebuild \
+            -workspace ios/OnSiteTimekeeper.xcworkspace \
+            -scheme OnSiteTimekeeper \
+            -configuration Release \
+            -archivePath /tmp/xcodebuild_logs/diag.xcarchive \
+            -destination "generic/platform=iOS" \
+            -resultBundlePath /tmp/xcodebuild_logs/diag.xcresult \
+            archive \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            DEVELOPMENT_TEAM=L3528THKT5 \
+            "CODE_SIGN_IDENTITY=Apple Distribution" \
+            CODE_SIGN_STYLE=Manual \
+            2>&1 | tee /tmp/xcodebuild_logs/diag.log
+          DIAG_EXIT=${PIPESTATUS[0]}
+          echo "================================================================"
+          echo "Verbose archive exited: $DIAG_EXIT"
+          echo "Last 300 lines of diag.log (look for 'error:' above):"
+          echo "================================================================"
+          tail -n 300 /tmp/xcodebuild_logs/diag.log || true
+          echo "================================================================"
+        ignore_failure: true
       - name: Build signed IPA
         script: |
           xcode-project build-ipa \
@@ -60,9 +85,9 @@ workflows:
             --config Release
     artifacts:
       - build/ios/ipa/*.ipa
-      - /tmp/xcodebuild_logs/*.log
-      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.xcresult
-      - $HOME/Library/Logs/gym/*.log
+      - /tmp/xcodebuild_logs/**
+      - $CM_BUILD_DIR/build/ios/**/*.log
+      - $CM_BUILD_DIR/build/**/*.xcresult
     publishing:
       app_store_connect:
         auth: integration
