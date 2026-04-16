@@ -82,7 +82,8 @@ workflows:
           xcode-project build-ipa \
             --workspace ios/OnSiteTimekeeper.xcworkspace \
             --scheme OnSiteTimekeeper \
-            --config Release
+            --config Release \
+            --archive-xcargs="SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD=NO SUPPORTS_MACCATALYST=NO"
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
