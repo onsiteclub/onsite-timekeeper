@@ -58,6 +58,7 @@ import ServicesWizard from '../../src/screens/invoice/ServicesWizard';
 import { InvoiceSummaryCard, type TimeTableDay, type InvoiceSummaryChanges } from '../../src/screens/invoice/InvoiceSummaryCard';
 import { ClientEditSheet, type ClientFormData } from '../../src/screens/invoice/ClientEditSheet';
 import { getClientByName } from '../../src/lib/database/clients';
+import { useSnackbarStore } from '../../src/stores/snackbarStore';
 
 // ============================================
 // HELPERS
@@ -152,7 +153,8 @@ function newLineItem(): LineItem {
 
 export default function InvoiceScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ date?: string }>();
+  const params = useLocalSearchParams<{ date?: string; openInvoiceId?: string }>();
+  const showSnackbar = useSnackbarStore(s => s.show);
 
   // ===== AUTH =====
   const userId = useAuthStore((s) => s.getUserId());
@@ -170,9 +172,8 @@ export default function InvoiceScreen() {
   const [selectedInvoiceDays, setSelectedInvoiceDays] = useState<DailyHoursEntry[]>([]);
   const [isRegeneratingPdf, setIsRegeneratingPdf] = useState(false);
 
-  // ===== CLIENT EDIT SHEET STATE =====
+  // ===== CLIENT EDIT SHEET STATE (wizard only — detail flow uses /client-edit route) =====
   const [showWizardClientEdit, setShowWizardClientEdit] = useState(false);
-  const [showDetailClientEdit, setShowDetailClientEdit] = useState(false);
   const [detailClientData, setDetailClientData] = useState<import('../../src/lib/database/core').ClientDB | null>(null);
 
   // (Edit mode state removed — now handled inside InvoiceSummaryCard v2)
@@ -198,6 +199,38 @@ export default function InvoiceScreen() {
       setDetailClientData(null);
     }
   }, [userId]);
+
+  // Detail modal: edit client (TO card) → close modal, toast, route to /client-edit.
+  // InvoiceSummaryCard has already persisted any pending draft before calling this.
+  const handleEditClientFromDetail = useCallback(() => {
+    if (!selectedInvoice) return;
+    const invoice = selectedInvoice;
+    setSelectedInvoice(null);
+    showSnackbar(`Invoice ${invoice.invoice_number} saved`);
+    router.push({
+      pathname: '/client-edit',
+      params: {
+        invoiceId: invoice.id,
+        invoiceNumber: invoice.invoice_number,
+        clientName: invoice.client_name || '',
+      },
+    });
+  }, [selectedInvoice, router, showSnackbar]);
+
+  // Detail modal: edit business profile (FROM card) → close modal, toast, route to /business-profile.
+  const handleEditFromDetail = useCallback(() => {
+    if (!selectedInvoice) return;
+    const invoice = selectedInvoice;
+    setSelectedInvoice(null);
+    showSnackbar(`Invoice ${invoice.invoice_number} saved`);
+    router.push({
+      pathname: '/business-profile',
+      params: {
+        invoiceId: invoice.id,
+        invoiceNumber: invoice.invoice_number,
+      },
+    });
+  }, [selectedInvoice, router, showSnackbar]);
 
   // (enterEditMode, cancelEditMode, handleSaveEdit removed — now inside InvoiceSummaryCard v2)
 
@@ -386,6 +419,30 @@ export default function InvoiceScreen() {
       router.setParams({ date: undefined as any });
     }
   }, [params.date]);
+
+  // Re-open invoice detail when returning from /client-edit or /business-profile
+  // via the "View Invoice" snackbar action. The consumer route passes the invoice
+  // id as ?openInvoiceId=X. We look it up in the (already refreshed) store and
+  // open the detail modal, then clear the param so it doesn't fire again on
+  // subsequent focuses.
+  useEffect(() => {
+    if (!params.openInvoiceId || !userId) return;
+    const target = invoiceStore.recentInvoices.find(i => i.id === params.openInvoiceId);
+    if (target) {
+      openInvoiceDetail(target);
+      router.setParams({ openInvoiceId: undefined as any });
+    }
+  }, [params.openInvoiceId, userId, invoiceStore.recentInvoices, openInvoiceDetail]);
+
+  // Clear detail modal state when the tab tree unmounts (defensive cleanup).
+  useEffect(() => {
+    return () => {
+      setSelectedInvoice(null);
+      setSelectedInvoiceItems([]);
+      setSelectedInvoiceDays([]);
+      setDetailClientData(null);
+    };
+  }, []);
 
   // ============================================
   // TIME PICKER STATE (for calendar day modal)
@@ -1317,7 +1374,7 @@ export default function InvoiceScreen() {
                     clientPhone={detailClientData?.phone || undefined}
                     clientAddress={[detailClientData?.address_street, detailClientData?.address_city, detailClientData?.address_province, detailClientData?.address_postal_code].filter(Boolean).join(', ') || undefined}
                     clientEmail={detailClientData?.email || undefined}
-                    onEditClient={() => setShowDetailClientEdit(true)}
+                    onEditClient={handleEditClientFromDetail}
                     dueDate={selectedInvoice.due_date
                       ? new Date(selectedInvoice.due_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
                       : undefined}
@@ -1341,7 +1398,7 @@ export default function InvoiceScreen() {
                     fromPhone={businessProfile?.phone || undefined}
                     fromAddress={[businessProfile?.address_street, businessProfile?.address_city, businessProfile?.address_province, businessProfile?.address_postal_code].filter(Boolean).join(', ') || undefined}
                     fromEmail={businessProfile?.email || undefined}
-                    onEditFrom={() => router.navigate('/business-profile' as any)}
+                    onEditFrom={handleEditFromDetail}
                     onSave={async (changes: InvoiceSummaryChanges) => {
                       if (!userId || !selectedInvoice) return;
 
@@ -1402,43 +1459,6 @@ export default function InvoiceScreen() {
                         }
                       }
                     }}
-                  />
-
-                  {/* Client Edit Sheet (detail modal) */}
-                  <ClientEditSheet
-                    visible={showDetailClientEdit}
-                    onClose={() => setShowDetailClientEdit(false)}
-                    onSave={async (data: ClientFormData) => {
-                      if (!userId || !selectedInvoice) return;
-                      invoiceStore.saveClient({
-                        userId,
-                        clientName: data.name,
-                        addressStreet: data.addressStreet,
-                        addressCity: data.addressCity,
-                        addressProvince: data.addressProvince,
-                        addressPostalCode: data.addressPostalCode,
-                        email: data.email || null,
-                        phone: data.phone || null,
-                      });
-                      if (data.name !== selectedInvoice.client_name) {
-                        const updated = await invoiceStore.updateInvoice(userId, selectedInvoice.id, {
-                          clientName: data.name,
-                        });
-                        if (updated) setSelectedInvoice(updated);
-                      }
-                      setDetailClientData(getClientByName(userId, data.name));
-                      setShowDetailClientEdit(false);
-                    }}
-                    initialData={{
-                      name: selectedInvoice.client_name || '',
-                      phone: detailClientData?.phone || '',
-                      email: detailClientData?.email || '',
-                      addressStreet: detailClientData?.address_street || '',
-                      addressCity: detailClientData?.address_city || '',
-                      addressProvince: detailClientData?.address_province || '',
-                      addressPostalCode: detailClientData?.address_postal_code || '',
-                    }}
-                    savedClients={invoiceStore.clients}
                   />
 
                   {/* Action buttons (Share + Delete only — Edit is now ✎ on card) */}

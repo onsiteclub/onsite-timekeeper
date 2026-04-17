@@ -37,6 +37,7 @@ import {
   onUserLogout,
 } from '../src/lib/bootstrap';
 import { OfflineBanner } from '../src/components/ui/OfflineBanner';
+import { Snackbar } from '../src/components/ui/Snackbar';
 import { BatteryOptimizationModal } from '../src/components/BatteryOptimizationModal';
 import { LocationDisclosureModal } from '../src/components/LocationDisclosureModal';
 import { isIgnoringBatteryOptimizations } from '../src/lib/bgGeo';
@@ -398,6 +399,7 @@ export default function RootLayout() {
           onDismiss={handleBatteryModalDismiss}
         />
       )}
+      <Snackbar />
     </ErrorBoundary>
   );
 }

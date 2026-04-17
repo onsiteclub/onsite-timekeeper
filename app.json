@@ -12,7 +12,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.onsiteclub.timekeeper",
-      "buildNumber": "41",
+      "buildNumber": "42",
       "usesAppleSignIn": true,
       "config": {
         "googleMapsApiKey": "AIzaSyBdITLu3Kr5OYPr8ZnhxIGVNFHIGEgvfKY",
@@ -22,7 +22,6 @@
         "NSLocationWhenInUseUsageDescription": "Shows your position on the map when you set up a location zone.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Automatically records your time when you arrive at or leave your saved locations, even when the app is closed. All data stays on your device.",
         "NSLocationAlwaysUsageDescription": "Records your arrival and departure times at saved locations in the background. All data stays on your device.",
-        "NSMicrophoneUsageDescription": "Lets you use voice commands to log time hands-free. For example, say 'start timer' without touching your phone.",
         "NSContactsUsageDescription": "Lets you quickly select invoice recipients from your contacts. Names are used only to fill in invoice details.",
         "NSMotionUsageDescription": "Improves arrival detection accuracy at your saved locations. Helps distinguish arriving from passing by.",
         "UIBackgroundModes": [
@@ -38,9 +37,17 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#E8E4E0"
       },
-      "versionCode": 35,
+      "versionCode": 42,
       "package": "com.onsiteclub.timekeeper",
       "allowBackup": false,
+      "blockedPermissions": [
+        "android.permission.CAMERA",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.RECORD_AUDIO"
+      ],
       "config": {
         "googleMaps": {
           "apiKey": "AIzaSyBdITLu3Kr5OYPr8ZnhxIGVNFHIGEgvfKY",
@@ -59,8 +66,7 @@
         "RECEIVE_BOOT_COMPLETED",
         "VIBRATE",
         "WAKE_LOCK",
-        "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
-        "RECORD_AUDIO"
+        "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"
       ]
     },
     "web": {

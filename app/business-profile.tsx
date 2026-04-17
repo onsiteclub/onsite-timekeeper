@@ -20,10 +20,11 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { colors, spacing, borderRadius } from '../src/constants/colors';
 import { useBusinessProfileStore } from '../src/stores/businessProfileStore';
 import { useAuthStore } from '../src/stores/authStore';
+import { useSnackbarStore } from '../src/stores/snackbarStore';
 import { CollapsibleCard } from '../src/components/CollapsibleCard';
 import { logger } from '../src/lib/logger';
 
@@ -41,9 +42,11 @@ const PROVINCES = [
 
 export default function BusinessProfileScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ invoiceId?: string; invoiceNumber?: string }>();
   const { user } = useAuthStore();
   const updateAuthProfile = useAuthStore(s => s.updateProfile);
   const { profile, loadProfile, saveProfile, deleteProfile } = useBusinessProfileStore();
+  const showSnackbar = useSnackbarStore(s => s.show);
 
   // Form state — Card 1 (Personal Info)
   const [firstName, setFirstName] = useState('');
@@ -158,7 +161,27 @@ export default function BusinessProfileScreen() {
       }
 
       setHasChanges(false);
-      Alert.alert('Saved', 'Profile updated successfully.');
+
+      // When this screen was opened from an Invoice Detail "From" card,
+      // show the snackbar with a "View Invoice" action that re-opens it.
+      // Otherwise just show a plain confirmation.
+      if (params.invoiceId && params.invoiceNumber) {
+        const invoiceId = params.invoiceId;
+        const invoiceNumber = params.invoiceNumber;
+        showSnackbar(`Invoice ${invoiceNumber} updated successfully`, {
+          action: {
+            label: 'View Invoice',
+            onPress: () => router.replace({
+              pathname: '/(tabs)/invoice',
+              params: { openInvoiceId: invoiceId },
+            }),
+          },
+          durationMs: 6000,
+        });
+        router.back();
+      } else {
+        showSnackbar('Profile updated');
+      }
     }
 
     setIsSaving(false);

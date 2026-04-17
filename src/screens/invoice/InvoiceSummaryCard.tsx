@@ -79,14 +79,14 @@ export interface InvoiceSummaryCardProps {
   clientPhone?: string;
   clientAddress?: string;
   clientEmail?: string;
-  onEditClient?: () => void;
+  onEditClient?: () => void | Promise<void>;
 
   // --- Business (FROM) ---
   fromName?: string;
   fromPhone?: string;
   fromAddress?: string;
   fromEmail?: string;
-  onEditFrom?: () => void;
+  onEditFrom?: () => void | Promise<void>;
 
   // --- Due Date ---
   dueDate?: string;              // display string
@@ -132,7 +132,7 @@ export interface InvoiceSummaryCardProps {
   showZeroWarning?: boolean;
 
   // --- Batch save (enables dual-mode) ---
-  onSave?: (changes: InvoiceSummaryChanges) => void;
+  onSave?: (changes: InvoiceSummaryChanges) => void | Promise<void>;
 }
 
 // ============================================
@@ -411,9 +411,8 @@ export function InvoiceSummaryCard(props: InvoiceSummaryCardProps) {
     setIsEditing(true);
   }, [rate, notes, dueDateISO, days, lineItems]);
 
-  // ── Save changes ──
-  const handleSave = useCallback(() => {
-    if (!onSave) return;
+  // ── Build pending draft as an InvoiceSummaryChanges object ──
+  const buildChanges = useCallback((): InvoiceSummaryChanges => {
     const changes: InvoiceSummaryChanges = {};
 
     const parsedRate = parseFloat(draftRateText) || draftRate;
@@ -457,9 +456,27 @@ export function InvoiceSummaryCard(props: InvoiceSummaryCardProps) {
         });
     }
 
-    onSave(changes);
+    return changes;
+  }, [draftRate, draftRateText, draftNotes, draftDueDate, draftDays, draftLineItems, rate, notes, dueDateISO, days]);
+
+  // ── Save changes ──
+  const handleSave = useCallback(async () => {
+    if (!onSave) return;
+    await Promise.resolve(onSave(buildChanges()));
     setIsEditing(false);
-  }, [onSave, draftRate, draftRateText, draftNotes, draftDueDate, draftDays, draftLineItems, rate, notes, dueDateISO, days]);
+  }, [onSave, buildChanges]);
+
+  // ── Commit pending drafts (if editing) then run a navigation callback ──
+  // Used when user taps TO/FROM cards to jump to Client/Profile screen.
+  // Awaits the persistence layer so there is zero data loss during transition.
+  const commitDraftsAndRun = useCallback(async (cb?: () => void | Promise<void>) => {
+    if (!cb) return;
+    if (isEditing && onSave) {
+      await Promise.resolve(onSave(buildChanges()));
+      setIsEditing(false);
+    }
+    await Promise.resolve(cb());
+  }, [isEditing, onSave, buildChanges]);
 
   // ── Toggle edit / discard ──
   const handleToggleEdit = useCallback(() => {
@@ -655,12 +672,12 @@ export function InvoiceSummaryCard(props: InvoiceSummaryCardProps) {
       {/* ═══════ TO / FROM ═══════ */}
       <View style={st.toFromRow}>
         {renderInfoCard('TO', clientName, clientPhone, clientAddress, clientEmail,
-          isEditing ? onEditClient : undefined,
+          isEditing ? () => commitDraftsAndRun(onEditClient) : undefined,
           !canEdit ? onEditClient : undefined,
           isEditing,
         )}
         {showFromCard && renderInfoCard('FROM', fromName || '', fromPhone, fromAddress, fromEmail,
-          isEditing ? onEditFrom : undefined,
+          isEditing ? () => commitDraftsAndRun(onEditFrom) : undefined,
           !canEdit ? onEditFrom : undefined,
           isEditing,
           !fromName,
