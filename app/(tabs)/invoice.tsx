@@ -862,47 +862,50 @@ export default function InvoiceScreen() {
     }
   };
 
-  const handleGenerateHourlyInvoice = async () => {
-    if (!hookUserId || !rangeStartDate || !rangeEndDate) return;
-    const sessions = getSessionsInRange();
+  // Shared core: saves client + creates hourly invoice. Returns the new
+  // InvoiceDB on success, null on precondition failure.
+  const generateHourlyInvoiceCore = useCallback(async () => {
+    if (!hookUserId || !rangeStartDate || !rangeEndDate) return null;
 
+    // Save client
+    if (hourlyClientName.trim()) {
+      invoiceStore.saveClient({
+        userId: hookUserId,
+        clientName: hourlyClientName.trim(),
+        addressStreet: hourlyClientStreet,
+        addressCity: hourlyClientCity,
+        addressProvince: hourlyClientProvince,
+        addressPostalCode: hourlyClientPostal,
+      });
+    }
+
+    const startStr = toLocalDateString(rangeStartDate);
+    const endStr = toLocalDateString(rangeEndDate);
+    const days = getDailyHoursByPeriod(hookUserId, startStr, endStr);
+
+    return invoiceStore.createHourlyInvoice({
+      userId: hookUserId,
+      clientName: hourlyClientName.trim() || 'Client',
+      clientAddress: {
+        street: hourlyClientStreet,
+        city: hourlyClientCity,
+        province: hourlyClientProvince,
+        postalCode: hourlyClientPostal,
+      },
+      days: days as unknown as DailyHoursDB[],
+      hourlyRate: wizardRateOverride ?? (businessProfile?.default_hourly_rate || 0),
+      taxRate: businessProfile?.tax_rate || 0,
+      periodStart: startStr,
+      periodEnd: endStr,
+      dueDate: toLocalDateString(hourlyDueDateObj),
+    });
+  }, [hookUserId, rangeStartDate, rangeEndDate, hourlyClientName, hourlyClientStreet, hourlyClientCity, hourlyClientProvince, hourlyClientPostal, wizardRateOverride, businessProfile, hourlyDueDateObj, invoiceStore]);
+
+  const handleGenerateHourlyInvoice = async () => {
+    if (isExporting) return;
     setIsExporting(true);
     try {
-      // Save client
-      if (hourlyClientName.trim()) {
-        invoiceStore.saveClient({
-          userId: hookUserId,
-          clientName: hourlyClientName.trim(),
-          addressStreet: hourlyClientStreet,
-          addressCity: hourlyClientCity,
-          addressProvince: hourlyClientProvince,
-          addressPostalCode: hourlyClientPostal,
-        });
-      }
-
-      // Get raw daily_hours records for invoice PDF
-      const startStr = toLocalDateString(rangeStartDate);
-      const endStr = toLocalDateString(rangeEndDate);
-
-      const days = getDailyHoursByPeriod(hookUserId, startStr, endStr);
-
-      const result = await invoiceStore.createHourlyInvoice({
-        userId: hookUserId,
-        clientName: hourlyClientName.trim() || 'Client',
-        clientAddress: {
-          street: hourlyClientStreet,
-          city: hourlyClientCity,
-          province: hourlyClientProvince,
-          postalCode: hourlyClientPostal,
-        },
-        days: days as unknown as DailyHoursDB[],
-        hourlyRate: wizardRateOverride ?? (businessProfile?.default_hourly_rate || 0),
-        taxRate: businessProfile?.tax_rate || 0,
-        periodStart: startStr,
-        periodEnd: endStr,
-        dueDate: toLocalDateString(hourlyDueDateObj),
-      });
-
+      const result = await generateHourlyInvoiceCore();
       if (result) {
         setSuccessInvoice({
           number: result.invoice_number,
@@ -933,6 +936,67 @@ export default function InvoiceScreen() {
       setIsExporting(false);
     }
   };
+
+  // Wizard Step 3: edit TO card → generate invoice, close wizard, navigate to /client-edit
+  const handleEditClientFromWizard = useCallback(async () => {
+    if (isExporting) return;
+    setIsExporting(true);
+    try {
+      const result = await generateHourlyInvoiceCore();
+      if (!result) { Alert.alert('Error', 'Failed to create invoice.'); return; }
+
+      setWizardStep(1);
+      setWizardRateOverride(null);
+      cancelDateRange();
+      setShowHourlyWizard(false);
+
+      setTimeout(() => {
+        showSnackbar(`Invoice ${result.invoice_number} saved`);
+        router.push({
+          pathname: '/client-edit',
+          params: {
+            invoiceId: result.id,
+            invoiceNumber: result.invoice_number,
+            clientName: result.client_name || '',
+          },
+        });
+      }, Platform.OS === 'ios' ? 100 : 350);
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to generate invoice');
+    } finally {
+      setIsExporting(false);
+    }
+  }, [generateHourlyInvoiceCore, isExporting, cancelDateRange, showSnackbar, router]);
+
+  // Wizard Step 3: edit FROM card → generate invoice, close wizard, navigate to /business-profile
+  const handleEditFromFromWizard = useCallback(async () => {
+    if (isExporting) return;
+    setIsExporting(true);
+    try {
+      const result = await generateHourlyInvoiceCore();
+      if (!result) { Alert.alert('Error', 'Failed to create invoice.'); return; }
+
+      setWizardStep(1);
+      setWizardRateOverride(null);
+      cancelDateRange();
+      setShowHourlyWizard(false);
+
+      setTimeout(() => {
+        showSnackbar(`Invoice ${result.invoice_number} saved`);
+        router.push({
+          pathname: '/business-profile',
+          params: {
+            invoiceId: result.id,
+            invoiceNumber: result.invoice_number,
+          },
+        });
+      }, Platform.OS === 'ios' ? 100 : 350);
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to generate invoice');
+    } finally {
+      setIsExporting(false);
+    }
+  }, [generateHourlyInvoiceCore, isExporting, cancelDateRange, showSnackbar, router]);
 
   // (hourly view activation now handled by wizard modal open)
 
@@ -1994,7 +2058,7 @@ export default function InvoiceScreen() {
                       clientName={hourlyClientName}
                       clientPhone={hourlyClientPhone}
                       clientAddress={[hourlyClientStreet, hourlyClientCity, hourlyClientProvince, hourlyClientPostal].filter(Boolean).join(', ') || undefined}
-                      onEditClient={() => setShowWizardClientEdit(true)}
+                      onEditClient={handleEditClientFromWizard}
                       dueDate={formatDueDateDisplay(hourlyDueDateObj)}
                       days={wizardDays}
                       totalDays={rangeDaysWorked}
@@ -2019,7 +2083,7 @@ export default function InvoiceScreen() {
                       fromPhone={businessProfile?.phone || undefined}
                       fromAddress={[businessProfile?.address_street, businessProfile?.address_city, businessProfile?.address_province, businessProfile?.address_postal_code].filter(Boolean).join(', ') || undefined}
                       fromEmail={businessProfile?.email || undefined}
-                      onEditFrom={() => router.navigate('/business-profile' as any)}
+                      onEditFrom={handleEditFromFromWizard}
                     />
                   </ScrollView>
 

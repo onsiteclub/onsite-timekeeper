@@ -9,6 +9,7 @@
 
 import { Platform } from 'react-native';
 import * as AppleAuthentication from 'expo-apple-authentication';
+
 import * as Crypto from 'expo-crypto';
 import Constants from 'expo-constants';
 import {
@@ -57,7 +58,9 @@ export interface OAuthResult {
 export async function signInWithGoogle(): Promise<OAuthResult> {
   try {
     configureGoogle();
-    await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+    if (Platform.OS === 'android') {
+      await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+    }
 
     const response: any = await GoogleSignin.signIn();
 
