@@ -40,6 +40,12 @@ function configureGoogle() {
     throw new Error('Google Sign-In not configured');
   }
 
+  if (Platform.OS === 'ios' && !iosClientId) {
+    logger.error('auth', 'Google iosClientId missing — iOS sign-in will fail');
+  }
+
+  logger.info('auth', `Google configure: platform=${Platform.OS}, webClientId=${webClientId ? 'set' : 'MISSING'}, iosClientId=${iosClientId ? 'set' : 'MISSING'}`);
+
   GoogleSignin.configure({
     webClientId, // REQUIRED — matches Supabase aud claim
     iosClientId, // iOS-only; ignored on Android
@@ -103,8 +109,13 @@ export async function signInWithGoogle(): Promise<OAuthResult> {
     if (e?.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
       return { success: false, error: 'Google Play Services not available' };
     }
-    logger.error('auth', 'Google sign-in exception', { error: String(e) });
-    return { success: false, error: 'Google sign-in failed' };
+    logger.error('auth', 'Google sign-in exception', {
+      code: e?.code,
+      message: e?.message,
+      platform: Platform.OS,
+      error: String(e),
+    });
+    return { success: false, error: e?.message || 'Google sign-in failed' };
   }
 }
 

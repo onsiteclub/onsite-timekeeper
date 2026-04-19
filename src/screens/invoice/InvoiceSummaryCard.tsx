@@ -1221,63 +1221,6 @@ export function InvoiceSummaryCard(props: InvoiceSummaryCardProps) {
 }
 
 // ============================================
-// EXPORTED BACKWARD-COMPAT ALIASES
-// ============================================
-
-export const cardStyles = StyleSheet.create({
-  receiptCard: {},
-  receiptSection: { paddingVertical: 8 },
-  receiptLabel: {
-    fontSize: 10, fontWeight: '600', color: colors.textSecondary,
-    letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 4,
-  },
-  receiptValue: { fontSize: 14, fontWeight: '500', color: colors.text },
-  receiptSubvalue: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
-  divider: { height: 1, backgroundColor: CARD_BORDER, marginVertical: 12 },
-  receiptRow: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'center', paddingVertical: 8,
-  },
-  rowLabel: { fontSize: 13, color: colors.textSecondary },
-  rowValue: { fontSize: 13, fontWeight: '500', color: colors.text },
-  grandTotalRow: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'center', paddingVertical: 8,
-  },
-  grandTotalLabel: { fontSize: 15, fontWeight: '500', color: colors.text },
-  grandTotalValue: { fontSize: 18, fontWeight: '500', color: colors.primary },
-  editBadge: {
-    width: 32, height: 32, borderRadius: 8,
-    backgroundColor: colors.white,
-    borderWidth: 0.5, borderColor: CARD_BORDER,
-    justifyContent: 'center', alignItems: 'center',
-  },
-});
-
-export const tableStyles = StyleSheet.create({
-  headerRow: {
-    flexDirection: 'row', paddingVertical: 6,
-    borderBottomWidth: 0.5, borderBottomColor: CARD_BORDER,
-  },
-  headerCell: {
-    flex: 1, fontSize: 10, fontWeight: '600', color: colors.textSecondary,
-    letterSpacing: 0.5, textTransform: 'uppercase',
-  },
-  row: {
-    flexDirection: 'row', paddingVertical: 8, alignItems: 'center',
-  },
-  rowAlt: {},
-  cell: { flex: 1, fontSize: 13, color: colors.text },
-  totalRow: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingVertical: 8, marginTop: 4,
-    borderTopWidth: 1, borderTopColor: CARD_BORDER,
-  },
-  totalLabel: { fontSize: 13, color: colors.textSecondary },
-  totalValue: { fontSize: 14, fontWeight: '500', color: colors.text },
-});
-
-// ============================================
 // STYLES
 // ============================================
 

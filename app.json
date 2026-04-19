@@ -12,7 +12,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.onsiteclub.timekeeper",
-      "buildNumber": "43",
+      "buildNumber": "44",
       "usesAppleSignIn": true,
       "config": {
         "googleMapsApiKey": "AIzaSyBdITLu3Kr5OYPr8ZnhxIGVNFHIGEgvfKY",
@@ -37,16 +37,13 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#E8E4E0"
       },
-      "versionCode": 43,
+      "versionCode": 44,
       "package": "com.onsiteclub.timekeeper",
       "allowBackup": false,
       "blockedPermissions": [
-        "android.permission.CAMERA",
-        "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
-        "android.permission.SYSTEM_ALERT_WINDOW",
-        "android.permission.RECORD_AUDIO"
+        "android.permission.SYSTEM_ALERT_WINDOW"
       ],
       "config": {
         "googleMaps": {

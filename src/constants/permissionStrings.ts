@@ -43,13 +43,6 @@ export const PERMISSION_STRINGS = {
       '\u2014 even when the app is closed.\n\n' +
       'Without this, you can still log hours manually.',
 
-    // Camera rationale kept for QRCodeScanner.tsx (Crew tab hidden, not deleted)
-    camera:
-      'Scans QR codes to connect with teammates and share time entries.',
-
-    microphone:
-      'Lets you use voice commands to log time hands-free. ' +
-      'For example, say \u2018start timer\u2019 without touching your phone.',
   },
 
   // ============================================
@@ -58,8 +51,6 @@ export const PERMISSION_STRINGS = {
   rationaleTitle: {
     foregroundLocation: 'Location Permission',
     backgroundLocation: 'Background Location',
-    camera: 'Camera Permission',
-    microphone: 'Microphone Permission',
   },
 
   // ============================================
@@ -72,7 +63,5 @@ export const PERMISSION_STRINGS = {
       'Automatically records your time when you arrive at or leave your saved locations, even when the app is closed. All data stays on your device.',
     NSLocationAlwaysUsageDescription:
       'Records your arrival and departure times at saved locations in the background. All data stays on your device.',
-    NSMicrophoneUsageDescription:
-      'Lets you use voice commands to log time hands-free. For example, say \u2018start timer\u2019 without touching your phone.',
   },
 } as const;

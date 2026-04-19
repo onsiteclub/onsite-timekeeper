@@ -117,33 +117,3 @@ export function getAttestationHeaders(): AttestationHeaders {
 //   return '';
 // }
 
-// ============================================
-// VALIDATION HELPERS
-// ============================================
-
-/**
- * Quick check: is this running on a physical device?
- * Emulators/simulators are suspicious in production.
- *
- * Note: This is easily spoofable — real protection needs Phase 2/3.
- */
-export function isPhysicalDevice(): boolean {
-  return Device.isDevice;
-}
-
-/**
- * Get a summary of attestation state for debugging.
- * Safe to log — no sensitive data.
- */
-export function getAttestationDebugInfo(): Record<string, string> {
-  return {
-    platform: Platform.OS,
-    version: Application.nativeApplicationVersion || 'dev',
-    build: Application.nativeBuildVersion || '0',
-    bundle: Application.applicationId || 'unknown',
-    isPhysical: String(Device.isDevice),
-    phase: '1 (basic headers)',
-    // TODO Phase 2: appleAttestSupported: '...',
-    // TODO Phase 3: playIntegrityAvailable: '...',
-  };
-}

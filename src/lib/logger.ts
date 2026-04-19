@@ -20,11 +20,9 @@ type LogCategory =
   | 'telemetry'
   | 'permissions'
   | 'settings'
-  | 'grants'      // QR code device linking
   | 'dailyLog'    // Daily hours tracking (Caderneta Digital)
   | 'ai'          // AI Guardião - GPS event interpreter
   | 'secretary'   // AI Secretário - data cleanup & reports
-  | 'voice'       // AI Voz - voice command processing
   | 'invoice';    // Invoice generation & management
 
 
@@ -67,11 +65,9 @@ const categoryColor: Record<LogCategory, string> = {
   telemetry: '\x1b[90m',   // gray
   permissions: '\x1b[36m', // cyan
   settings: '\x1b[37m',    // white
-  grants: '\x1b[94m',      // light blue (QR code linking)
   dailyLog: '\x1b[32m',    // green (Caderneta Digital)
   ai: '\x1b[93m',          // bright yellow (AI Guardião)
   secretary: '\x1b[95m',   // bright magenta (AI Secretário)
-  voice: '\x1b[92m',       // bright green (AI Voz)
   invoice: '\x1b[33m',     // yellow (Invoice)
 };
 

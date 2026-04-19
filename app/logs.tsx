@@ -50,7 +50,7 @@ const LEVEL_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
 
 const CATEGORIES = [
   'all', 'boot', 'geofence', 'session', 'sync', 'auth',
-  'gps', 'database', 'ai', 'voice', 'secretary', 'ui',
+  'gps', 'database', 'ai', 'secretary', 'ui',
   'notification', 'permissions', 'settings', 'dailyLog',
 ] as const;
 

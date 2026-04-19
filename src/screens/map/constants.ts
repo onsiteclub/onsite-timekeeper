@@ -24,11 +24,8 @@ export const DEFAULT_RADIUS = 150;
 // Radius stepper constraints (for store validation)
 export const RADIUS_MIN = 50;
 export const RADIUS_MAX = 500;
-export const RADIUS_STEP = 50;
 
 // Slider constraints (UI — detection zone slider)
-export const SLIDER_MIN = 50;
-export const SLIDER_MAX = 300;
 export const SLIDER_STEP = 25;
 
 // Radius chips (adding mode only)

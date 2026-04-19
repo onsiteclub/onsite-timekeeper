@@ -5,16 +5,13 @@
  *       Amber dot active indicator, warm color palette
  */
 
-import React from 'react'; // useState needed when voice widget re-enabled
+import React from 'react';
 import { Platform, View, Text } from 'react-native';
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../../src/constants/colors';
-// TODO: Re-enable when AI Chat Widget is extracted as reusable package
-// import { FloatingMicButton } from '../../src/components/FloatingMicButton';
-// import { VoiceCommandSheet } from '../../src/components/VoiceCommandSheet';
 
 const isWeb = Platform.OS === 'web';
 
@@ -46,9 +43,6 @@ export default function TabsLayout() {
   const insets = useSafeAreaInsets();
   const bottomPadding = Platform.OS === 'android' ? Math.max(insets.bottom, 8) : 8;
   const tabBarHeight = 60 + insets.bottom;
-
-  // TODO: Re-enable when AI Chat Widget is extracted as reusable package
-  // const [showVoiceSheet, setShowVoiceSheet] = useState(false);
 
   return (
     <GestureHandlerRootView style={[
@@ -109,32 +103,12 @@ export default function TabsLayout() {
           }}
         />
         <Tabs.Screen
-          name="team"
-          options={{
-            href: null,
-          }}
-        />
-        <Tabs.Screen
           name="settings"
           options={{
             href: null,
           }}
         />
       </Tabs>
-
-      {/* TODO: Re-enable when AI Chat Widget is extracted as reusable package
-      <FloatingMicButton
-        onPress={() => setShowVoiceSheet(true)}
-        tabBarHeight={tabBarHeight}
-      />
-
-      {showVoiceSheet && (
-        <VoiceCommandSheet
-          visible={showVoiceSheet}
-          onClose={() => setShowVoiceSheet(false)}
-        />
-      )}
-      */}
     </GestureHandlerRootView>
   );
 }
