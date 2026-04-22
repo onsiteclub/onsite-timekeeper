@@ -18,7 +18,8 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import * as Sharing from 'expo-sharing';
+import { shareInvoice } from '../../lib/invoiceShare';
+import { useRouter } from 'expo-router';
 
 import { PressableOpacity } from '../../components/ui/PressableOpacity';
 import { formatMoney, getInitials } from '../../lib/format';
@@ -26,8 +27,9 @@ import { useInvoiceStore } from '../../stores/invoiceStore';
 import { useLocationStore } from '../../stores/locationStore';
 import { useAuthStore } from '../../stores/authStore';
 import { useBusinessProfileStore } from '../../stores/businessProfileStore';
+import { useSnackbarStore } from '../../stores/snackbarStore';
 import { FRAMING_PRESETS, type FramingPreset } from '../../lib/constructionPresets';
-import { InvoiceSummaryCard } from './InvoiceSummaryCard';
+import { InvoiceSummaryCard, type InvoiceSummaryChanges } from './InvoiceSummaryCard';
 import { ClientEditSheet, type ClientFormData } from './ClientEditSheet';
 import { getInvoiceItems } from '../../lib/database/invoices';
 import type { ClientDB, LocationDB, InvoiceDB, InvoiceItemDB } from '../../lib/database/core';
@@ -171,6 +173,8 @@ export default function ServicesWizard({ onBack }: { onBack: () => void }) {
   const invoiceStore = useInvoiceStore();
   const locationStore = useLocationStore();
   const businessProfile = useBusinessProfileStore((st) => st.profile);
+  const showSnackbar = useSnackbarStore((s) => s.show);
+  const router = useRouter();
   const scrollRef = useRef<ScrollView>(null);
 
   // ===== WIZARD STATE =====
@@ -227,14 +231,16 @@ export default function ServicesWizard({ onBack }: { onBack: () => void }) {
     return locationStore.locations.filter((l: LocationDB) => !l.deleted_at && l.status === 'active');
   }, [locationStore.locations]);
 
-  // Fix 1: Auto-select first recent client on mount
+  // Fix 1: Auto-select first recent client on mount.
+  // Guard `!selectedClient` prevents a race where recentClients loads async
+  // AFTER the user has already picked/typed their own client (would clobber).
   const didAutoSelectClient = useRef(false);
   useEffect(() => {
-    if (!didAutoSelectClient.current && recentClients.length > 0) {
+    if (!didAutoSelectClient.current && recentClients.length > 0 && !selectedClient) {
       setSelectedClient(recentClients[0]);
       didAutoSelectClient.current = true;
     }
-  }, [recentClients]);
+  }, [recentClients, selectedClient]);
 
   // Fix 2: Auto-select first saved location when Step 2 opens
   useEffect(() => {
@@ -286,14 +292,18 @@ export default function ServicesWizard({ onBack }: { onBack: () => void }) {
       next.delete(step);
       return next;
     });
-    // Reset new-client mode when reopening Step 1
-    if (step === 1) setNewClientMode('idle');
+    // Reset new-client mode and typed draft when reopening Step 1
+    if (step === 1) {
+      setNewClientMode('idle');
+      setTypedClientName('');
+    }
   }, []);
 
   // ===== STEP 1 HANDLERS =====
   const selectExistingClient = useCallback((client: { name: string; id?: string; clientData?: ClientDB }) => {
     setSelectedClient(client);
     setNewClientMode('idle');
+    setTypedClientName('');
     advanceTo(2);
   }, [advanceTo]);
 
@@ -329,6 +339,7 @@ export default function ServicesWizard({ onBack }: { onBack: () => void }) {
     if (!name) return;
     setSelectedClient({ name });
     setNewClientMode('idle');
+    setTypedClientName('');
     advanceTo(2);
   }, [typedClientName, advanceTo]);
 
@@ -337,6 +348,7 @@ export default function ServicesWizard({ onBack }: { onBack: () => void }) {
       const name = typedClientName.trim();
       setSelectedClient({ name });
       setNewClientMode('idle');
+      setTypedClientName('');
       advanceTo(2);
     } else if (selectedClient) {
       advanceTo(2);
@@ -485,15 +497,69 @@ export default function ServicesWizard({ onBack }: { onBack: () => void }) {
   }, [hasValidItems, advanceTo, doCreateInvoice]);
 
   const handleShareInvoice = useCallback(async () => {
-    if (createdInvoice?.pdf_uri) {
+    if (createdInvoice?.pdf_uri && userId) {
       try {
-        await Sharing.shareAsync(createdInvoice.pdf_uri, {
-          mimeType: 'application/pdf',
-          dialogTitle: 'Share Invoice',
-        });
+        await shareInvoice(userId, createdInvoice);
       } catch { /* user cancelled */ }
     }
-  }, [createdInvoice]);
+  }, [createdInvoice, userId]);
+
+  // ===== STEP 4 EDIT HANDLERS =====
+  // Inline edits (tax, items, notes, due) persist via invoiceStore and refresh
+  // the local review card from DB.
+  const handleSaveFromReview = useCallback(async (changes: InvoiceSummaryChanges) => {
+    if (!userId || !createdInvoice) return;
+
+    const newItems = changes.lineItems;
+    let subtotalVal = createdInvoice.subtotal;
+    if (newItems) {
+      subtotalVal = newItems.reduce((sum, i) => sum + i.total, 0);
+    }
+    const taxRateVal = changes.taxRate ?? createdInvoice.tax_rate;
+    const taxAmountVal = Math.round(subtotalVal * (taxRateVal / 100) * 100) / 100;
+    const totalVal = Math.round((subtotalVal + taxAmountVal) * 100) / 100;
+
+    const updated = await invoiceStore.updateInvoice(userId, createdInvoice.id, {
+      ...(changes.taxRate !== undefined && { taxRate: changes.taxRate }),
+      ...(changes.notes !== undefined && { notes: changes.notes || null }),
+      ...(changes.dueDate !== undefined && { dueDate: changes.dueDate }),
+      subtotal: subtotalVal,
+      taxAmount: taxAmountVal,
+      total: totalVal,
+    }, newItems);
+
+    if (updated) {
+      setCreatedInvoice(updated);
+      setCreatedInvoiceItems(getInvoiceItems(updated.id));
+    }
+  }, [userId, createdInvoice, invoiceStore]);
+
+  // TO / FROM taps close the wizard and push the profile/client forms. The
+  // forms handle the "View invoice" snackbar + round-trip via openInvoiceId.
+  const handleEditClientFromReview = useCallback(() => {
+    if (!createdInvoice) return;
+    const id = createdInvoice.id;
+    const num = createdInvoice.invoice_number;
+    const name = createdInvoice.client_name || '';
+    showSnackbar(`Invoice ${num} saved`);
+    onBack();
+    router.push({
+      pathname: '/client-edit',
+      params: { invoiceId: id, invoiceNumber: num, clientName: name },
+    });
+  }, [createdInvoice, onBack, router, showSnackbar]);
+
+  const handleEditFromFromReview = useCallback(() => {
+    if (!createdInvoice) return;
+    const id = createdInvoice.id;
+    const num = createdInvoice.invoice_number;
+    showSnackbar(`Invoice ${num} saved`);
+    onBack();
+    router.push({
+      pathname: '/business-profile',
+      params: { invoiceId: id, invoiceNumber: num },
+    });
+  }, [createdInvoice, onBack, router, showSnackbar]);
 
   // ===== BACK CONFIRMATION =====
   const handleBack = useCallback(() => {
@@ -558,9 +624,10 @@ export default function ServicesWizard({ onBack }: { onBack: () => void }) {
             ) : null
           }
         >
-          {/* Recent clients */}
+          {/* Recent clients — dimmed in typing mode but still tappable
+              (tapping cancels typing and picks the client) */}
           {recentClients.length > 0 && (
-            <View style={newClientMode !== 'idle' ? { opacity: 0.4 } : undefined}>
+            <View style={newClientMode !== 'idle' ? { opacity: 0.55 } : undefined}>
               <Text style={s.sectionLabel}>Recent</Text>
               <View style={s.clientPillsRow}>
                 {recentClients.slice(0, 4).map((client) => {
@@ -846,14 +913,22 @@ export default function ServicesWizard({ onBack }: { onBack: () => void }) {
                 invoiceNumber={createdInvoice.invoice_number}
                 createdAt={createdInvoice.created_at}
                 clientName={createdInvoice.client_name || ''}
+                clientPhone={selectedClient?.clientData?.phone || undefined}
+                clientAddress={selectedClient?.clientData
+                  ? [selectedClient.clientData.address_street, selectedClient.clientData.address_city, selectedClient.clientData.address_province, selectedClient.clientData.address_postal_code].filter(Boolean).join(', ') || undefined
+                  : undefined}
+                clientEmail={selectedClient?.clientData?.email || undefined}
+                onEditClient={handleEditClientFromReview}
                 fromName={businessProfile?.business_name || undefined}
                 fromPhone={businessProfile?.phone || undefined}
                 fromAddress={[businessProfile?.address_street, businessProfile?.address_city, businessProfile?.address_province, businessProfile?.address_postal_code].filter(Boolean).join(', ') || undefined}
                 fromEmail={businessProfile?.email || undefined}
+                onEditFrom={handleEditFromFromReview}
                 jobSite={jobSiteName.trim() || undefined}
                 dueDate={createdInvoice.due_date
                   ? new Date(createdInvoice.due_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
                   : undefined}
+                dueDateISO={createdInvoice.due_date || undefined}
                 lineItems={createdInvoiceItems.map(item => ({
                   id: item.id,
                   description: item.description,
@@ -867,8 +942,9 @@ export default function ServicesWizard({ onBack }: { onBack: () => void }) {
                 totalLabel="0h"
                 rate={0}
                 taxRate={createdInvoice.tax_rate}
-                taxLabel={createdInvoice.tax_rate === 13 ? 'HST' : 'Tax'}
+                taxLabel={createdInvoice.tax_rate === 13 ? 'HST' : createdInvoice.tax_rate === 5 ? 'GST' : 'Tax'}
                 notes={createdInvoice.notes || undefined}
+                onSave={handleSaveFromReview}
               />
 
               {/* Share button */}

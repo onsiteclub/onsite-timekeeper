@@ -28,7 +28,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Swipeable } from 'react-native-gesture-handler';
-import * as Sharing from 'expo-sharing';
+import { shareInvoice } from '../../src/lib/invoiceShare';
 import DateTimePicker, { DateTimePickerAndroid, type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 
 import { Card } from '../../src/components/ui/Button';
@@ -634,7 +634,7 @@ export default function InvoiceScreen() {
 
   // Success modal state
   const [showSuccessModal, setShowSuccessModal] = useState(false);
-  const [successInvoice, setSuccessInvoice] = useState<{ number: string; pdfUri: string; total: number } | null>(null);
+  const [successInvoice, setSuccessInvoice] = useState<InvoiceDB | null>(null);
   // iOS: defer opening success modal until wizard's dismiss animation completes
   // (prevents UIKit double-modal race that freezes the tab)
   const [pendingSuccessModal, setPendingSuccessModal] = useState(false);
@@ -908,11 +908,7 @@ export default function InvoiceScreen() {
     try {
       const result = await generateHourlyInvoiceCore();
       if (result) {
-        setSuccessInvoice({
-          number: result.invoice_number,
-          pdfUri: result.pdf_uri || '',
-          total: result.total || 0,
-        });
+        setSuccessInvoice(result);
         setWizardStep(1);
         setWizardRateOverride(null);
         cancelDateRange();
@@ -1338,8 +1334,7 @@ export default function InvoiceScreen() {
               <View style={[hubStyles.typeCardIcon, { backgroundColor: colors.primarySoft }]}>
                 <Ionicons name="time-outline" size={28} color={colors.primary} />
               </View>
-              <Text style={hubStyles.typeCardTitle}>Invoice by Hours</Text>
-              <Text style={hubStyles.typeCardSubtitle}>Select dates from calendar</Text>
+              <Text style={hubStyles.typeCardTitle}>Timesheet Invoice</Text>
             </PressableOpacity>
 
             <PressableOpacity
@@ -1550,10 +1545,7 @@ export default function InvoiceScreen() {
 
                         if (pdfUri) {
                           try {
-                            await Sharing.shareAsync(pdfUri, {
-                              mimeType: 'application/pdf',
-                              dialogTitle: `Share ${selectedInvoice.invoice_number}`,
-                            });
+                            await shareInvoice(userId, { ...selectedInvoice, pdf_uri: pdfUri });
                           } catch {
                             // User cancelled share dialog
                           }
@@ -1755,7 +1747,7 @@ export default function InvoiceScreen() {
                 </PressableOpacity>
                 <View style={{ flex: 1 }}>
                   <Text style={wizardStyles.headerTitle}>
-                    {wizardStep === 1 ? 'Invoice by Hours' : wizardStep === 2 ? 'Send To' : 'Invoice Summary'}
+                    {wizardStep === 1 ? 'Timesheet Invoice' : wizardStep === 2 ? 'Send To' : 'Invoice Summary'}
                   </Text>
                 </View>
                 <View style={wizardStyles.dotsRow}>
@@ -2379,18 +2371,15 @@ export default function InvoiceScreen() {
               <Text style={successModalStyles.title}>Invoice saved</Text>
               {successInvoice && (
                 <Text style={successModalStyles.subtitle}>
-                  {successInvoice.number} · {formatMoney(successInvoice.total)}
+                  {successInvoice.invoice_number} · {formatMoney(successInvoice.total)}
                 </Text>
               )}
               <PressableOpacity
                 style={successModalStyles.shareBtn}
                 onPress={async () => {
-                  if (successInvoice?.pdfUri) {
+                  if (successInvoice?.pdf_uri && userId) {
                     try {
-                      await Sharing.shareAsync(successInvoice.pdfUri, {
-                        mimeType: 'application/pdf',
-                        dialogTitle: 'Share Invoice',
-                      });
+                      await shareInvoice(userId, successInvoice);
                     } catch { /* user cancelled */ }
                   }
                 }}
@@ -2720,7 +2709,7 @@ const detailStyles = StyleSheet.create({
   sheet: {
     backgroundColor: colors.white, borderTopLeftRadius: 20, borderTopRightRadius: 20,
     paddingTop: 12, paddingBottom: Platform.OS === 'ios' ? 40 : 24, paddingHorizontal: 20,
-    maxHeight: Dimensions.get('window').height * 0.85,
+    maxHeight: Dimensions.get('window').height * 0.92,
   },
   handle: {
     width: 36, height: 4, borderRadius: 2, backgroundColor: colors.borderLight,

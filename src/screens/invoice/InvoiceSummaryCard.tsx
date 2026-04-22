@@ -1293,7 +1293,7 @@ export function InvoiceSummaryCard(props: InvoiceSummaryCardProps) {
 
 const st = StyleSheet.create({
   container: {
-    gap: 10,
+    gap: 16,
   },
 
   // ── Header ──
@@ -1302,10 +1302,10 @@ const st = StyleSheet.create({
     marginBottom: 4,
   },
   headerTitle: {
-    fontSize: 20, fontWeight: '500', color: colors.text,
+    fontSize: 22, fontWeight: '500', color: colors.text,
   },
   headerDate: {
-    fontSize: 12, color: colors.textMuted, marginTop: 2,
+    fontSize: 13, color: colors.textMuted, marginTop: 2,
   },
   headerBtn: {
     width: 44, height: 44, borderRadius: 10,
@@ -1314,30 +1314,30 @@ const st = StyleSheet.create({
     justifyContent: 'center', alignItems: 'center',
   },
   saveBtn: {
-    backgroundColor: colors.primary, borderRadius: 8,
-    paddingHorizontal: 14, paddingVertical: 6,
+    backgroundColor: colors.primary, borderRadius: 10,
+    paddingHorizontal: 18, paddingVertical: 10,
     justifyContent: 'center', alignItems: 'center',
-    height: 32,
+    height: 44,
   },
   saveBtnText: {
-    fontSize: 13, fontWeight: '600', color: colors.white,
+    fontSize: 15, fontWeight: '600', color: colors.white,
   },
 
   // ── Banner ──
   banner: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    backgroundColor: AMBER_SOFT, borderRadius: 8,
-    paddingVertical: 8, paddingHorizontal: 12,
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: AMBER_SOFT, borderRadius: 10,
+    paddingVertical: 12, paddingHorizontal: 16,
   },
   bannerText: {
-    fontSize: 12, color: BANNER_TEXT, flex: 1,
+    fontSize: 13, color: BANNER_TEXT, flex: 1, lineHeight: 18,
   },
 
   // ── Sub-card (white card wrapper for each section) ──
   subCard: {
-    backgroundColor: colors.white, borderRadius: 10,
+    backgroundColor: colors.white, borderRadius: 12,
     borderWidth: 0.5, borderColor: CARD_BORDER,
-    padding: 12,
+    padding: 16,
   },
   dashedAmber: {
     borderWidth: 1, borderColor: colors.primary,
@@ -1346,26 +1346,26 @@ const st = StyleSheet.create({
 
   // ── Card labels & values ──
   cardLabel: {
-    fontSize: 10, fontWeight: '600', color: colors.textSecondary,
-    letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 4,
+    fontSize: 12, fontWeight: '600', color: colors.textSecondary,
+    letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 6,
   },
   cardLabelAmber: {
-    fontSize: 10, fontWeight: '600', color: colors.primary,
-    letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 4,
+    fontSize: 12, fontWeight: '600', color: colors.primary,
+    letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 6,
   },
   cardValue: {
-    fontSize: 14, color: colors.text,
+    fontSize: 15, color: colors.text, lineHeight: 21,
   },
 
   // ── TO / FROM ──
   toFromRow: {
-    flexDirection: 'row', gap: 12,
+    flexDirection: 'row', gap: 14,
   },
   toFromCard: {
-    flex: 1, paddingVertical: 10, paddingHorizontal: 12,
-    backgroundColor: colors.white, borderRadius: 10,
+    flex: 1, paddingVertical: 14, paddingHorizontal: 16,
+    backgroundColor: colors.white, borderRadius: 12,
     borderWidth: 0.5, borderColor: CARD_BORDER,
-    minHeight: 56,
+    minHeight: 72,
   },
   toFromCardAmber: {
     borderWidth: 1, borderColor: colors.primary,
@@ -1374,98 +1374,98 @@ const st = StyleSheet.create({
     borderColor: '#D1D0CE',
   },
   toFromName: {
-    fontSize: 15, fontWeight: '500', color: colors.text,
+    fontSize: 16, fontWeight: '500', color: colors.text,
   },
   toFromSub: {
-    fontSize: 12, color: colors.textSecondary, marginTop: 1,
+    fontSize: 13, color: colors.textSecondary, marginTop: 2, lineHeight: 18,
   },
 
   // ── Table ──
   tableHeader: {
-    flexDirection: 'row', paddingVertical: 6,
+    flexDirection: 'row', paddingVertical: 10,
     borderBottomWidth: 0.5, borderBottomColor: CARD_BORDER,
   },
   tableHeaderCell: {
-    flex: 1, fontSize: 10, fontWeight: '600', color: colors.textSecondary,
+    flex: 1, fontSize: 12, fontWeight: '600', color: colors.textSecondary,
     letterSpacing: 0.5, textTransform: 'uppercase',
   },
   tableRow: {
-    flexDirection: 'row', paddingVertical: 8, alignItems: 'center',
+    flexDirection: 'row', paddingVertical: 12, alignItems: 'center',
   },
   tableRowBorder: {
     borderTopWidth: 0.5, borderTopColor: ROW_SEPARATOR,
   },
   tableCell: {
-    flex: 1, fontSize: 13, color: colors.text,
+    flex: 1, fontSize: 15, color: colors.text,
   },
   editableCell: {
     backgroundColor: AMBER_SOFT,
     borderBottomWidth: 1, borderBottomColor: colors.primary,
-    borderRadius: 4,
-    paddingVertical: 4, paddingHorizontal: 2,
+    borderRadius: 6,
+    paddingVertical: 8, paddingHorizontal: 6,
     marginHorizontal: 2,
   },
   editableCellText: {
-    fontSize: 13, fontWeight: '500', color: colors.text,
+    fontSize: 15, fontWeight: '500', color: colors.text,
   },
   tableSummary: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingTop: 8, marginTop: 4,
+    paddingTop: 12, marginTop: 4,
     borderTopWidth: 1, borderTopColor: CARD_BORDER,
   },
   summaryLabel: {
-    fontSize: 13, color: colors.textSecondary,
+    fontSize: 14, color: colors.textSecondary,
   },
   summaryValue: {
-    fontSize: 14, fontWeight: '500', color: colors.text,
+    fontSize: 16, fontWeight: '500', color: colors.text,
   },
 
   // ── Totals card ──
   totalsRow: {
     flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'center', paddingVertical: 6,
+    alignItems: 'center', paddingVertical: 10,
   },
   totalsLabel: {
-    fontSize: 13, color: colors.textSecondary,
+    fontSize: 14, color: colors.textSecondary,
   },
   totalsValue: {
-    fontSize: 13, fontWeight: '500', color: colors.text,
-  },
-  totalsSeparator: {
-    height: 1, backgroundColor: CARD_BORDER, marginVertical: 4,
-  },
-  totalFinalLabel: {
     fontSize: 15, fontWeight: '500', color: colors.text,
   },
+  totalsSeparator: {
+    height: 1, backgroundColor: CARD_BORDER, marginVertical: 6,
+  },
+  totalFinalLabel: {
+    fontSize: 16, fontWeight: '500', color: colors.text,
+  },
   totalFinalValue: {
-    fontSize: 18, fontWeight: '500', color: colors.primary,
+    fontSize: 22, fontWeight: '600', color: colors.primary,
   },
 
   // ── Rate input ──
   rateInput: {
-    fontSize: 13, fontWeight: '500', color: colors.text,
+    fontSize: 15, fontWeight: '500', color: colors.text,
     backgroundColor: AMBER_SOFT,
     borderBottomWidth: 1, borderBottomColor: colors.primary,
-    borderRadius: 4,
-    paddingVertical: 2, paddingHorizontal: 8,
-    minWidth: 50, textAlign: 'right',
+    borderRadius: 6,
+    paddingVertical: 8, paddingHorizontal: 10,
+    minWidth: 72, textAlign: 'right',
   },
 
   // ── Auto label ──
   autoLabel: {
-    fontSize: 10, fontStyle: 'italic', color: colors.textSecondary,
+    fontSize: 11, fontStyle: 'italic', color: colors.textSecondary,
   },
 
   // ── Break presets ──
   breakRow: {
-    flexDirection: 'row', gap: 6, paddingVertical: 8,
+    flexDirection: 'row', gap: 8, paddingVertical: 12,
     paddingHorizontal: 4, flexWrap: 'wrap',
   },
   breakPill: {
-    paddingVertical: 8, paddingHorizontal: 12,
-    borderRadius: 20, backgroundColor: colors.surfaceMuted,
+    paddingVertical: 10, paddingHorizontal: 16,
+    borderRadius: 22, backgroundColor: colors.surfaceMuted,
     borderWidth: 0.5, borderColor: CARD_BORDER,
-    minHeight: 36,
+    minHeight: 44,
   },
   breakPillActive: {
     backgroundColor: AMBER_SOFT,
@@ -1473,7 +1473,7 @@ const st = StyleSheet.create({
     borderWidth: 1,
   },
   breakPillText: {
-    fontSize: 12, fontWeight: '500', color: colors.textSecondary,
+    fontSize: 14, fontWeight: '500', color: colors.textSecondary,
   },
   breakPillTextActive: {
     color: colors.primary, fontWeight: '700',
@@ -1491,78 +1491,78 @@ const st = StyleSheet.create({
     borderBottomWidth: 0.5, borderBottomColor: CARD_BORDER,
   },
   iosPickerTitle: {
-    fontSize: 14, fontWeight: '600', color: colors.text,
+    fontSize: 15, fontWeight: '600', color: colors.text,
   },
   iosPickerDone: {
-    fontSize: 14, fontWeight: '600', color: colors.primary,
+    fontSize: 15, fontWeight: '600', color: colors.primary,
   },
 
   // ── Notes ──
   notesInput: {
     backgroundColor: AMBER_SOFT,
     borderWidth: 1, borderColor: colors.primary,
-    borderRadius: 8, padding: 10,
-    fontSize: 13, color: colors.text,
-    minHeight: 56,
+    borderRadius: 10, padding: 14,
+    fontSize: 15, color: colors.text, lineHeight: 22,
+    minHeight: 72,
   },
 
   // ── Line items (read mode) ──
   lineItemTitle: {
-    fontSize: 14, fontWeight: '500', color: colors.text,
+    fontSize: 16, fontWeight: '500', color: colors.text,
   },
   lineItemDesc: {
-    fontSize: 13, fontWeight: '400', color: DESC_COLOR, lineHeight: 19,
-    marginTop: 2,
+    fontSize: 14, fontWeight: '400', color: DESC_COLOR, lineHeight: 21,
+    marginTop: 4,
   },
   lineItemMeta: {
-    fontSize: 13, color: colors.textSecondary,
+    fontSize: 14, color: colors.textSecondary,
   },
   lineItemTotal: {
-    fontSize: 13, fontWeight: '500', color: colors.text,
+    fontSize: 16, fontWeight: '500', color: colors.text,
   },
 
   // ── Line items (edit mode) ──
   lineItemEdit: {
-    paddingVertical: 10,
+    paddingVertical: 14,
   },
   lineItemTitleInput: {
-    fontSize: 14, fontWeight: '500', color: colors.text,
+    fontSize: 16, fontWeight: '500', color: colors.text,
     borderBottomWidth: 1, borderBottomColor: colors.primary,
-    paddingVertical: 4,
+    paddingVertical: 10,
   },
   lineItemDescInput: {
     backgroundColor: AMBER_SOFT,
-    borderRadius: 6, padding: 8, marginTop: 6,
-    fontSize: 13, color: colors.text,
-    minHeight: 44,
+    borderRadius: 8, padding: 12, marginTop: 8,
+    fontSize: 14, color: colors.text, lineHeight: 20,
+    minHeight: 60,
   },
   lineItemQtyInput: {
-    width: 50,
+    width: 88,
     backgroundColor: AMBER_SOFT,
     borderBottomWidth: 1, borderBottomColor: colors.primary,
-    borderRadius: 4, paddingVertical: 4, paddingHorizontal: 6,
-    fontSize: 13, color: colors.text, textAlign: 'center',
+    borderRadius: 6, paddingVertical: 10, paddingHorizontal: 10,
+    fontSize: 16, color: colors.text, textAlign: 'center',
   },
   lineItemPriceInput: {
-    width: 70,
+    width: 100,
     backgroundColor: AMBER_SOFT,
     borderBottomWidth: 1, borderBottomColor: colors.primary,
-    borderRadius: 4, paddingVertical: 4, paddingHorizontal: 6,
-    fontSize: 13, color: colors.text, textAlign: 'right',
+    borderRadius: 6, paddingVertical: 10, paddingHorizontal: 10,
+    fontSize: 16, color: colors.text, textAlign: 'right',
   },
   addItemBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-    paddingVertical: 10, marginTop: 8,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    paddingVertical: 14, marginTop: 10,
     borderWidth: 1, borderStyle: 'dashed' as any, borderColor: colors.primary,
-    borderRadius: 8,
+    borderRadius: 10,
   },
 
   // ── $0 Warning ──
   zeroWarning: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    backgroundColor: '#FEF3C7', borderRadius: 10, padding: 12,
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: '#FEF3C7', borderRadius: 10, padding: 14,
   },
   zeroWarningText: {
-    flex: 1, fontSize: 13, color: '#92400E', lineHeight: 18,
+    flex: 1, fontSize: 14, color: '#92400E', lineHeight: 20,
   },
 });
