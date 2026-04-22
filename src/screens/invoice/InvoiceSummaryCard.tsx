@@ -51,6 +51,7 @@ export interface TimeTableDay {
 /** Changes produced by edit mode save */
 export interface InvoiceSummaryChanges {
   rate?: number;
+  taxRate?: number;        // percentage (e.g. 13 for HST)
   notes?: string;
   dueDate?: string;        // YYYY-MM-DD
   dayUpdates?: {
@@ -339,6 +340,7 @@ export function InvoiceSummaryCard(props: InvoiceSummaryCardProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [draftRate, setDraftRate] = useState(0);
   const [draftRateText, setDraftRateText] = useState('');
+  const [draftTaxRateText, setDraftTaxRateText] = useState('');
   const [draftNotes, setDraftNotes] = useState('');
   const [draftDueDate, setDraftDueDate] = useState<Date | null>(null);
   const [draftDays, setDraftDays] = useState<Map<string, DayDraft>>(new Map());
@@ -357,6 +359,7 @@ export function InvoiceSummaryCard(props: InvoiceSummaryCardProps) {
   } | null>(null);
   const [activeBreakDate, setActiveBreakDate] = useState<string | null>(null);
   const [editingRate, setEditingRate] = useState(false);
+  const [editingTaxRate, setEditingTaxRate] = useState(false);
   const [showIOSDuePicker, setShowIOSDuePicker] = useState(false);
 
   // Legacy rate editing (wizard context without onSave)
@@ -376,6 +379,7 @@ export function InvoiceSummaryCard(props: InvoiceSummaryCardProps) {
   const enterEditMode = useCallback(() => {
     setDraftRate(rate);
     setDraftRateText(rate > 0 ? String(rate) : '');
+    setDraftTaxRateText(taxRate > 0 ? String(taxRate) : '');
     setDraftNotes(notes || '');
     setDraftDueDate(dueDateISO ? new Date(dueDateISO + 'T12:00:00') : null);
 
@@ -407,9 +411,10 @@ export function InvoiceSummaryCard(props: InvoiceSummaryCardProps) {
     setActiveTimePicker(null);
     setActiveBreakDate(null);
     setEditingRate(false);
+    setEditingTaxRate(false);
     setShowIOSDuePicker(false);
     setIsEditing(true);
-  }, [rate, notes, dueDateISO, days, lineItems]);
+  }, [rate, taxRate, notes, dueDateISO, days, lineItems]);
 
   // ── Build pending draft as an InvoiceSummaryChanges object ──
   const buildChanges = useCallback((): InvoiceSummaryChanges => {
@@ -417,6 +422,10 @@ export function InvoiceSummaryCard(props: InvoiceSummaryCardProps) {
 
     const parsedRate = parseFloat(draftRateText) || draftRate;
     if (parsedRate !== rate) changes.rate = parsedRate;
+
+    const parsedTaxRate = draftTaxRateText.trim() === '' ? 0 : (parseFloat(draftTaxRateText) || 0);
+    if (parsedTaxRate !== taxRate) changes.taxRate = parsedTaxRate;
+
     if (draftNotes !== (notes || '')) changes.notes = draftNotes;
 
     if (draftDueDate) {
@@ -457,7 +466,7 @@ export function InvoiceSummaryCard(props: InvoiceSummaryCardProps) {
     }
 
     return changes;
-  }, [draftRate, draftRateText, draftNotes, draftDueDate, draftDays, draftLineItems, rate, notes, dueDateISO, days]);
+  }, [draftRate, draftRateText, draftTaxRateText, draftNotes, draftDueDate, draftDays, draftLineItems, rate, taxRate, notes, dueDateISO, days]);
 
   // ── Save changes ──
   const handleSave = useCallback(async () => {
@@ -581,9 +590,12 @@ export function InvoiceSummaryCard(props: InvoiceSummaryCardProps) {
   }, [isEditing, days, draftDays, totalMinutes]);
 
   const effectiveRate = isEditing ? (parseFloat(draftRateText) || draftRate) : rate;
+  const effectiveTaxRate = isEditing
+    ? (draftTaxRateText.trim() === '' ? 0 : (parseFloat(draftTaxRateText) || 0))
+    : taxRate;
   const calcMinutes = isEditing ? editedTotalMinutes : totalMinutes;
   const subtotal = Math.round((calcMinutes / 60) * effectiveRate * 100) / 100;
-  const taxAmount = Math.round(subtotal * (taxRate / 100) * 100) / 100;
+  const taxAmount = Math.round(subtotal * (effectiveTaxRate / 100) * 100) / 100;
   const grandTotal = Math.round((subtotal + taxAmount) * 100) / 100;
 
   // Products/services calculations
@@ -594,7 +606,7 @@ export function InvoiceSummaryCard(props: InvoiceSummaryCardProps) {
     }
     return lineItems?.reduce((s, i) => s + i.total, 0) || 0;
   }, [isEditing, draftLineItems, lineItems]);
-  const itemsTax = Math.round(itemsSubtotal * (taxRate / 100) * 100) / 100;
+  const itemsTax = Math.round(itemsSubtotal * (effectiveTaxRate / 100) * 100) / 100;
   const itemsTotal = Math.round((itemsSubtotal + itemsTax) * 100) / 100;
 
   // Effective due date display
@@ -936,15 +948,38 @@ export function InvoiceSummaryCard(props: InvoiceSummaryCardProps) {
                   <Text style={st.totalsValue}>{formatMoney(subtotal)}</Text>
                 </View>
 
-                {/* Tax — auto */}
-                {taxRate > 0 && (
+                {/* Tax — tappable inline edit */}
+                {editingTaxRate ? (
                   <View style={st.totalsRow}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Text style={st.totalsLabel}>{taxLabel} ({taxRate}%)</Text>
-                      <AutoLabel />
+                    <Text style={st.totalsLabel}>{taxLabel}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <TextInput
+                        style={st.rateInput}
+                        value={draftTaxRateText}
+                        onChangeText={setDraftTaxRateText}
+                        keyboardType="decimal-pad"
+                        autoFocus
+                        selectTextOnFocus
+                        placeholder="0"
+                        placeholderTextColor={colors.textMuted}
+                        onBlur={() => setEditingTaxRate(false)}
+                        onSubmitEditing={() => setEditingTaxRate(false)}
+                      />
+                      <Text style={{ fontSize: 13, color: colors.textSecondary }}>%</Text>
                     </View>
-                    <Text style={st.totalsValue}>{formatMoney(taxAmount)}</Text>
                   </View>
+                ) : (
+                  <PressableOpacity style={st.totalsRow} onPress={() => setEditingTaxRate(true)} activeOpacity={0.6}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={st.totalsLabel}>
+                        {taxLabel}{effectiveTaxRate > 0 ? ` (${effectiveTaxRate}%)` : ''}
+                      </Text>
+                      {effectiveTaxRate > 0 && <AutoLabel />}
+                    </View>
+                    <Text style={[st.totalsValue, effectiveTaxRate === 0 && { color: colors.primary }]}>
+                      {effectiveTaxRate > 0 ? formatMoney(taxAmount) : 'Set tax'}
+                    </Text>
+                  </PressableOpacity>
                 )}
 
                 {/* Separator + Total */}
@@ -1166,15 +1201,47 @@ export function InvoiceSummaryCard(props: InvoiceSummaryCardProps) {
               </View>
               <Text style={st.totalsValue}>{formatMoney(itemsSubtotal)}</Text>
             </View>
-            {taxRate > 0 && (
+            {isEditing ? (
+              editingTaxRate ? (
+                <View style={st.totalsRow}>
+                  <Text style={st.totalsLabel}>{taxLabel}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <TextInput
+                      style={st.rateInput}
+                      value={draftTaxRateText}
+                      onChangeText={setDraftTaxRateText}
+                      keyboardType="decimal-pad"
+                      autoFocus
+                      selectTextOnFocus
+                      placeholder="0"
+                      placeholderTextColor={colors.textMuted}
+                      onBlur={() => setEditingTaxRate(false)}
+                      onSubmitEditing={() => setEditingTaxRate(false)}
+                    />
+                    <Text style={{ fontSize: 13, color: colors.textSecondary }}>%</Text>
+                  </View>
+                </View>
+              ) : (
+                <PressableOpacity style={st.totalsRow} onPress={() => setEditingTaxRate(true)} activeOpacity={0.6}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={st.totalsLabel}>
+                      {taxLabel}{effectiveTaxRate > 0 ? ` (${effectiveTaxRate}%)` : ''}
+                    </Text>
+                    {effectiveTaxRate > 0 && <AutoLabel />}
+                  </View>
+                  <Text style={[st.totalsValue, effectiveTaxRate === 0 && { color: colors.primary }]}>
+                    {effectiveTaxRate > 0 ? formatMoney(itemsTax) : 'Set tax'}
+                  </Text>
+                </PressableOpacity>
+              )
+            ) : taxRate > 0 ? (
               <View style={st.totalsRow}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <Text style={st.totalsLabel}>{taxLabel} ({taxRate}%)</Text>
-                  {isEditing && <AutoLabel />}
                 </View>
                 <Text style={st.totalsValue}>{formatMoney(itemsTax)}</Text>
               </View>
-            )}
+            ) : null}
             <View style={st.totalsSeparator} />
             <View style={st.totalsRow}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>

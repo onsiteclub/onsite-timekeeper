@@ -7,6 +7,8 @@
  */
 
 import { create } from 'zustand';
+import * as Application from 'expo-application';
+import Constants from 'expo-constants';
 import { logger } from '../lib/logger';
 import {
   getRecentInvoices,
@@ -26,9 +28,70 @@ import {
 } from '../lib/database/invoices';
 import { getClients, upsertClient, deleteClient as dbDeleteClient, getClientByName, type CreateClientParams } from '../lib/database/clients';
 import { getDailyHoursByPeriod } from '../lib/database/daily';
-import type { InvoiceDB, DailyHoursDB, ClientDB } from '../lib/database/core';
+import type { InvoiceDB, DailyHoursDB, ClientDB, BusinessProfileDB } from '../lib/database/core';
 import { useBusinessProfileStore } from './businessProfileStore';
+import { useAuthStore } from './authStore';
 import { generateHourlyInvoiceHTML, generateProductsInvoiceHTML, generateInvoicePDF } from '../lib/invoicePdf';
+import type { OnsiteInvoiceXmp } from '../lib/invoiceXmp';
+
+// ============================================
+// XMP METADATA BUILDER
+// ============================================
+
+// SQLite stores CURRENT_TIMESTAMP as "YYYY-MM-DD HH:MM:SS" (UTC, no Z).
+// Convert it to proper ISO 8601 UTC ("YYYY-MM-DDTHH:MM:SSZ").
+function toIsoUtc(sqliteTs: string | null | undefined): string {
+  if (!sqliteTs) return new Date().toISOString();
+  // Already ISO?
+  if (sqliteTs.includes('T')) {
+    return sqliteTs.endsWith('Z') ? sqliteTs : `${sqliteTs}Z`;
+  }
+  return `${sqliteTs.replace(' ', 'T')}Z`;
+}
+
+function getTimekeeperVersion(): string {
+  return (
+    Application.nativeApplicationVersion ||
+    Constants.expoConfig?.version ||
+    'unknown'
+  );
+}
+
+function buildOnsiteXmp(params: {
+  invoiceNumber: string;
+  businessProfile: BusinessProfileDB | null;
+  clientName: string;
+  siteAddress: string;
+  subtotal: number;
+  taxAmount: number;
+  hoursLogged: number;
+  issuedAt: string;
+}): OnsiteInvoiceXmp {
+  const auth = useAuthStore.getState();
+  const bp = params.businessProfile;
+  return {
+    invoice_number: params.invoiceNumber,
+    amount: params.subtotal,
+    hst: params.taxAmount,
+    currency: 'CAD',
+    gc_name: params.clientName || '',
+    site_address: params.siteAddress || '',
+    issuer_email: bp?.email || auth.user?.email || '',
+    issuer_name: auth.cachedFullName || '',
+    company_name: bp?.business_name || '',
+    company_hst_number: bp?.gst_hst_number || '',
+    hours_logged: params.hoursLogged,
+    issued_at: params.issuedAt,
+    timekeeper_version: getTimekeeperVersion(),
+  };
+}
+
+function firstLocationName(days: DailyHoursDB[]): string {
+  for (const d of days) {
+    if (d.location_name && d.location_name.trim()) return d.location_name;
+  }
+  return '';
+}
 
 // ============================================
 // TYPES
@@ -236,8 +299,19 @@ export const useInvoiceStore = create<InvoiceState>()((set, get) => ({
           periodStart,
           periodEnd,
           dueDate: dueDate ?? null,
+          notes: notes ?? null,
         });
-        const pdfUri = await generateInvoicePDF(html, invoiceNumber);
+        const xmp = buildOnsiteXmp({
+          invoiceNumber,
+          businessProfile: businessProfile ?? null,
+          clientName,
+          siteAddress: firstLocationName(days),
+          subtotal,
+          taxAmount,
+          hoursLogged: totalHours,
+          issuedAt: toIsoUtc(invoice.created_at),
+        });
+        const pdfUri = await generateInvoicePDF(html, invoiceNumber, xmp);
         updateInvoicePdfUri(invoice.id, pdfUri);
         invoice.pdf_uri = pdfUri;
       } catch (pdfError) {
@@ -298,26 +372,31 @@ export const useInvoiceStore = create<InvoiceState>()((set, get) => ({
 
       if (!invoice) return null;
 
-      // Generate PDF
+      // Generate PDF — read items back from DB so PDF matches what actually persisted
       try {
+        const persistedItems = getInvoiceItems(invoice.id);
+        logger.info('invoice', `[PDF] Rendering ${persistedItems.length} item(s) for ${invoiceNumber}`);
         const html = generateProductsInvoiceHTML({
           invoiceNumber,
           businessProfile: businessProfile ?? null,
           clientName,
           clientAddress: clientAddress ?? null,
-          items: lineItems.map((item, i) => ({
-            id: '',
-            invoice_id: invoice.id,
-            description: item.description,
-            quantity: item.quantity,
-            unit_price: item.unitPrice,
-            total: item.total,
-            sort_order: i,
-          })),
+          items: persistedItems,
           taxRate,
           dueDate: dueDate ?? null,
+          notes: notes ?? null,
         });
-        const pdfUri = await generateInvoicePDF(html, invoiceNumber);
+        const xmp = buildOnsiteXmp({
+          invoiceNumber,
+          businessProfile: businessProfile ?? null,
+          clientName,
+          siteAddress: '',
+          subtotal,
+          taxAmount,
+          hoursLogged: 0,
+          issuedAt: toIsoUtc(invoice.created_at),
+        });
+        const pdfUri = await generateInvoicePDF(html, invoiceNumber, xmp);
         updateInvoicePdfUri(invoice.id, pdfUri);
         invoice.pdf_uri = pdfUri;
       } catch (pdfError) {
@@ -378,8 +457,8 @@ export const useInvoiceStore = create<InvoiceState>()((set, get) => ({
       const bpStore = useBusinessProfileStore.getState();
       const businessProfile = bpStore.profile;
 
-      // Lookup client address
-      let clientAddress: { street: string; city: string; province: string; postalCode: string } | null = null;
+      // Lookup client address (full record — email/phone flow to PDF too)
+      let clientAddress: ClientAddress | null = null;
       if (invoice.client_name) {
         const client = getClientByName(userId, invoice.client_name);
         if (client) {
@@ -388,14 +467,19 @@ export const useInvoiceStore = create<InvoiceState>()((set, get) => ({
             city: client.address_city || '',
             province: client.address_province || '',
             postalCode: client.address_postal_code || '',
+            email: client.email || null,
+            phone: client.phone || null,
           };
         }
       }
 
       let html: string;
+      let siteAddress = '';
+      let hoursLogged = 0;
 
       if (invoice.type === 'products_services') {
         const items = getInvoiceItems(invoice.id);
+        logger.info('invoice', `[PDF regen] ${invoice.invoice_number}: rendering ${items.length} item(s)`);
         html = generateProductsInvoiceHTML({
           invoiceNumber: invoice.invoice_number,
           businessProfile,
@@ -403,6 +487,8 @@ export const useInvoiceStore = create<InvoiceState>()((set, get) => ({
           clientAddress,
           items,
           taxRate: invoice.tax_rate,
+          dueDate: invoice.due_date ?? null,
+          notes: invoice.notes ?? null,
         });
       } else {
         // Hourly invoice
@@ -410,22 +496,35 @@ export const useInvoiceStore = create<InvoiceState>()((set, get) => ({
           logger.warn('invoice', 'Cannot regenerate hourly PDF — missing period dates');
           return null;
         }
-        const days = getDailyHoursByPeriod(userId, invoice.period_start, invoice.period_end);
+        const days = getDailyHoursByPeriod(userId, invoice.period_start, invoice.period_end) as unknown as DailyHoursDB[];
+        siteAddress = firstLocationName(days);
+        hoursLogged = days.reduce((sum, d) => sum + (d.total_minutes || 0), 0) / 60;
         html = generateHourlyInvoiceHTML({
           invoiceNumber: invoice.invoice_number,
           businessProfile,
           clientName: invoice.client_name || '',
           clientAddress,
-          days: days as unknown as DailyHoursDB[],
+          days,
           hourlyRate: invoice.hourly_rate || 0,
           taxRate: invoice.tax_rate,
           periodStart: invoice.period_start,
           periodEnd: invoice.period_end,
           dueDate: invoice.due_date ?? null,
+          notes: invoice.notes ?? null,
         });
       }
 
-      const pdfUri = await generateInvoicePDF(html, invoice.invoice_number);
+      const xmp = buildOnsiteXmp({
+        invoiceNumber: invoice.invoice_number,
+        businessProfile,
+        clientName: invoice.client_name || '',
+        siteAddress,
+        subtotal: invoice.subtotal,
+        taxAmount: invoice.tax_amount,
+        hoursLogged,
+        issuedAt: toIsoUtc(invoice.created_at),
+      });
+      const pdfUri = await generateInvoicePDF(html, invoice.invoice_number, xmp);
       updateInvoicePdfUri(invoice.id, pdfUri);
 
       // Refresh to update cached invoice

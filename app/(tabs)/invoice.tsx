@@ -29,7 +29,6 @@ import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Swipeable } from 'react-native-gesture-handler';
 import * as Sharing from 'expo-sharing';
-import * as FileSystem from 'expo-file-system';
 import DateTimePicker, { DateTimePickerAndroid, type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 
 import { Card } from '../../src/components/ui/Button';
@@ -876,6 +875,7 @@ export default function InvoiceScreen() {
         addressCity: hourlyClientCity,
         addressProvince: hourlyClientProvince,
         addressPostalCode: hourlyClientPostal,
+        phone: hourlyClientPhone || null,
       });
     }
 
@@ -891,6 +891,7 @@ export default function InvoiceScreen() {
         city: hourlyClientCity,
         province: hourlyClientProvince,
         postalCode: hourlyClientPostal,
+        phone: hourlyClientPhone || null,
       },
       days: days as unknown as DailyHoursDB[],
       hourlyRate: wizardRateOverride ?? (businessProfile?.default_hourly_rate || 0),
@@ -899,7 +900,7 @@ export default function InvoiceScreen() {
       periodEnd: endStr,
       dueDate: toLocalDateString(hourlyDueDateObj),
     });
-  }, [hookUserId, rangeStartDate, rangeEndDate, hourlyClientName, hourlyClientStreet, hourlyClientCity, hourlyClientProvince, hourlyClientPostal, wizardRateOverride, businessProfile, hourlyDueDateObj, invoiceStore]);
+  }, [hookUserId, rangeStartDate, rangeEndDate, hourlyClientName, hourlyClientStreet, hourlyClientCity, hourlyClientProvince, hourlyClientPostal, hourlyClientPhone, wizardRateOverride, businessProfile, hourlyDueDateObj, invoiceStore]);
 
   const handleGenerateHourlyInvoice = async () => {
     if (isExporting) return;
@@ -1352,8 +1353,7 @@ export default function InvoiceScreen() {
               <View style={[hubStyles.typeCardIcon, { backgroundColor: colors.accentSoft }]}>
                 <Ionicons name="list-outline" size={28} color={colors.accent} />
               </View>
-              <Text style={hubStyles.typeCardTitle}>Invoice by Services</Text>
-              <Text style={hubStyles.typeCardSubtitle}>Add line items manually</Text>
+              <Text style={hubStyles.typeCardTitle}>Piecework Invoice</Text>
             </PressableOpacity>
           </View>
 
@@ -1449,7 +1449,7 @@ export default function InvoiceScreen() {
                     totalLabel={formatDuration(selectedInvoiceDays.reduce((sum, d) => sum + d.total_minutes, 0))}
                     rate={selectedInvoice.hourly_rate || 0}
                     taxRate={selectedInvoice.tax_rate || 0}
-                    taxLabel={selectedInvoice.tax_rate === 13 ? 'HST' : 'Tax'}
+                    taxLabel={selectedInvoice.tax_rate === 13 ? 'HST' : selectedInvoice.tax_rate === 5 ? 'GST' : 'Tax'}
                     lineItems={selectedInvoice.type === 'products_services' ? selectedInvoiceItems.map(item => ({
                       id: item.id,
                       description: item.description,
@@ -1480,6 +1480,7 @@ export default function InvoiceScreen() {
 
                       // 2. Recalculate totals
                       const newRate = changes.rate ?? selectedInvoice.hourly_rate ?? 0;
+                      const taxRateVal = changes.taxRate ?? selectedInvoice.tax_rate;
                       let subtotalVal: number;
                       let newItems: { description: string; quantity: number; unitPrice: number; total: number }[] | undefined;
 
@@ -1498,13 +1499,13 @@ export default function InvoiceScreen() {
                         subtotalVal = selectedInvoice.subtotal;
                       }
 
-                      const taxRateVal = selectedInvoice.tax_rate;
                       const taxAmountVal = Math.round(subtotalVal * (taxRateVal / 100) * 100) / 100;
                       const totalVal = Math.round((subtotalVal + taxAmountVal) * 100) / 100;
 
                       // 3. Update invoice record
                       const updated = await invoiceStore.updateInvoice(userId, selectedInvoice.id, {
                         ...(changes.rate !== undefined && { hourlyRate: changes.rate }),
+                        ...(changes.taxRate !== undefined && { taxRate: changes.taxRate }),
                         ...(changes.notes !== undefined && { notes: changes.notes || null }),
                         ...(changes.dueDate !== undefined && { dueDate: changes.dueDate }),
                         subtotal: subtotalVal,
@@ -1534,27 +1535,17 @@ export default function InvoiceScreen() {
                       disabled={isRegeneratingPdf}
                       onPress={async () => {
                         if (!userId) return;
-                        let pdfUri = selectedInvoice.pdf_uri;
-
-                        // Check if cached PDF still exists on disk
-                        if (pdfUri) {
-                          try {
-                            const info = await FileSystem.getInfoAsync(pdfUri);
-                            if (!info.exists) pdfUri = null;
-                          } catch {
-                            pdfUri = null;
-                          }
-                        }
-
-                        if (!pdfUri) {
-                          setIsRegeneratingPdf(true);
-                          try {
-                            pdfUri = await invoiceStore.regeneratePdf(userId, selectedInvoice);
-                          } catch (err) {
-                            logger.error('invoice', 'PDF regeneration error', { error: String(err) });
-                          } finally {
-                            setIsRegeneratingPdf(false);
-                          }
+                        // Always regenerate to capture latest business profile,
+                        // client data, and any invoice edits. Cached PDFs go stale
+                        // when profile/client change without touching the invoice.
+                        let pdfUri: string | null = null;
+                        setIsRegeneratingPdf(true);
+                        try {
+                          pdfUri = await invoiceStore.regeneratePdf(userId, selectedInvoice);
+                        } catch (err) {
+                          logger.error('invoice', 'PDF regeneration error', { error: String(err) });
+                        } finally {
+                          setIsRegeneratingPdf(false);
                         }
 
                         if (pdfUri) {

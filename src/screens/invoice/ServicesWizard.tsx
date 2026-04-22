@@ -527,7 +527,7 @@ export default function ServicesWizard({ onBack }: { onBack: () => void }) {
         <PressableOpacity onPress={handleBack} style={s.backBtn} activeOpacity={0.6}>
           <Ionicons name="arrow-back" size={24} color="#2C2C2A" />
         </PressableOpacity>
-        <Text style={s.headerTitle}>Invoice by services</Text>
+        <Text style={s.headerTitle}>Piecework Invoice</Text>
         <ProgressDots activeStep={activeStep} completedSteps={completedSteps} />
       </View>
 
