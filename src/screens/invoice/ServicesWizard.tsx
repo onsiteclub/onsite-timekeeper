@@ -18,7 +18,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { shareInvoice } from '../../lib/invoiceShare';
+import { shareInvoiceLink, shareInvoicePdf } from '../../lib/invoiceShare';
 import { useRouter } from 'expo-router';
 
 import { PressableOpacity } from '../../components/ui/PressableOpacity';
@@ -496,13 +496,21 @@ export default function ServicesWizard({ onBack }: { onBack: () => void }) {
     }
   }, [hasValidItems, advanceTo, doCreateInvoice]);
 
-  const handleShareInvoice = useCallback(async () => {
+  const handleShareLink = useCallback(async () => {
     if (createdInvoice?.pdf_uri && userId) {
       try {
-        await shareInvoice(userId, createdInvoice);
+        await shareInvoiceLink(userId, createdInvoice);
       } catch { /* user cancelled */ }
     }
   }, [createdInvoice, userId]);
+
+  const handleSharePdf = useCallback(async () => {
+    if (createdInvoice?.pdf_uri) {
+      try {
+        await shareInvoicePdf(createdInvoice);
+      } catch { /* user cancelled */ }
+    }
+  }, [createdInvoice]);
 
   // ===== STEP 4 EDIT HANDLERS =====
   // Inline edits (tax, items, notes, due) persist via invoiceStore and refresh
@@ -947,15 +955,25 @@ export default function ServicesWizard({ onBack }: { onBack: () => void }) {
                 onSave={handleSaveFromReview}
               />
 
-              {/* Share button */}
-              <PressableOpacity
-                style={s.generateBtn}
-                onPress={handleShareInvoice}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="share-outline" size={18} color="#FFFFFF" />
-                <Text style={s.generateBtnText}>Share invoice</Text>
-              </PressableOpacity>
+              {/* Share row: link (compact URL) + PDF (file attachment) */}
+              <View style={s.shareRow}>
+                <PressableOpacity
+                  style={[s.shareBtn, { flex: 1 }]}
+                  onPress={handleShareLink}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="link-outline" size={18} color="#FFFFFF" />
+                  <Text style={s.shareBtnText}>Share link</Text>
+                </PressableOpacity>
+                <PressableOpacity
+                  style={[s.shareBtnSecondary, { flex: 1 }]}
+                  onPress={handleSharePdf}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="document-outline" size={18} color="#2C2C2A" />
+                  <Text style={s.shareBtnSecondaryText}>Share PDF</Text>
+                </PressableOpacity>
+              </View>
 
               {/* Done button */}
               <PressableOpacity
@@ -1485,6 +1503,43 @@ const s = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#FFFFFF',
+  },
+  shareRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 8,
+  },
+  shareBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#D4A017',
+    borderRadius: 10,
+    paddingVertical: 14,
+    minHeight: 48,
+  },
+  shareBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  shareBtnSecondary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#D4A017',
+    borderRadius: 10,
+    paddingVertical: 14,
+    minHeight: 48,
+  },
+  shareBtnSecondaryText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#2C2C2A',
   },
   generateShareBtn: {
     flexDirection: 'row',

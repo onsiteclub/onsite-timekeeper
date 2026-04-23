@@ -1,14 +1,21 @@
 /**
  * Invoice Share - OnSite Timekeeper
  *
- * Orchestrates invoice sharing. When online, uploads a responsive hosted
- * page + PDF to Supabase Storage and shares the public link as text —
- * this works uniformly across WhatsApp, SMS, email, Slack, etc., and
- * renders properly on small screens. When offline (or upload fails),
- * falls back to the legacy local-file PDF share.
+ * Two user-facing share flows:
  *
- * The hosted page includes a "Download PDF" button for recipients who
- * still want the archivable file.
+ *   shareInvoiceLink(userId, invoice)
+ *     Uploads a responsive HTML viewer + the PDF to Supabase Storage,
+ *     registers a short slug, and shares the short URL via the native
+ *     text-share sheet. URL appears exactly once in the message (no rich
+ *     preview duplication).
+ *
+ *   shareInvoicePdf(invoice)
+ *     Shares the local PDF file via the native file-share sheet.
+ *     Recipient receives the PDF as an attachment.
+ *
+ * The UI presents these as two explicit buttons ("Share link" / "Share
+ * PDF") so the user chooses in each context — there's no way to send
+ * both text+file in a single native share action on RN.
  */
 
 import { Share } from 'react-native';
@@ -25,7 +32,7 @@ import { logger } from './logger';
 import { addSentryBreadcrumb } from './sentry';
 
 // ============================================
-// HELPERS
+// HTML ASSEMBLY
 // ============================================
 
 function buildClientAddress(userId: string, invoice: InvoiceDB): ClientAddressForPDF | null {
@@ -75,40 +82,25 @@ function assembleHostedHtml(
   });
 }
 
-function buildShareMessage(invoice: InvoiceDB, url: string): string {
-  return `Invoice ${invoice.invoice_number}: ${url}`;
-}
-
-async function fallbackFileShare(invoice: InvoiceDB): Promise<void> {
-  if (!invoice.pdf_uri) return;
-  try {
-    if (await Sharing.isAvailableAsync()) {
-      await Sharing.shareAsync(invoice.pdf_uri, {
-        mimeType: 'application/pdf',
-        dialogTitle: `Share ${invoice.invoice_number}`,
-      });
-    }
-  } catch (err) {
-    logger.warn('invoice', 'Fallback file share failed', { error: String(err) });
-  }
-}
-
 // ============================================
-// PUBLIC API
+// PUBLIC API — LINK SHARE
 // ============================================
 
 /**
- * Share an invoice as a hosted link (preferred) or fall back to the local
- * PDF file if the app is offline or upload fails.
+ * Upload the hosted viewer + PDF and share a short link via the native
+ * text-share sheet. Returns true on successful share, false otherwise.
+ *
+ * On upload failure, falls back to sharing the local PDF so the user
+ * still gets SOMETHING out the door.
  */
-export async function shareInvoice(userId: string, invoice: InvoiceDB): Promise<void> {
+export async function shareInvoiceLink(userId: string, invoice: InvoiceDB): Promise<boolean> {
   if (!invoice.pdf_uri) {
-    logger.warn('invoice', 'Share skipped — no PDF URI on invoice');
-    return;
+    logger.warn('invoice', 'shareInvoiceLink skipped — no PDF URI on invoice');
+    return false;
   }
 
-  // Resolve public URLs upfront so the "Download PDF" button in the hosted
-  // HTML points at the correct location before we actually upload.
+  // Pre-resolve the long public URLs so the "Download PDF" button inside
+  // the HTML template points at the correct location before upload.
   const urls = getInvoicePublicUrls(userId, invoice.id);
 
   let html: string;
@@ -116,8 +108,7 @@ export async function shareInvoice(userId: string, invoice: InvoiceDB): Promise<
     html = assembleHostedHtml(userId, invoice, urls.pdfUrl);
   } catch (err) {
     logger.warn('invoice', 'Hosted HTML assembly failed', { error: String(err) });
-    await fallbackFileShare(invoice);
-    return;
+    return shareInvoicePdf(invoice);
   }
 
   const published = await publishInvoiceFiles({
@@ -128,27 +119,71 @@ export async function shareInvoice(userId: string, invoice: InvoiceDB): Promise<
   });
 
   if (!published) {
-    addSentryBreadcrumb('invoice', 'Share falling back to local file (publish failed)', {
+    addSentryBreadcrumb('invoice', 'Share link falling back to PDF file (publish failed)', {
       invoiceNumber: invoice.invoice_number,
     });
-    await fallbackFileShare(invoice);
-    return;
+    return shareInvoicePdf(invoice);
   }
 
   try {
+    // Put the URL in `message` ONLY. Do NOT pass the `url` prop — iOS
+    // apps append it as a rich preview and it shows up twice in WhatsApp.
     await Share.share({
-      message: buildShareMessage(invoice, published.htmlUrl),
-      // iOS forwards `url` to apps that accept URLs; Android ignores it and
-      // uses `message`. Our message already contains the link so both paths
-      // converge on the same result.
-      url: published.htmlUrl,
+      message: `Invoice ${invoice.invoice_number}\n${published.shortUrl}`,
       title: `Invoice ${invoice.invoice_number}`,
     });
-    addSentryBreadcrumb('invoice', 'Invoice shared via hosted link', {
+    addSentryBreadcrumb('invoice', 'Invoice link shared', {
       invoiceNumber: invoice.invoice_number,
     });
+    return true;
   } catch (err) {
-    logger.warn('invoice', 'Link share failed, falling back to file', { error: String(err) });
-    await fallbackFileShare(invoice);
+    logger.warn('invoice', 'Link share failed, falling back to PDF file', { error: String(err) });
+    return shareInvoicePdf(invoice);
   }
+}
+
+// ============================================
+// PUBLIC API — PDF FILE SHARE
+// ============================================
+
+/**
+ * Share the local PDF file via the native file-share sheet. Works
+ * offline. Returns true on success.
+ */
+export async function shareInvoicePdf(invoice: InvoiceDB): Promise<boolean> {
+  if (!invoice.pdf_uri) {
+    logger.warn('invoice', 'shareInvoicePdf skipped — no PDF URI on invoice');
+    return false;
+  }
+  try {
+    if (!(await Sharing.isAvailableAsync())) {
+      logger.warn('invoice', 'Native file sharing not available');
+      return false;
+    }
+    await Sharing.shareAsync(invoice.pdf_uri, {
+      mimeType: 'application/pdf',
+      dialogTitle: `Share ${invoice.invoice_number}`,
+    });
+    addSentryBreadcrumb('invoice', 'Invoice PDF file shared', {
+      invoiceNumber: invoice.invoice_number,
+    });
+    return true;
+  } catch (err) {
+    logger.warn('invoice', 'PDF file share failed', { error: String(err) });
+    return false;
+  }
+}
+
+// ============================================
+// BACKWARD-COMPAT SHIM
+// ============================================
+
+/**
+ * Legacy single-button share. Tries the link first, falls back to PDF.
+ * Kept so call sites that haven't been updated to the dual-button UI
+ * still compile; new code should call shareInvoiceLink / shareInvoicePdf
+ * explicitly.
+ */
+export async function shareInvoice(userId: string, invoice: InvoiceDB): Promise<void> {
+  await shareInvoiceLink(userId, invoice);
 }
