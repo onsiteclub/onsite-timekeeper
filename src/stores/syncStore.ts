@@ -692,6 +692,7 @@ async function syncBusinessProfile(userId: string): Promise<{ count: number; err
         gst_hst_number: unsynced.gst_hst_number,
         default_hourly_rate: unsynced.default_hourly_rate,
         tax_rate: unsynced.tax_rate,
+        next_invoice_number: unsynced.next_invoice_number ?? 1,
         created_at: unsynced.created_at,
         updated_at: unsynced.updated_at,
       };
