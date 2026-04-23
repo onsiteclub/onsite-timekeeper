@@ -28,7 +28,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Swipeable } from 'react-native-gesture-handler';
-import { shareInvoiceLink, shareInvoicePdf } from '../../src/lib/invoiceShare';
+import { shareInvoice } from '../../src/lib/invoiceShare';
 import DateTimePicker, { DateTimePickerAndroid, type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 
 import { Card } from '../../src/components/ui/Button';
@@ -1524,69 +1524,33 @@ export default function InvoiceScreen() {
                   {/* Action buttons (Share + Delete only — Edit is now ✎ on card) */}
                   <View style={detailStyles.actionsSection}>
                     {/* Share PDF */}
-                    {/* Share row: Link (online viewer) + PDF (file attachment). RN's
-                        native share sheet can't send both text + file in one
-                        action, so we expose each as its own button. */}
-                    <View style={detailStyles.shareRow}>
-                      <PressableOpacity
-                        style={[detailStyles.shareBtn, { flex: 1 }, isRegeneratingPdf && { opacity: 0.6 }]}
-                        activeOpacity={0.7}
-                        disabled={isRegeneratingPdf}
-                        onPress={async () => {
-                          if (!userId) return;
-                          let pdfUri: string | null = null;
-                          setIsRegeneratingPdf(true);
-                          try {
-                            pdfUri = await invoiceStore.regeneratePdf(userId, selectedInvoice);
-                          } catch (err) {
-                            logger.error('invoice', 'PDF regeneration error', { error: String(err) });
-                          } finally {
-                            setIsRegeneratingPdf(false);
-                          }
-                          if (pdfUri) {
-                            try {
-                              await shareInvoiceLink(userId, { ...selectedInvoice, pdf_uri: pdfUri });
-                            } catch { /* user cancelled */ }
-                          } else {
-                            Alert.alert('Error', 'Could not generate PDF. Please try again.');
-                          }
-                        }}
-                      >
-                        <Ionicons name="link-outline" size={18} color={colors.white} />
-                        <Text style={detailStyles.shareBtnText}>
-                          {isRegeneratingPdf ? 'Preparing...' : 'Share link'}
-                        </Text>
-                      </PressableOpacity>
-                      <PressableOpacity
-                        style={[detailStyles.shareBtnSecondary, { flex: 1 }, isRegeneratingPdf && { opacity: 0.6 }]}
-                        activeOpacity={0.7}
-                        disabled={isRegeneratingPdf}
-                        onPress={async () => {
-                          if (!userId) return;
-                          let pdfUri: string | null = null;
-                          setIsRegeneratingPdf(true);
-                          try {
-                            pdfUri = await invoiceStore.regeneratePdf(userId, selectedInvoice);
-                          } catch (err) {
-                            logger.error('invoice', 'PDF regeneration error', { error: String(err) });
-                          } finally {
-                            setIsRegeneratingPdf(false);
-                          }
-                          if (pdfUri) {
-                            try {
-                              await shareInvoicePdf({ ...selectedInvoice, pdf_uri: pdfUri });
-                            } catch { /* user cancelled */ }
-                          } else {
-                            Alert.alert('Error', 'Could not generate PDF. Please try again.');
-                          }
-                        }}
-                      >
-                        <Ionicons name="document-outline" size={18} color={colors.primary} />
-                        <Text style={detailStyles.shareBtnSecondaryText}>
-                          Share PDF
-                        </Text>
-                      </PressableOpacity>
-                    </View>
+                    <PressableOpacity
+                      style={[detailStyles.shareBtn, isRegeneratingPdf && { opacity: 0.6 }]}
+                      activeOpacity={0.7}
+                      disabled={isRegeneratingPdf}
+                      onPress={async () => {
+                        if (!userId) return;
+                        let pdfUri: string | null = null;
+                        setIsRegeneratingPdf(true);
+                        try {
+                          pdfUri = await invoiceStore.regeneratePdf(userId, selectedInvoice);
+                        } catch (err) {
+                          logger.error('invoice', 'PDF regeneration error', { error: String(err) });
+                        } finally {
+                          setIsRegeneratingPdf(false);
+                        }
+                        if (pdfUri) {
+                          await shareInvoice(userId, { ...selectedInvoice, pdf_uri: pdfUri });
+                        } else {
+                          Alert.alert('Error', 'Could not generate PDF. Please try again.');
+                        }
+                      }}
+                    >
+                      <Ionicons name="share-outline" size={18} color={colors.white} />
+                      <Text style={detailStyles.shareBtnText}>
+                        {isRegeneratingPdf ? 'Preparing...' : 'Share invoice'}
+                      </Text>
+                    </PressableOpacity>
 
                     {/* Delete */}
                     <PressableOpacity
@@ -2402,34 +2366,17 @@ export default function InvoiceScreen() {
                   {successInvoice.invoice_number} · {formatMoney(successInvoice.total)}
                 </Text>
               )}
-              <View style={successModalStyles.shareRow}>
-                <PressableOpacity
-                  style={[successModalStyles.shareBtn, { flex: 1 }]}
-                  onPress={async () => {
-                    if (successInvoice?.pdf_uri && userId) {
-                      try {
-                        await shareInvoiceLink(userId, successInvoice);
-                      } catch { /* user cancelled */ }
-                    }
-                  }}
-                >
-                  <Ionicons name="link-outline" size={18} color={colors.white} />
-                  <Text style={successModalStyles.shareBtnText}>Share link</Text>
-                </PressableOpacity>
-                <PressableOpacity
-                  style={[successModalStyles.shareBtnSecondary, { flex: 1 }]}
-                  onPress={async () => {
-                    if (successInvoice?.pdf_uri) {
-                      try {
-                        await shareInvoicePdf(successInvoice);
-                      } catch { /* user cancelled */ }
-                    }
-                  }}
-                >
-                  <Ionicons name="document-outline" size={18} color={colors.amber} />
-                  <Text style={successModalStyles.shareBtnSecondaryText}>Share PDF</Text>
-                </PressableOpacity>
-              </View>
+              <PressableOpacity
+                style={successModalStyles.shareBtn}
+                onPress={async () => {
+                  if (successInvoice?.pdf_uri && userId) {
+                    await shareInvoice(userId, successInvoice);
+                  }
+                }}
+              >
+                <Ionicons name="share-outline" size={18} color={colors.white} />
+                <Text style={successModalStyles.shareBtnText}>Share invoice</Text>
+              </PressableOpacity>
               <PressableOpacity
                 style={successModalStyles.doneBtn}
                 onPress={() => setShowSuccessModal(false)}
@@ -2773,17 +2720,11 @@ const detailStyles = StyleSheet.create({
   dateText: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
 
   actionsSection: { gap: 8, marginTop: 16 },
-  shareRow: { flexDirection: 'row', gap: 8 },
   shareBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     backgroundColor: colors.primary, borderRadius: 14, paddingVertical: 14,
   },
   shareBtnText: { fontSize: 15, fontWeight: '600', color: colors.white },
-  shareBtnSecondary: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    backgroundColor: colors.primarySoft, borderRadius: 14, paddingVertical: 14,
-  },
-  shareBtnSecondaryText: { fontSize: 15, fontWeight: '600', color: colors.primary },
   deleteBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     borderRadius: 14, paddingVertical: 14,
@@ -3536,12 +3477,6 @@ const successModalStyles = StyleSheet.create({
     marginTop: spacing.xs,
     marginBottom: spacing.xl,
   },
-  shareRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    width: '100%',
-    marginBottom: spacing.sm,
-  },
   shareBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -3549,30 +3484,15 @@ const successModalStyles = StyleSheet.create({
     gap: spacing.sm,
     backgroundColor: colors.amber,
     paddingVertical: 14,
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: spacing.xl,
     borderRadius: borderRadius.md,
+    width: '100%',
+    marginBottom: spacing.sm,
   },
   shareBtnText: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '600',
     color: colors.white,
-  },
-  shareBtnSecondary: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.amber,
-    paddingVertical: 14,
-    paddingHorizontal: spacing.md,
-    borderRadius: borderRadius.md,
-  },
-  shareBtnSecondaryText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.amber,
   },
   doneBtn: {
     alignItems: 'center',
