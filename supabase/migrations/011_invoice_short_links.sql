@@ -13,7 +13,14 @@ create table if not exists public.invoice_short_links (
   invoice_id uuid primary key,
   slug text unique not null,
   user_id uuid not null references auth.users(id) on delete cascade,
-  html_url text not null,
+  -- Inline HTML of the hosted invoice viewer. Served by the `r` edge
+  -- function with Content-Type: text/html. Kept in the DB (not Storage)
+  -- because Supabase public-bucket HTML is forced to text/plain + CSP
+  -- sandbox, which breaks rendering.
+  html text,
+  -- Legacy column kept for rows created before html was introduced.
+  -- New rows leave it null and rely on html + pdf_url instead.
+  html_url text,
   pdf_url text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()

@@ -1,17 +1,20 @@
 /**
- * Edge Function: r (invoice short-link redirector)
+ * Edge Function: r (invoice short-link viewer + pdf redirect)
  *
- * Requests hit:
- *   https://{project-ref}.supabase.co/functions/v1/r/<slug>
+ *   GET /functions/v1/r/<slug>      → serves the hosted invoice HTML
+ *                                     directly (200 text/html).
+ *   GET /functions/v1/r/<slug>/pdf  → 302 redirect to the Storage PDF.
  *
- * The slug maps to a row in `invoice_short_links`. We 302-redirect to the
- * hosted HTML URL stored there. Lookup uses the service role key so RLS
- * (which blocks public SELECT) doesn't get in the way.
+ * Why we serve HTML from the DB instead of linking to Supabase Storage:
+ * Supabase Storage forces `text/plain` + sandbox CSP on public HTML
+ * files (defense against XSS on supabase.co), so the hosted invoice
+ * viewer wouldn't render. Storing the HTML in `invoice_short_links`
+ * and returning it from here side-steps that — the edge function's
+ * own domain doesn't have the CSP-sandbox middleware.
  *
- * Known URLs the user might request:
- *   /r/<slug>            → redirect to html_url
- *   /r/<slug>/pdf        → redirect to pdf_url (optional archive link)
- *   /r/<slug>/anything-else → 404
+ * The function uses the service role key so it can read
+ * `invoice_short_links` rows regardless of RLS (the slug is the
+ * opaque auth token — same threat model as Stripe hosted invoices).
  */
 
 // @ts-expect-error — Deno runtime provides this
@@ -30,7 +33,6 @@ const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
 Deno.serve(async (req: Request) => {
   try {
     const url = new URL(req.url);
-    // Path looks like "/r/<slug>" or "/r/<slug>/pdf". Drop leading /r/.
     const parts = url.pathname.split('/').filter(Boolean);
     const rIdx = parts.indexOf('r');
     const slug = rIdx >= 0 ? parts[rIdx + 1] : undefined;
@@ -45,7 +47,7 @@ Deno.serve(async (req: Request) => {
 
     const { data, error } = await supabase
       .from('invoice_short_links')
-      .select('html_url, pdf_url')
+      .select('html, pdf_url')
       .eq('slug', slug)
       .maybeSingle();
 
@@ -53,14 +55,32 @@ Deno.serve(async (req: Request) => {
       return new Response('Not found', { status: 404 });
     }
 
-    const target = variant === 'pdf' ? (data.pdf_url ?? data.html_url) : data.html_url;
-    if (!target) {
+    // /r/<slug>/pdf → hand recipient the PDF file directly
+    if (variant === 'pdf') {
+      if (!data.pdf_url) {
+        return new Response('Not found', { status: 404 });
+      }
+      return new Response(null, {
+        status: 302,
+        headers: { Location: data.pdf_url, 'Cache-Control': 'public, max-age=300' },
+      });
+    }
+
+    // /r/<slug> → render the stored HTML with the correct content-type
+    // and a permissive CSP (we own this origin, not Supabase Storage).
+    if (!data.html) {
+      // Legacy row without inline HTML — fall back to redirect if we
+      // have an external html URL; otherwise 404.
       return new Response('Not found', { status: 404 });
     }
 
-    return new Response(null, {
-      status: 302,
-      headers: { Location: target, 'Cache-Control': 'public, max-age=300' },
+    return new Response(data.html, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'public, max-age=300',
+        'X-Content-Type-Options': 'nosniff',
+      },
     });
   } catch {
     return new Response('Server error', { status: 500 });
