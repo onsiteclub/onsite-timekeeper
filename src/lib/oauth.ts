@@ -132,7 +132,47 @@ export async function signOutFromGoogle() {
 // ─────────────────────────────────────────────────────────────
 
 export function isAppleAuthAvailable(): boolean {
-  return Platform.OS === 'ios';
+  // Web uses the OAuth redirect flow (signInWithAppleWeb), iOS uses
+  // expo-apple-authentication's native modal. Android still has no
+  // Apple Sign In option.
+  return Platform.OS === 'ios' || Platform.OS === 'web';
+}
+
+// ─────────────────────────────────────────────────────────────
+// APPLE — WEB (OAuth redirect flow via Supabase)
+// ─────────────────────────────────────────────────────────────
+
+async function signInWithAppleWeb(): Promise<OAuthResult> {
+  try {
+    // After Apple → Supabase callback, the browser comes back to our
+    // origin with auth tokens in the URL hash. detectSessionInUrl=true
+    // (in supabase.ts) handles the parsing and signs the user in.
+    const redirectTo =
+      typeof window !== 'undefined' ? `${window.location.origin}/login` : undefined;
+
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'apple',
+      options: { redirectTo },
+    });
+
+    if (error) {
+      logger.error('auth', 'Apple OAuth (web) failed to start', { error: error.message });
+      captureMessage('Auth: Apple web sign-in failed to start', {
+        level: 'warning',
+        tags: { security: 'auth', provider: 'apple', platform: 'web' },
+        extra: { reason: error.message },
+      });
+      return { success: false, error: error.message };
+    }
+
+    // signInWithOAuth navigates the browser away — control doesn't come
+    // back here on success. Return success so callers don't show an
+    // error spinner; the actual sign-in completes after the redirect.
+    return { success: true };
+  } catch (e: any) {
+    logger.error('auth', 'Apple sign-in (web) exception', { error: String(e) });
+    return { success: false, error: e?.message || 'Apple sign-in failed' };
+  }
 }
 
 /**
@@ -154,6 +194,13 @@ async function generateNonce(): Promise<{ raw: string; hashed: string }> {
 }
 
 export async function signInWithApple(): Promise<OAuthResult> {
+  // Web → OAuth redirect via Supabase. The native expo-apple-authentication
+  // module isn't available in the browser, so we hand off there before
+  // touching it.
+  if (Platform.OS === 'web') {
+    return signInWithAppleWeb();
+  }
+
   if (!isAppleAuthAvailable()) {
     return { success: false, error: 'Apple Sign-In is only available on iOS' };
   }

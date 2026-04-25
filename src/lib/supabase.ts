@@ -84,7 +84,12 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     storage: customStorage,
     autoRefreshToken: true,
     persistSession: true,
-    detectSessionInUrl: false,
+    // Web: needs to be true so the OAuth callback (e.g. Sign in with
+    // Apple → Supabase callback → back to our origin with tokens in
+    // the URL hash) gets parsed and the session is set automatically.
+    // Mobile: stays false — native flows hand us the ID token directly,
+    // there's no URL fragment to parse.
+    detectSessionInUrl: Platform.OS === 'web',
   },
   global: {
     headers: attestationHeaders,
