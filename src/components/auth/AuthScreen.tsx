@@ -50,10 +50,6 @@ type ErrorBannerType =
   | 'suspended'
   | 'already-registered'
   | 'generic'
-  // Diagnostic: shows the raw OAuth error verbatim. Lets us see what
-  // Google iOS is actually returning when /logs is unreachable
-  // (because the user can't sign in to reach it).
-  | { kind: 'oauth-raw'; raw: string }
   | null;
 
 export default function AuthScreen({ onSuccess }: AuthScreenProps) {
@@ -281,18 +277,6 @@ export default function AuthScreen({ onSuccess }: AuthScreenProps) {
   const renderErrorBanner = () => {
     if (!errorBanner) return null;
 
-    // Diagnostic OAuth raw — bypasses classification, shows full error
-    if (typeof errorBanner === 'object' && errorBanner.kind === 'oauth-raw') {
-      return (
-        <View style={styles.errorBanner}>
-          <Text style={styles.errorBannerTitle}>OAuth error (raw)</Text>
-          <Text style={styles.errorBannerBody} selectable>
-            {errorBanner.raw}
-          </Text>
-        </View>
-      );
-    }
-
     let title = '';
     let body = '';
     let showCreateLink = false;
@@ -300,8 +284,13 @@ export default function AuthScreen({ onSuccess }: AuthScreenProps) {
 
     switch (errorBanner) {
       case 'wrong-credentials':
-        title = "We couldn't find that account.";
-        body = 'Check your email and password, or ';
+        // We can't tell here whether the user typed the wrong password
+        // or whether the account is OAuth-only with no password set, so
+        // we hint at both paths plus signup. The Apple/Google buttons
+        // sit right below the banner, so the language nudges users to
+        // try them if they signed up that way.
+        title = "Couldn't sign in.";
+        body = 'Check your password, or use Apple/Google below if you signed up that way. Or ';
         showCreateLink = true;
         break;
       case 'already-registered':
@@ -467,10 +456,7 @@ export default function AuthScreen({ onSuccess }: AuthScreenProps) {
         disabled={isLoading}
         onError={(msg) => {
           console.log('[AuthScreen] OAuth error:', msg);
-          // For OAuth failures we currently expose the raw error text so
-          // we can diagnose iOS Google sign-in (no auth = no /logs page).
-          // Once Google iOS is fixed, swap back to classifyError(msg).
-          setErrorBanner({ kind: 'oauth-raw', raw: msg });
+          setErrorBanner(classifyError(msg));
         }}
         onSuccess={() => {
           // Navigation guard will redirect once session is committed by onAuthStateChange

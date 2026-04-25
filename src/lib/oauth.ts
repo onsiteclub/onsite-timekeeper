@@ -138,22 +138,9 @@ export async function signInWithGoogle(): Promise<OAuthResult> {
     // Note: @react-native-google-signin v16 on iOS auto-injects a nonce
     // into the idToken via GIDSignIn iOS SDK, but doesn't expose a way
     // to pass it back to JS. Supabase's project config has
-    // google_skip_nonce_check=true to side-step this — we still verify
-    // the token's signature, audience, and expiry server-side.
-    logger.info('auth', `[Google] signIn() starting, platform=${Platform.OS}`);
+    // external_google_skip_nonce_check=true to side-step this — we still
+    // verify the token's signature, audience, and expiry server-side.
     const response: any = await GoogleSignin.signIn();
-
-    // Diagnostic: dump the response shape so we can compare what Android
-    // returns vs what iOS returns. v13+ returns { type, data } but earlier
-    // and patched versions vary.
-    const responseShape = {
-      type: response?.type,
-      keys: response ? Object.keys(response).join(',') : 'null',
-      dataKeys: response?.data ? Object.keys(response.data).join(',') : 'noData',
-      hasIdToken: !!(response?.data?.idToken ?? response?.idToken),
-      hasServerAuthCode: !!(response?.data?.serverAuthCode ?? response?.serverAuthCode),
-    };
-    logger.info('auth', `[Google] response shape: ${JSON.stringify(responseShape)}`);
 
     if (response?.type === 'cancelled') {
       return { success: false, cancelled: true };
@@ -161,18 +148,9 @@ export async function signInWithGoogle(): Promise<OAuthResult> {
 
     const idToken: string | undefined = response?.data?.idToken ?? response?.idToken;
     if (!idToken) {
-      logger.error('auth', `[Google] no idToken in response (shape: ${JSON.stringify(responseShape)})`);
-      return {
-        success: false,
-        error: `Google returned no ID token (response: ${JSON.stringify(responseShape)})`,
-      };
+      logger.error('auth', 'Google sign-in: no idToken returned');
+      return { success: false, error: 'No ID token received from Google' };
     }
-
-    // Log token length + first 16 chars to confirm we're sending something
-    // sane to Supabase. The aud claim sits in the middle of the JWT so we
-    // can't read it from the prefix without decoding — caller should look
-    // at the Supabase error message for "audience" hints.
-    logger.info('auth', `[Google] idToken length=${idToken.length}, prefix=${idToken.slice(0, 16)}...`);
 
     const { error } = await supabase.auth.signInWithIdToken({
       provider: 'google',
@@ -180,13 +158,13 @@ export async function signInWithGoogle(): Promise<OAuthResult> {
     });
 
     if (error) {
-      logger.error('auth', `[Google] Supabase signInWithIdToken failed: ${error.message} (status=${error.status})`);
+      logger.error('auth', 'Supabase signInWithIdToken (google) failed', { error: error.message });
       captureMessage('Auth: Google sign-in failed', {
         level: 'warning',
         tags: { security: 'auth', provider: 'google', platform: Platform.OS },
-        extra: { reason: error.message, status: error.status },
+        extra: { reason: error.message },
       });
-      return { success: false, error: `[supabase] ${error.message}` };
+      return { success: false, error: error.message };
     }
 
     logger.info('auth', '✅ Google sign-in success');
