@@ -61,7 +61,48 @@ export interface OAuthResult {
   cancelled?: boolean;
 }
 
+/**
+ * Web variant — OAuth redirect via Supabase. The native @react-native-google-signin
+ * module isn't available in the browser, so we hand off to the OAuth flow
+ * before touching it (mirrors what we do for Apple).
+ */
+async function signInWithGoogleWeb(): Promise<OAuthResult> {
+  try {
+    const redirectTo =
+      typeof window !== 'undefined' ? `${window.location.origin}/login` : undefined;
+
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo },
+    });
+
+    if (error) {
+      logger.error('auth', 'Google OAuth (web) failed to start', { error: error.message });
+      captureMessage('Auth: Google web sign-in failed to start', {
+        level: 'warning',
+        tags: { security: 'auth', provider: 'google', platform: 'web' },
+        extra: { reason: error.message },
+      });
+      return { success: false, error: error.message };
+    }
+
+    // signInWithOAuth navigates the browser away on success — control
+    // doesn't come back here. Return success so the caller doesn't show
+    // an error spinner; the actual sign-in completes after the redirect.
+    return { success: true };
+  } catch (e: any) {
+    logger.error('auth', 'Google sign-in (web) exception', { error: String(e) });
+    return { success: false, error: e?.message || 'Google sign-in failed' };
+  }
+}
+
 export async function signInWithGoogle(): Promise<OAuthResult> {
+  // Web → OAuth redirect via Supabase. GoogleSignin is iOS/Android only;
+  // calling it in the browser throws because the native module is missing.
+  if (Platform.OS === 'web') {
+    return signInWithGoogleWeb();
+  }
+
   try {
     configureGoogle();
     if (Platform.OS === 'android') {
