@@ -61,6 +61,32 @@ export interface OAuthResult {
   cancelled?: boolean;
 }
 
+// ─────────────────────────────────────────────────────────────
+// SHARED HELPERS
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Nonce: random raw string → SHA-256 hashed version sent to provider
+ * (Google/Apple) → provider embeds hashed nonce in ID token → we send
+ * raw nonce to Supabase → GoTrue hashes raw nonce and compares.
+ * Protects against replay attacks.
+ *
+ * Required for Google on iOS (lib v16+ injects an unhashable nonce
+ * automatically if you don't pass one, then Supabase rejects).
+ */
+async function generateNonce(): Promise<{ raw: string; hashed: string }> {
+  const bytes = await Crypto.getRandomBytesAsync(32);
+  const raw = Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+  const hashed = await Crypto.digestStringAsync(
+    Crypto.CryptoDigestAlgorithm.SHA256,
+    raw,
+    { encoding: Crypto.CryptoEncoding.HEX }
+  );
+  return { raw, hashed };
+}
+
 /**
  * Web variant — OAuth redirect via Supabase. The native @react-native-google-signin
  * module isn't available in the browser, so we hand off to the OAuth flow
@@ -109,6 +135,11 @@ export async function signInWithGoogle(): Promise<OAuthResult> {
       await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
     }
 
+    // Note: @react-native-google-signin v16 on iOS auto-injects a nonce
+    // into the idToken via GIDSignIn iOS SDK, but doesn't expose a way
+    // to pass it back to JS. Supabase's project config has
+    // google_skip_nonce_check=true to side-step this — we still verify
+    // the token's signature, audience, and expiry server-side.
     logger.info('auth', `[Google] signIn() starting, platform=${Platform.OS}`);
     const response: any = await GoogleSignin.signIn();
 
@@ -234,24 +265,6 @@ async function signInWithAppleWeb(): Promise<OAuthResult> {
     logger.error('auth', 'Apple sign-in (web) exception', { error: String(e) });
     return { success: false, error: e?.message || 'Apple sign-in failed' };
   }
-}
-
-/**
- * Nonce: random raw string → SHA-256 hashed version sent to Apple →
- * Apple embeds hashed nonce in ID token → we send raw nonce to Supabase →
- * GoTrue hashes raw nonce and compares. Protects against replay attacks.
- */
-async function generateNonce(): Promise<{ raw: string; hashed: string }> {
-  const bytes = await Crypto.getRandomBytesAsync(32);
-  const raw = Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-  const hashed = await Crypto.digestStringAsync(
-    Crypto.CryptoDigestAlgorithm.SHA256,
-    raw,
-    { encoding: Crypto.CryptoEncoding.HEX }
-  );
-  return { raw, hashed };
 }
 
 export async function signInWithApple(): Promise<OAuthResult> {
