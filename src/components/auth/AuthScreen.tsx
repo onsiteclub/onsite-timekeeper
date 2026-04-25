@@ -43,7 +43,18 @@ export interface AuthScreenProps {
 
 type AuthStep = 'login' | 'signup' | 'verify-phone' | 'phone-reset' | 'phone-reset-otp' | 'set-new-password';
 
-type ErrorBannerType = 'wrong-credentials' | 'network' | 'rate-limit' | 'suspended' | 'already-registered' | 'generic' | null;
+type ErrorBannerType =
+  | 'wrong-credentials'
+  | 'network'
+  | 'rate-limit'
+  | 'suspended'
+  | 'already-registered'
+  | 'generic'
+  // Diagnostic: shows the raw OAuth error verbatim. Lets us see what
+  // Google iOS is actually returning when /logs is unreachable
+  // (because the user can't sign in to reach it).
+  | { kind: 'oauth-raw'; raw: string }
+  | null;
 
 export default function AuthScreen({ onSuccess }: AuthScreenProps) {
   const { signIn, signUp, verifyPhoneOtp, sendPhoneOtp, resetPasswordWithPhone, verifyResetOtp, updatePasswordAfterReset, clearOtpState } = useAuthStore();
@@ -270,6 +281,18 @@ export default function AuthScreen({ onSuccess }: AuthScreenProps) {
   const renderErrorBanner = () => {
     if (!errorBanner) return null;
 
+    // Diagnostic OAuth raw — bypasses classification, shows full error
+    if (typeof errorBanner === 'object' && errorBanner.kind === 'oauth-raw') {
+      return (
+        <View style={styles.errorBanner}>
+          <Text style={styles.errorBannerTitle}>OAuth error (raw)</Text>
+          <Text style={styles.errorBannerBody} selectable>
+            {errorBanner.raw}
+          </Text>
+        </View>
+      );
+    }
+
     let title = '';
     let body = '';
     let showCreateLink = false;
@@ -444,7 +467,10 @@ export default function AuthScreen({ onSuccess }: AuthScreenProps) {
         disabled={isLoading}
         onError={(msg) => {
           console.log('[AuthScreen] OAuth error:', msg);
-          setErrorBanner(classifyError(msg));
+          // For OAuth failures we currently expose the raw error text so
+          // we can diagnose iOS Google sign-in (no auth = no /logs page).
+          // Once Google iOS is fixed, swap back to classifyError(msg).
+          setErrorBanner({ kind: 'oauth-raw', raw: msg });
         }}
         onSuccess={() => {
           // Navigation guard will redirect once session is committed by onAuthStateChange
