@@ -12,16 +12,16 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.onsiteclub.timekeeper",
-      "buildNumber": "51",
+      "buildNumber": "52",
       "usesAppleSignIn": true,
       "config": {
         "googleMapsApiKey": "AIzaSyBdITLu3Kr5OYPr8ZnhxIGVNFHIGEgvfKY",
         "_TODO_SECURITY": "Restrict this API key in Google Cloud Console: APIs & Services > Credentials > Edit key > Application restrictions: iOS apps (bundle ID: com.onsiteclub.timekeeper) > API restrictions: Maps SDK for iOS only"
       },
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "Shows your position on the map when you set up a location zone.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "Automatically records your time when you arrive at or leave your saved locations, even when the app is closed. All data stays on your device.",
-        "NSLocationAlwaysUsageDescription": "Records your arrival and departure times at saved locations in the background. All data stays on your device.",
+        "NSLocationWhenInUseUsageDescription": "Shows your position on the map so you can pin job sites and review where you've been working today.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "OnSite Timekeeper is your personal time tracker. With your permission, it logs the hours you spend at each job site you've saved, so you can invoice your own clients accurately without remembering to clock in or out. Your location data stays on your device — it is not shared with anyone, including any employer.",
+        "NSLocationAlwaysUsageDescription": "Lets your personal time tracker keep running when the app is closed, so the hours you spend at your saved job sites are captured for your own invoices. Location stays on your device and is never sent to an employer or third party.",
         "NSContactsUsageDescription": "Lets you quickly select invoice recipients from your contacts. Names are used only to fill in invoice details.",
         "NSMotionUsageDescription": "Improves arrival detection accuracy at your saved locations. Helps distinguish arriving from passing by.",
         "UIBackgroundModes": [
@@ -37,7 +37,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#E8E4E0"
       },
-      "versionCode": 51,
+      "versionCode": 52,
       "package": "com.onsiteclub.timekeeper",
       "allowBackup": false,
       "blockedPermissions": [
