@@ -28,6 +28,7 @@ import { useRouter } from 'expo-router';
 import Constants from 'expo-constants';
 import { colors, spacing, borderRadius } from '../../src/constants/colors';
 import { AvatarCircle } from '../../src/components/ui/AvatarCircle';
+import { confirmAsync } from '../../src/lib/confirm';
 import { useAuthStore } from '../../src/stores/authStore';
 import { useSettingsStore, DETECTION_ZONE_OPTIONS } from '../../src/stores/settingsStore';
 import { onUserLogout } from '../../src/lib/bootstrap';
@@ -83,45 +84,36 @@ export default function MoreScreen() {
     router.push('/logs' as any);
   };
 
-  // UX6: Logout with brief "Signing out..." transition
+  // UX6: Logout with brief "Signing out..." transition.
+  // Uses confirmAsync (cross-platform) instead of Alert.alert because
+  // Alert.alert with multiple buttons is a no-op on web.
   const handleSignOut = async () => {
-    Alert.alert(
-      'Sign Out',
-      'Are you sure you want to sign out?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Sign Out',
-          style: 'destructive',
-          onPress: async () => {
-            setIsSigningOut(true);
-            await onUserLogout();
-            await signOut();
-            setTimeout(() => {
-              router.replace('/');
-            }, 300);
-          },
-        },
-      ]
-    );
+    const ok = await confirmAsync({
+      title: 'Sign Out',
+      message: 'Are you sure you want to sign out?',
+      confirmText: 'Sign Out',
+      destructive: true,
+    });
+    if (!ok) return;
+    setIsSigningOut(true);
+    await onUserLogout();
+    await signOut();
+    setTimeout(() => {
+      router.replace('/');
+    }, 300);
   };
 
-  const handleDeleteAccount = () => {
-    Alert.alert(
-      'Delete Account',
-      'This will permanently delete your account and ALL your data (work hours, locations, audit trail). This action CANNOT be undone.\n\nAre you sure you want to continue?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Continue',
-          style: 'destructive',
-          onPress: () => {
-            setDeleteInput('');
-            setShowDeleteModal(true);
-          },
-        },
-      ]
-    );
+  const handleDeleteAccount = async () => {
+    const ok = await confirmAsync({
+      title: 'Delete Account',
+      message:
+        'This will permanently delete your account and ALL your data (work hours, locations, audit trail). This action CANNOT be undone.\n\nAre you sure you want to continue?',
+      confirmText: 'Continue',
+      destructive: true,
+    });
+    if (!ok) return;
+    setDeleteInput('');
+    setShowDeleteModal(true);
   };
 
   const confirmDeleteAccount = async () => {
