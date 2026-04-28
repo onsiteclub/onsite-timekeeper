@@ -40,6 +40,8 @@ import { logger } from './logger';
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
     shouldPlaySound: true,
     shouldSetBadge: false,
   }),
@@ -70,6 +72,7 @@ export interface GeofenceNotificationData {
   action?: NotificationAction;
   periodStart?: string;
   periodEnd?: string;
+  [key: string]: unknown;
 }
 
 // ============================================

@@ -12,11 +12,10 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.onsiteclub.timekeeper",
-      "buildNumber": "52",
+      "buildNumber": "53",
       "usesAppleSignIn": true,
       "config": {
-        "googleMapsApiKey": "AIzaSyBdITLu3Kr5OYPr8ZnhxIGVNFHIGEgvfKY",
-        "_TODO_SECURITY": "Restrict this API key in Google Cloud Console: APIs & Services > Credentials > Edit key > Application restrictions: iOS apps (bundle ID: com.onsiteclub.timekeeper) > API restrictions: Maps SDK for iOS only"
+        "googleMapsApiKey": "AIzaSyBdITLu3Kr5OYPr8ZnhxIGVNFHIGEgvfKY"
       },
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Shows your position on the map so you can pin job sites and review where you've been working today.",
@@ -37,7 +36,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#E8E4E0"
       },
-      "versionCode": 52,
+      "versionCode": 53,
       "package": "com.onsiteclub.timekeeper",
       "allowBackup": false,
       "blockedPermissions": [
@@ -47,8 +46,7 @@
       ],
       "config": {
         "googleMaps": {
-          "apiKey": "AIzaSyBdITLu3Kr5OYPr8ZnhxIGVNFHIGEgvfKY",
-          "_TODO_SECURITY": "Restrict this API key in Google Cloud Console: APIs & Services > Credentials > Edit key > Application restrictions: Android apps (package: com.onsiteclub.timekeeper) > API restrictions: Maps SDK for Android only"
+          "apiKey": "AIzaSyBdITLu3Kr5OYPr8ZnhxIGVNFHIGEgvfKY"
         }
       },
       "permissions": [
@@ -129,7 +127,8 @@
         {
           "iosUrlScheme": "com.googleusercontent.apps.272025275406-rk3rrqoo3eef80947av09a61m3f0udgm"
         }
-      ]
+      ],
+      "expo-font"
     ],
     "experiments": {
       "typedRoutes": true

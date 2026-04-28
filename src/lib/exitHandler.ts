@@ -35,7 +35,7 @@ interface PendingExit {
   locationId: string;
   locationName: string;
   exitTime: Date;
-  timeoutId: NodeJS.Timeout;
+  timeoutId: ReturnType<typeof setTimeout>;
 }
 
 const pendingExits = new Map<string, PendingExit>();
@@ -154,7 +154,7 @@ export function getPauseSeconds(): number {
 // SESSION GUARD (10h/16h safety net)
 // ============================================
 
-let sessionGuardTimer: NodeJS.Timeout | null = null;
+let sessionGuardTimer: ReturnType<typeof setTimeout> | null = null;
 
 function startSessionGuard(locationId: string, locationName: string, enterAt: string): void {
   cancelSessionGuard();

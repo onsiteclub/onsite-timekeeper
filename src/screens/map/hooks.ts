@@ -42,7 +42,7 @@ export function useMapScreen() {
   const mapRef = useRef<MapView>(null);
   const nameInputRef = useRef<TextInput>(null);
   const shakeAnimation = useRef(new Animated.Value(0)).current;
-  const geocodeTimer = useRef<ReturnType<typeof setTimeout>>();
+  const geocodeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   // Store - selectors
   const locations = useLocationStore(selectLocations);
@@ -375,7 +375,7 @@ export function useMapScreen() {
   }, [locations, editLocation]);
 
   // Slider handler — snaps to SLIDER_STEP increments, debounced save
-  const sliderDebounce = useRef<ReturnType<typeof setTimeout>>();
+  const sliderDebounce = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [sliderValue, setSliderValue] = useState<number | null>(null);
 
   const handleSliderChange = useCallback((value: number) => {
