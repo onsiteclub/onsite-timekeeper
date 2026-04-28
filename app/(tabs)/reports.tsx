@@ -41,6 +41,7 @@ import type { DailyHoursEntry } from '../../src/lib/database/daily';
 import { setSentryContext } from '../../src/lib/sentry';
 import { formatTimeDisplay, splitTimeDisplay, BREAK_PRESETS } from '../../src/lib/format';
 import { PressableOpacity } from '../../src/components/ui/PressableOpacity';
+import { WebPickerOverlay } from '../../src/components/ui/WebPickerOverlay';
 import { AvatarCircle } from '../../src/components/ui/AvatarCircle';
 import { useHomeScreen } from '../../src/screens/home/hooks';
 import { useDailyLogStore } from '../../src/stores/dailyLogStore';
@@ -523,6 +524,21 @@ export default function ReportsScreen() {
     });
   }, [entryTime, exitTime, setManualEntryH, setManualEntryM, setManualExitH, setManualExitM]);
 
+  // Web: HTML <input type="time"> overlay fires this on each change
+  const handleWebTimeChange = useCallback((picker: 'entry' | 'exit', selectedDate: Date) => {
+    const h = String(selectedDate.getHours()).padStart(2, '0');
+    const m = String(selectedDate.getMinutes()).padStart(2, '0');
+    if (picker === 'entry') {
+      setEntryTime(selectedDate);
+      setManualEntryH(h);
+      setManualEntryM(m);
+    } else {
+      setExitTime(selectedDate);
+      setManualExitH(h);
+      setManualExitM(m);
+    }
+  }, [setManualEntryH, setManualEntryM, setManualExitH, setManualExitM]);
+
   // iOS: spinner updates in real-time inside modal
   const handleTimePickerChange = (event: DateTimePickerEvent, selectedDate?: Date) => {
     if (selectedDate) {
@@ -945,6 +961,7 @@ export default function ReportsScreen() {
                   onPress={() => Platform.OS === 'android' ? openAndroidTimePicker('entry') : setActiveTimePicker('entry')}
                   activeOpacity={0.7}
                 >
+                  <WebPickerOverlay mode="time" value={entryTime} onChange={(d) => handleWebTimeChange('entry', d)} />
                   <Text style={logStyles.timeLabel}>IN</Text>
                   {hasEntryTime ? (
                     <>
@@ -968,6 +985,7 @@ export default function ReportsScreen() {
                   onPress={() => Platform.OS === 'android' ? openAndroidTimePicker('exit') : setActiveTimePicker('exit')}
                   activeOpacity={0.7}
                 >
+                  <WebPickerOverlay mode="time" value={exitTime} onChange={(d) => handleWebTimeChange('exit', d)} />
                   <Text style={logStyles.timeLabel}>OUT</Text>
                   {hasExitTime ? (
                     <>

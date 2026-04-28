@@ -10,3 +10,4 @@ export { HeaderRow } from './HeaderRow';
 export { ModalOverlay } from './ModalOverlay';
 export { AvatarCircle } from './AvatarCircle';
 export { ErrorBox } from './ErrorBox';
+export { WebPickerOverlay } from './WebPickerOverlay';

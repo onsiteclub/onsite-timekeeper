@@ -33,6 +33,7 @@ import DateTimePicker, { DateTimePickerAndroid, type DateTimePickerEvent } from 
 
 import { Card } from '../../src/components/ui/Button';
 import { PressableOpacity } from '../../src/components/ui/PressableOpacity';
+import { WebPickerOverlay } from '../../src/components/ui/WebPickerOverlay';
 import { HeaderRow } from '../../src/components/ui/HeaderRow';
 import { formatTimeDisplay, formatCompact, formatMoney, getInitials, BREAK_PRESETS } from '../../src/lib/format';
 import { colors, withOpacity, shadows, spacing, borderRadius } from '../../src/constants/colors';
@@ -1983,6 +1984,7 @@ export default function InvoiceScreen() {
                         onPress={openHourlyDueDatePicker}
                         activeOpacity={0.7}
                       >
+                        <WebPickerOverlay mode="date" value={hourlyDueDateObj} onChange={setHourlyDueDateObj} />
                         <Ionicons name="calendar-outline" size={16} color={colors.primary} />
                         <Text style={dueDateStyles.chipText}>{formatDueDateDisplay(hourlyDueDateObj)}</Text>
                         <Ionicons name="chevron-down" size={14} color={colors.textMuted} />
@@ -2181,12 +2183,14 @@ export default function InvoiceScreen() {
                       <View style={editStyles.timeCol}>
                         <Text style={editStyles.timeLabel}>ENTRY</Text>
                         <PressableOpacity style={editStyles.timePill} onPress={() => Platform.OS === 'android' ? openAndroidTimePicker('entry') : setActiveTimePicker('entry')} activeOpacity={0.7}>
+                          <WebPickerOverlay mode="time" value={entryTime} onChange={(d) => { setEntryTime(d); const h = String(d.getHours()).padStart(2, '0'); const m = String(d.getMinutes()).padStart(2, '0'); setManualEntryH(h); setManualEntryM(m); }} />
                           <Text style={editStyles.timeValue}>{formatTimeDisplay(entryTime)}</Text>
                         </PressableOpacity>
                       </View>
                       <View style={editStyles.timeCol}>
                         <Text style={editStyles.timeLabel}>EXIT</Text>
                         <PressableOpacity style={editStyles.timePill} onPress={() => Platform.OS === 'android' ? openAndroidTimePicker('exit') : setActiveTimePicker('exit')} activeOpacity={0.7}>
+                          <WebPickerOverlay mode="time" value={exitTime} onChange={(d) => { setExitTime(d); const h = String(d.getHours()).padStart(2, '0'); const m = String(d.getMinutes()).padStart(2, '0'); setManualExitH(h); setManualExitM(m); }} />
                           <Text style={editStyles.timeValue}>{formatTimeDisplay(exitTime)}</Text>
                         </PressableOpacity>
                       </View>
@@ -2420,6 +2424,7 @@ export default function InvoiceScreen() {
                     }
                   }}
                 >
+                  <WebPickerOverlay mode="time" value={inlineIn} onChange={setInlineIn} />
                   <Text style={inlineEntryStyles.timeLabel}>IN</Text>
                   <Text style={inlineEntryStyles.timeValue}>
                     {inlineIn.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
@@ -2445,6 +2450,7 @@ export default function InvoiceScreen() {
                     }
                   }}
                 >
+                  <WebPickerOverlay mode="time" value={inlineOut} onChange={setInlineOut} />
                   <Text style={inlineEntryStyles.timeLabel}>OUT</Text>
                   <Text style={inlineEntryStyles.timeValue}>
                     {inlineOut.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}

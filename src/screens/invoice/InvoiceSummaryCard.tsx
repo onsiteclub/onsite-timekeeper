@@ -27,6 +27,7 @@ import DateTimePicker, {
 } from '@react-native-community/datetimepicker';
 
 import { PressableOpacity } from '../../components/ui/PressableOpacity';
+import { WebPickerOverlay } from '../../components/ui/WebPickerOverlay';
 import { formatMoney, BREAK_PRESETS } from '../../lib/format';
 import { colors } from '../../constants/colors';
 import type { DailyHoursEntry } from '../../lib/database/daily';
@@ -709,6 +710,7 @@ export function InvoiceSummaryCard(props: InvoiceSummaryCardProps) {
       {(dueDateDisplay || (isEditing && dueDateISO)) && (
         isEditing ? (
           <PressableOpacity style={[st.subCard, st.dashedAmber]} onPress={openDueDatePicker} activeOpacity={0.6}>
+            <WebPickerOverlay mode="date" value={draftDueDate || new Date()} onChange={setDraftDueDate} />
             <Text style={st.cardLabel}>DUE DATE</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <Text style={st.cardValue}>{dueDateDisplay || 'Set due date'}</Text>
@@ -804,6 +806,7 @@ export function InvoiceSummaryCard(props: InvoiceSummaryCardProps) {
                         onPress={() => openTimePicker(day.date, 'entry')}
                         activeOpacity={0.6}
                       >
+                        <WebPickerOverlay mode="time" value={draft.firstEntry ? parseHHMM(draft.firstEntry) : new Date()} onChange={(d) => updateDayTime(day.date, 'entry', toHHMM(d))} />
                         <Text style={st.editableCellText}>{inDisplay}</Text>
                       </PressableOpacity>
                       <PressableOpacity
@@ -811,6 +814,7 @@ export function InvoiceSummaryCard(props: InvoiceSummaryCardProps) {
                         onPress={() => openTimePicker(day.date, 'exit')}
                         activeOpacity={0.6}
                       >
+                        <WebPickerOverlay mode="time" value={draft.lastExit ? parseHHMM(draft.lastExit) : new Date()} onChange={(d) => updateDayTime(day.date, 'exit', toHHMM(d))} />
                         <Text style={st.editableCellText}>{outDisplay}</Text>
                       </PressableOpacity>
                       <PressableOpacity
